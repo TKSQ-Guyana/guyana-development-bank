@@ -1,8 +1,57 @@
 # Guyana Development Bank — Citizen Loan Portal
 
 Citizens apply for GDB loans and track their history online; GDB underwriters
-review, approve or reject every application. **ERPNext is the backend** (with a
-custom Frappe app), **React is the citizen portal**.
+review, approve or reject every application. **ERPNext + the official Frappe
+lending module is the backend**, **React is the citizen portal** — shipped as
+**two Docker images** running in a **four-service** stack.
+
+## What's built — component inventory
+
+### 1. Backend — `gdb-backend` image ([backend/](backend))
+
+Built on `frappe/erpnext:v16.34.2`, self-contained (one container = whole
+ERPNext):
+
+| Piece | What it does |
+| --- | --- |
+| **[frappe/lending](https://github.com/frappe/lending) v16.5.0** | Baked into the image; loans are its official `Loan Application` doctype (`ACC-LOAP-…`) with real amortization from the seeded loan product (e.g. 8% on 2.5M/36mo → GYD 78,341/mo) |
+| **`gdb_bank` custom app** | Roles (Citizen, Loan Underwriter), 7 portal REST endpoints (`signup, whoami, apply_loan, my_loans, loan_detail, all_loans, review_loan`), `gdb_*` custom fields (purpose, income, remarks, reviewer, portal-user link), frappe-native INFO logging to `logs/gdb_bank.log` |
+| **Seeding (idempotent)** | Headless setup-wizard completion (company "Guyana Development Bank", GYD), "GDB Standard Loan" product + demand offset order, demo users |
+| **`start-backend.sh`** | On start: lock-guarded site create/migrate → gunicorn + worker + scheduler → the image's nginx on **:8080** (serves the ERPNext desk UI + API) |
+
+### 2. Frontend — `gdb-frontend` image ([frontend/](frontend))
+
+React 18 + Vite + Tailwind SPA on nginx (proxies `/api` to the backend — no
+CORS):
+
+- **Citizen:** login/self-signup, apply-for-loan form, application history
+  with status badges, detail view
+- **Underwriter:** role-gated Review Queue (All/Submitted/Approved/Rejected
+  tabs), approve/reject with remarks
+
+### 3. Infrastructure & operations
+
+- **[docker-compose.yml](docker-compose.yml)** — exactly 4 services:
+  `mariadb` (11.8), `redis` (cache DB /0, queue DB /1), `backend`, `frontend`;
+  fully automatic cold start
+- **[k8s/](k8s)** — reference manifests for namespace `gdb-dev`:
+  `gdb-backend` + `gdb-frontend` at 2 replicas each, MariaDB, Redis, shared
+  RWX sites PVC
+- **[CI](.github/workflows/ci.yml)** — builds & pushes
+  `ravinadh/ksquarenis:gdb<N>`/`gdb-latest` and
+  `gdb-backend<N>`/`gdb-backend-latest` (MPS convention), plus a manual
+  deploy job
+
+### 4. Documentation
+
+- [docs/openapi.yaml](docs/openapi.yaml) — full API spec ·
+  [docs/postman/](docs/postman) — runnable collection
+- This README, [CLAUDE.md](CLAUDE.md), [k8s/README.md](k8s/README.md) —
+  architecture, run instructions, demo credentials, the RWX-volume caveat
+
+**Verified end-to-end** (cold start from empty volumes): signup → apply →
+underwriter queue → approve → citizen history → 403 authz checks → desk
+visibility of the same application under Lending.
 
 ## Architecture — four services, total
 
@@ -102,6 +151,7 @@ docker push ravinadh/ksquarenis:gdb-backend-latest
 ## Kubernetes (`gdb-dev`)
 
 Target layout: namespace `gdb-dev`, deployments `gdb-frontend` and
-`gdb-backend`, 2 pods each, plus MariaDB/Redis/worker/scheduler and a one-shot
-site-creation Job. Reference manifests and the **RWX volume caveat** are in
-[k8s/README.md](k8s/README.md).
+`gdb-backend` (2 pods each — each backend pod is self-contained: bootstrap +
+gunicorn + worker + scheduler + nginx), plus MariaDB and Redis. No separate
+Job/worker/scheduler/websocket deployments. Reference manifests and the
+**RWX volume caveat** are in [k8s/README.md](k8s/README.md).
