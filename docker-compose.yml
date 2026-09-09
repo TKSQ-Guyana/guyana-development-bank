@@ -1,106 +1,102 @@
-# The DEPLOYMENT-SHAPED compose: the two app images and nothing else — the
-# database, Keycloak and (optionally) the document store are EXTERNAL services
-# this file points at. The non-Kubernetes deployment path; the dev stack is
-# docker-compose.dev.yml.
+# Full local stack: MariaDB + Redis + gdb-backend (ERPNext + gdb_bank) +
+# gdb-frontend (React portal on nginx).
 #
-#   DATABASE_URL=... KC_URL=... docker compose up -d --build
+#   docker compose up -d --build
 #
-# OPTIONAL IN-STACK DATABASE, for a single-host deployment with no managed
-# Postgres: `--profile db` starts one, and DATABASE_URL then points at it:
-#   DATABASE_URL=postgres://postgres:<pw>@db:5432/app_db \
-#     POSTGRES_PASSWORD=<pw> docker compose --profile db up -d
+# First boot takes several minutes: the one-shot `create-site` service creates
+# the Frappe site, installs ERPNext + gdb_bank and seeds demo users. Portal:
+# http://localhost:3000 — demo logins (password = ADMIN_PASSWORD, default
+# "admin"): citizen@example.gy (citizen), underwriter@gdb.gov.gy (underwriter).
+x-backend: &backend
+  build: ./backend
+  image: gdb-backend:local
+  environment: &backend-env
+    SITE_NAME: ${SITE_NAME:-gdb.localhost}
+    DB_HOST: mariadb
+    DB_PORT: '3306'
+    REDIS_CACHE: redis-cache:6379
+    REDIS_QUEUE: redis-queue:6379
+    DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+  volumes:
+    - sites:/home/frappe/frappe-bench/sites
+  restart: unless-stopped
+
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    ports:
-      - '${BACKEND_PORT:-8081}:8081'
+  mariadb:
+    image: mariadb:11.8
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
     environment:
-      APP_NAME: ${APP_NAME:-App Portal}
-      # No default: a deployment must SAY where its database is.
-      DATABASE_URL: ${DATABASE_URL:?point DATABASE_URL at the deployment database}
-      BASE_PATHS: ${BASE_PATHS:-/app/v1,/api/v1}
-      AUTH_MODE: enforce
-      KC_URL: ${KC_URL:?point KC_URL at Keycloak}
-      KC_REALM: ${KC_REALM:-app-realm}
-      KC_CLIENT_ID: ${KC_CLIENT_ID:-web-app}
-      KC_ISSUER: ${KC_ISSUER:-}
-      KC_SERVICE_CLIENT_ID: ${KC_SERVICE_CLIENT_ID:-app-provisioning-service}
-      KC_SERVICE_CLIENT_SECRET: ${KC_SERVICE_CLIENT_SECRET:-}
-      # The image defaults AUTH_COOKIE_SECURE=true — correct behind https.
-      # Override to false ONLY for a plain-http trial, where Secure cookies
-      # silently never return.
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
-      REDIS_ENABLED: ${REDIS_ENABLED:-false}
-      REDIS_URL: ${REDIS_URL:-}
-      DMS_ENABLED: ${DMS_ENABLED:-false}
-      DMS_URL: ${DMS_URL:-}
-      DMS_USERNAME: ${DMS_USERNAME:-}
-      DMS_PASSWORD: ${DMS_PASSWORD:-}
-      DMS_TLS_INSECURE: ${DMS_TLS_INSECURE:-false}
-      # MFA: the three origin facts MUST name the app's public origin.
-      MFA_RP_ID: ${MFA_RP_ID:?the public hostname the phone's browser shows}
-      MFA_ORIGINS: ${MFA_ORIGINS:?https origin(s) of the app}
-      MFA_PUBLIC_URL: ${MFA_PUBLIC_URL:?https origin the approval links open on}
-      SMS_ENABLED: ${SMS_ENABLED:-false}
-      SMS_USERNAME: ${SMS_USERNAME:-}
-      SMS_PASSWORD: ${SMS_PASSWORD:-}
-      # Mail: closed by default even with a relay — every environment states
-      # its policy (MAIL_REDIRECT_TO for QA/UAT, an allowlist or '*' for
-      # production). See backend/src/services/mailer.ts.
-      MAIL_ENABLED: ${MAIL_ENABLED:-false}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      MAIL_FROM: ${MAIL_FROM:-}
-      MAIL_REDIRECT_TO: ${MAIL_REDIRECT_TO:-}
-      MAIL_RECIPIENT_ALLOWLIST: ${MAIL_RECIPIENT_ALLOWLIST:-}
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
 
+  redis-cache:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+
+  redis-queue:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+
+  # One-shot: writes common_site_config, creates/migrates the site, seeds demo
+  # users. Safe to re-run.
+  create-site:
+    <<: *backend
+    restart: 'no'
+    command: ['create-site']
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+
+  backend:
+    <<: *backend
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *backend
+    command: ['bench', 'worker', '--queue', 'short,default,long']
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *backend
+    command: ['bench', 'schedule']
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    build: ./frontend
+    image: gdb-frontend:local
+    environment:
+      BACKEND_URL: http://backend:8000
+      FRAPPE_SITE_NAME: ${SITE_NAME:-gdb.localhost}
     ports:
       - '${FRONTEND_PORT:-3000}:80'
-    environment:
-      APP_NAME: ${APP_NAME:-App Portal}
-      KC_URL: ${KC_URL:?the Keycloak address the BROWSER uses}
-      # Keycloak's INSIDE address for nginx's /kcadmin proxy, when the public
-      # edge cannot be hairpinned from inside. Defaults to KC_URL.
-      KC_INTERNAL_URL: ${KC_INTERNAL_URL:-}
-      KC_REALM: ${KC_REALM:-app-realm}
-      API_BASE: /app/v1
-      API_UPSTREAM: ${API_UPSTREAM:-http://backend:8081}
-      USERS_BASE: /app/v1/kcadmin
-      MFA_ENABLED: ${MFA_ENABLED:-true}
-      UPLOAD_MAX: ${UPLOAD_MAX:-25m}
     depends_on:
       backend:
         condition: service_started
     restart: unless-stopped
 
-  # Optional single-host database (--profile db). A managed Postgres is the
-  # better answer wherever one exists.
-  db:
-    image: postgres:16-alpine
-    profiles: ['db']
-    environment:
-      POSTGRES_DB: app_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password for the in-stack database}
-    volumes:
-      - app-pg-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d app_db']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    restart: unless-stopped
-
 volumes:
-  app-pg-data:
+  sites:
+  mariadb-data:

@@ -1,135 +1,142 @@
-# CI must not be weaker than a developer's own pre-push hook: the same
-# lint / format / typecheck / test / build gates, one job per workspace.
-name: CI
+name: Build and Push GDB Docker Images
 
 on:
   push:
     branches:
       - main
       - development
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.gitignore'
-  pull_request:
-    branches:
-      - main
-      - development
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.gitignore'
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Also roll the gdb-dev deployments to the new images'
+        type: boolean
+        default: false
+
+env:
+  IMAGE_NAME: ravinadh/ksquarenis
 
 jobs:
-  backend:
-    name: Backend — lint, typecheck, test & build
+  # ============================================================
+  # CI - Frontend (React citizen portal)
+  # ============================================================
+  docker-frontend:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft != true
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      # Workspaces share the root lockfile; install from the root so the
-      # backend's node_modules resolve exactly as they do locally.
-      - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
-        working-directory: .
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm run test
-
-      - name: Build
-        run: npm run build
-
-  frontend:
-    name: Frontend — lint, test & build
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft != true
     defaults:
       run:
         working-directory: frontend
+
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          username: ravinadh
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
-        working-directory: .
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t "$IMAGE_NAME:gdb${{ github.run_number }}" \
+            -t "$IMAGE_NAME:gdb-latest" \
+            .
 
-      - name: Run ESLint
-        run: npm run lint
+      - name: Push Docker Images
+        run: |
+          docker push "$IMAGE_NAME:gdb${{ github.run_number }}"
+          docker push "$IMAGE_NAME:gdb-latest"
 
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm run test
-
-      - name: Build
-        run: npm run build
-
-  mfa-ui:
-    name: MFA UI — lint & build
+  # ============================================================
+  # CI - Backend (ERPNext + gdb_bank custom app)
+  # ============================================================
+  docker-backend:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft != true
+
     defaults:
       run:
-        working-directory: mfa-ui
+        working-directory: backend
+
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
+          username: ravinadh
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
-        working-directory: .
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t "$IMAGE_NAME:gdb-backend${{ github.run_number }}" \
+            -t "$IMAGE_NAME:gdb-backend-latest" \
+            .
 
-      - name: Run ESLint
-        run: npm run lint
+      - name: Push Docker Images
+        run: |
+          docker push "$IMAGE_NAME:gdb-backend${{ github.run_number }}"
+          docker push "$IMAGE_NAME:gdb-backend-latest"
 
-      - name: Build
-        run: npm run build
+  # ============================================================
+  # CD - Roll gdb-dev deployments (manual: workflow_dispatch with
+  # deploy=true; the deployments are managed outside this repo —
+  # see k8s/ for reference manifests)
+  # ============================================================
+  deploy:
+    needs:
+      - docker-frontend
+      - docker-backend
+
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+
+    runs-on: [self-hosted, linux, x64]
+
+    env:
+      NAMESPACE: gdb-dev
+
+    steps:
+      - name: Check Kubernetes Connectivity
+        run: kubectl get nodes
+
+      - name: Update GDB Frontend Image
+        env:
+          DEPLOYMENT: gdb-frontend
+          IMAGE: ravinadh/ksquarenis:gdb${{ github.run_number }}
+        run: |
+          CONTAINER=$(kubectl get deployment "$DEPLOYMENT" \
+            -n "$NAMESPACE" \
+            -o jsonpath='{.spec.template.spec.containers[0].name}')
+          kubectl set image deployment/"$DEPLOYMENT" \
+            "$CONTAINER=$IMAGE" \
+            -n "$NAMESPACE"
+
+      - name: Update GDB Backend Image
+        env:
+          DEPLOYMENT: gdb-backend
+          IMAGE: ravinadh/ksquarenis:gdb-backend${{ github.run_number }}
+        run: |
+          CONTAINER=$(kubectl get deployment "$DEPLOYMENT" \
+            -n "$NAMESPACE" \
+            -o jsonpath='{.spec.template.spec.containers[0].name}')
+          kubectl set image deployment/"$DEPLOYMENT" \
+            "$CONTAINER=$IMAGE" \
+            -n "$NAMESPACE"
+
+      - name: Wait for Rollouts
+        run: |
+          kubectl rollout status deployment/gdb-frontend -n "$NAMESPACE" --timeout=5m
+          kubectl rollout status deployment/gdb-backend -n "$NAMESPACE" --timeout=5m
+
+      - name: Verify Deployment
+        run: |
+          kubectl get deployments,pods -n "$NAMESPACE"

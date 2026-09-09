@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdb-backend
+  namespace: gdb-dev
+spec:
+  replicas: 2 # requires the gdb-sites PVC to be RWX — see k8s/README.md
+  selector:
+    matchLabels: { app: gdb-backend }
+  template:
+    metadata:
+      labels: { app: gdb-backend }
+    spec:
+      containers:
+        - name: gdb-backend
+          image: ravinadh/ksquarenis:gdb-backend-latest
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /api/method/ping
+              port: 8000
+              httpHeaders:
+                - name: X-Frappe-Site-Name
+                  value: gdb.localhost
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: sites
+              mountPath: /home/frappe/frappe-bench/sites
+      volumes:
+        - name: sites
+          persistentVolumeClaim: { claimName: gdb-sites }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gdb-backend
+  namespace: gdb-dev
+spec:
+  selector: { app: gdb-backend }
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdb-worker
+  namespace: gdb-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gdb-worker }
+  template:
+    metadata:
+      labels: { app: gdb-worker }
+    spec:
+      containers:
+        - name: worker
+          image: ravinadh/ksquarenis:gdb-backend-latest
+          command: ['bench', 'worker', '--queue', 'short,default,long']
+          volumeMounts:
+            - name: sites
+              mountPath: /home/frappe/frappe-bench/sites
+      volumes:
+        - name: sites
+          persistentVolumeClaim: { claimName: gdb-sites }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdb-scheduler
+  namespace: gdb-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gdb-scheduler }
+  template:
+    metadata:
+      labels: { app: gdb-scheduler }
+    spec:
+      containers:
+        - name: scheduler
+          image: ravinadh/ksquarenis:gdb-backend-latest
+          command: ['bench', 'schedule']
+          volumeMounts:
+            - name: sites
+              mountPath: /home/frappe/frappe-bench/sites
+      volumes:
+        - name: sites
+          persistentVolumeClaim: { claimName: gdb-sites }

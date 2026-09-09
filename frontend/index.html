@@ -3,16 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>App Portal</title>
-    <!--
-      Runtime configuration, as a CLASSIC script on purpose: classic scripts
-      run before deferred module scripts, so window.__ENV__ is populated
-      before the bundle evaluates — which matters because config/runtime.ts is
-      read at module load. The container writes this file at start-up
-      (docker/40-runtime-config.sh); the dev server serves it from the vite
-      plugin; public/config.js is the committed empty placeholder.
-    -->
-    <script src="/config.js"></script>
+    <title>Guyana Development Bank — Citizen Portal</title>
   </head>
   <body>
     <div id="root"></div>

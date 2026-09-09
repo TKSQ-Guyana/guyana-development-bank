@@ -1,102 +1,88 @@
-# fullstack-template
+# Guyana Development Bank — Citizen Loan Portal
 
-A fork-and-start full-stack TypeScript template, extracted from a production
-government portal. The point is not the code volume — it is the set of
-patterns that survived contact with deployment, each carried over with the
-comment that explains why it exists.
+Citizens apply for GDB loans and track their history online; GDB underwriters
+review, approve or reject every application. **ERPNext is the backend** (with a
+custom Frappe app), **React is the citizen portal**.
 
-## The stack
+## Architecture
 
-| Piece         | Choice                                                                    |
-| ------------- | ------------------------------------------------------------------------- |
-| **backend/**  | Node 20+ · Express 5 · TypeScript · Postgres (thin routes → `app.api_*` SQL functions) |
-| **frontend/** | React 18 · Vite 7 · TypeScript · Tailwind v4 tokens · Zustand              |
-| **mfa-ui/**   | The phone-facing WebAuthn pages, built into the backend image              |
-| **Identity**  | Keycloak — the backend runs the password grant and holds the session in HttpOnly cookies; the browser never sees a token |
-| **Dev stack** | One command: Postgres, Keycloak (auto-imported + auto-seeded), Redis, Mailpit, backend, frontend — Mayan EDMS behind a profile |
-
-## Quickstart
-
-```bash
-cp .env.dev.example .env          # set APP_DEV_PASSWORD (the demo accounts' password)
-docker compose -f docker-compose.dev.yml up -d --build
+```
+                 ┌──────────────────────────────┐
+ browser ──────▶ │ gdb-frontend (nginx)         │
+                 │  • React SPA (citizen portal)│
+                 │  • /api → proxied to backend │
+                 └───────────────┬──────────────┘
+                                 │  X-Frappe-Site-Name: gdb.localhost
+                 ┌───────────────▼──────────────┐
+                 │ gdb-backend (ERPNext v16)    │──▶ MariaDB 11.8
+                 │  + gdb_bank custom app       │──▶ Redis (cache, queue)
+                 │  /api/method/gdb_bank.api.*  │
+                 └──────────────────────────────┘
 ```
 
-| Where     | What                                                          |
-| --------- | ------------------------------------------------------------- |
-| :3000     | the app (sign in: `manager@example.dev` / your APP_DEV_PASSWORD) |
-| :8081     | the backend — `/health`, `/app/v1`, `/api/v1`, Swagger at `/api/v1/docs/` |
-| :8085     | Keycloak (admin/admin, realm `app-realm`)                      |
-| :5433     | Postgres (postgres/postgres, db `app_db`)                      |
-| :8025     | Mailpit — every mail the stack sends lands here                |
+- **`backend/`** — `gdb_bank` Frappe app layered on `frappe/erpnext:v16.34.2`:
+  - **Loan Application** doctype: amount, purpose, term, income, phone; status
+    `Submitted → Under Review → Approved/Rejected`.
+  - Roles: **Citizen** (website user, own applications only) and
+    **Loan Underwriter** (the GDB persona, sees everything).
+  - REST endpoints (`POST /api/method/gdb_bank.api.<name>`): `signup`,
+    `whoami`, `apply_loan`, `my_loans`, `loan_detail`, `all_loans`,
+    `review_loan`. Auth = standard Frappe session cookie via
+    `/api/method/login`.
+- **`frontend/`** — React 18 + Vite + Tailwind SPA served by nginx, which
+  proxies `/api` to the backend (same origin — no CORS). Underwriters see an
+  extra **Review Queue** with approve/reject actions.
+- **ERPNext needs MariaDB, not Postgres** — the framework's Postgres support
+  does not extend to ERPNext. MariaDB + Redis are part of this stack.
 
-Frontend dev loop (hot reload — don't rebuild docker for frontend changes):
+## Run locally
 
 ```bash
-npm install
-npm run dev --workspace=frontend      # vite at :5173, proxying /app/v1 to :8081
+docker compose up -d --build
 ```
 
-Demo accounts (seeded by `keycloak-local/setup-dev.mjs` on every `up`):
-`admin@example.dev` (ADMIN), `manager@example.dev` (MANAGER),
-`user@example.dev` (USER — read-only, to see the permission gates work).
+First boot takes several minutes — the one-shot `create-site` service creates
+the Frappe site, installs ERPNext + gdb_bank, and seeds demo users. Watch it:
+`docker compose logs -f create-site`.
 
-## The example feature
+Then open **http://localhost:3000**. Demo logins (password = `ADMIN_PASSWORD`
+env, default `admin`):
 
-**Notes** is one entity wired through every layer, so each convention is
-demonstrated rather than described. Follow it end to end, then delete or
-rename it:
+| user | role |
+| --- | --- |
+| `citizen@example.gy` | Citizen |
+| `underwriter@gdb.gov.gy` | Loan Underwriter |
+| `Administrator` | System Manager (ERPNext admin) |
 
-1. `backend/migrations/0002_notes.sql` — the table AND the contract
-   (`app.api_notes_*` returning camelCase JSONB; business rules as
-   `RAISE EXCEPTION` → 422 problem+json)
-2. `backend/src/services/notes.ts` — one `callApi()` wrapper per operation
-3. `backend/src/routes/notes.ts` — RBAC gate → validate → service → answer
-4. `backend/src/docs/openapi.yaml` + `docs/postman/` — the maintained pair
-5. `frontend/src/services/api/notes.ts` — the typed client
-6. `frontend/src/hooks/useNotes.ts` — the list-hook contract
-7. `frontend/src/pages/notes/` — `<Can>`-gated writes, confirm on delete
-8. `frontend/src/routes/manifest.tsx` — the route + nav entry
+Citizens can also self-register from the portal's **Create an account** page.
 
-## Fork checklist
+Frontend dev loop: keep the compose stack up, then `cd frontend && npm install
+&& npm run dev` → vite on :5173 proxies `/api` to the backend on :8000.
 
-1. **Use as a GitHub template** (or clone and re-init git).
-2. `node scripts/init-template.mjs my-product "My Product"` — renames the
-   repo identity, realm, clients and display name (it prints what changed).
-3. Define your vocabulary — the four files that change together:
-   `backend/src/auth/claims.ts` + `backend/src/auth/permissions.ts`,
-   `frontend/src/auth/claims.ts` + `frontend/src/authz/policy.ts` —
-   and the realm roles in `backend/scripts/kc-realm-structure.mjs`.
-4. Replace the notes example with your first real entity (same eight files).
-5. Configure CI: repo variables `REGISTRY`, `IMAGE_PREFIX`; secrets
-   `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` (`.github/workflows/docker-release.yml`).
-6. For deployment, read `docs/DEPLOYMENT-ENV.md` — the smallest working set
-   and how to tell it worked.
+## Images / CI
 
-## Working agreements the template assumes
+Push to `main` (or `development`) builds and pushes both images to Docker Hub
+via `.github/workflows/ci.yml` (requires the `DOCKERHUB_TOKEN` repo secret,
+same as MPS-Guyana):
 
-- **Migrations are the only schema channel.** Add new numbered files; never
-  edit one applied anywhere. Every migration has a `.down.sql`; every new one
-  regenerates `docs/sql/` (`node backend/scripts/build-single-migration.mjs`).
-- **The API contract is maintained pairwise**: any route change updates
-  `backend/src/docs/openapi.yaml` AND `docs/postman/` in the same commit
-  (`npm run docs:lint` validates the spec).
-- **Postgres + backend are the only data source.** No fixtures, no fallbacks:
-  a failed read renders as a failure, never as an empty list.
-- **Mail delivery is closed by default** even with a working relay — every
-  environment states its policy (`MAIL_REDIRECT_TO` or
-  `MAIL_RECIPIENT_ALLOWLIST`). The dev stack delivers into Mailpit.
+| image | tag |
+| --- | --- |
+| `ravinadh/ksquarenis` | `gdb<run>` and `gdb-latest` (frontend) |
+| `ravinadh/ksquarenis` | `gdb-backend<run>` and `gdb-backend-latest` (backend) |
 
-## Gates
+Manual local push:
 
-Per workspace: `npm run pre-push-check` = lint + format:check + typecheck +
-test + build. The pre-push hook runs it; CI runs the same set — CI must not
-be weaker than a developer's own hook. Smoke against a running stack:
-`node backend/scripts/smoke.mjs` (writes one note and deletes it).
+```bash
+docker login -u ravinadh
+docker build -t ravinadh/ksquarenis:gdb-latest frontend
+docker build -t ravinadh/ksquarenis:gdb-backend-latest backend
+docker push ravinadh/ksquarenis:gdb-latest
+docker push ravinadh/ksquarenis:gdb-backend-latest
+```
 
-## More
+## Kubernetes (`gdb-dev`)
 
-- `docs/ARCHITECTURE.md` — how the pieces fit and why
-- `docs/DEPLOYMENT-ENV.md` — every environment variable, and the smallest working set
-- `keycloak-local/README.md` — the realm, the seeder, the lifecycle
-- `CLAUDE.md` — the working agreements for AI-assisted sessions
+Target layout: namespace `gdb-dev`, deployments `gdb-frontend` and
+`gdb-backend`, 2 pods each, plus MariaDB/Redis/worker/scheduler and a one-shot
+site-creation Job. Reference manifests and the **RWX volume caveat** are in
+[k8s/README.md](k8s/README.md).

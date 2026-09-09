@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gdb-dev
+---
+# CHANGE THESE for anything beyond a demo.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gdb-secrets
+  namespace: gdb-dev
+type: Opaque
+stringData:
+  DB_ROOT_PASSWORD: changeme-db-root
+  ADMIN_PASSWORD: changeme-admin

@@ -1,75 +1,11 @@
-/* The ONE stylesheet: Tailwind v4, CSS-first — tokens declared in @theme
- * become utilities (--color-brand-700 -> bg-brand-700). No tailwind.config.js.
- *
- * NEUTRAL PLACEHOLDER PALETTE. Swap the brand scale (and nothing else) to
- * rebrand: every component reads these tokens, none carries a literal colour.
- */
 @import 'tailwindcss';
 
 @theme {
-  /* Brand — a restrained teal. Replace with your product's scale. */
-  --color-brand-50: #eef7f6;
-  --color-brand-100: #d5ecea;
-  --color-brand-300: #7cc4bd;
-  --color-brand-500: #2e9187;
-  --color-brand-600: #1b7f75;
-  --color-brand-700: #0f6e64;
-  --color-brand-800: #0b5850;
-  --color-brand-900: #0a4a44;
-
-  /* Ink — blue-grey text scale. */
-  --color-ink-900: #131c2e;
-  --color-ink-700: #34405a;
-  --color-ink-500: #4e5d75;
-  --color-ink-400: #6b7891;
-  --color-ink-300: #97a2b6;
-
-  /* Surfaces. */
-  --color-canvas: #eef2f8;
-  --color-surface: #ffffff;
-  --color-rule: #e4eaf2;
-
-  /* Semantic status colours, with SEPARATE washes: the washes are not alphas
-   * of the ink — deriving them makes every tag and note consistently too dull. */
-  --color-ok: #1a7f4e;
-  --color-ok-wash: #e7f5ee;
-  --color-warn: #9a6b00;
-  --color-warn-wash: #fdf3dd;
-  --color-danger: #b3261e;
-  --color-danger-wash: #fbeae9;
-  --color-info: #1e5f88;
-  --color-info-wash: #e8f1f8;
-
-  /* Radii + elevation. */
-  --radius-card: 14px;
-  --shadow-card: 0 6px 16px rgba(19, 28, 46, 0.08), 0 2px 6px rgba(19, 28, 46, 0.05);
-  --shadow-pop: 0 12px 32px rgba(19, 28, 46, 0.16), 0 4px 10px rgba(19, 28, 46, 0.08);
+  --color-gdb-green: #007a3d;
+  --color-gdb-green-dark: #00592d;
+  --color-gdb-gold: #fcd116;
 }
 
-@layer base {
-  :root {
-    /* The one lever native form popups honour. */
-    color-scheme: light;
-  }
-  body {
-    @apply bg-canvas text-ink-900 antialiased;
-    font-family:
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      'Segoe UI',
-      sans-serif;
-  }
-  input,
-  select,
-  textarea,
-  button {
-    /* Restore a sane line-height on form controls (UA styles vary). */
-    line-height: normal;
-  }
-  input,
-  select,
-  textarea {
-    accent-color: var(--color-brand-700);
-  }
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
 }

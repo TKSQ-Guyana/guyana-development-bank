@@ -1,0 +1,15 @@
+# Shared Frappe sites/ volume, mounted by every backend pod, the worker, the
+# scheduler and the create-site Job. With gdb-backend at 2 replicas this MUST
+# be an RWX-capable storage class; on RWO-only clusters set ReadWriteOnce here
+# and gdb-backend replicas to 1.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gdb-sites
+  namespace: gdb-dev
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: <your-rwx-class>

@@ -1,5 +1,0 @@
-# Conventional-commit check (commitlint.config.mjs at the repo root).
-# Skipped when root dependencies are not installed.
-if [ -f node_modules/.bin/commitlint ]; then
-  node_modules/.bin/commitlint --edit "$1"
-fi

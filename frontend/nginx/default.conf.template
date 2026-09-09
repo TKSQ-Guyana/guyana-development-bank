@@ -1,146 +1,29 @@
-# WebSocket upgrade plumbing for the /app/v1/ block below (the MFA approval
-# socket at /app/v1/mfa/ws). The standard map: when the client asks to
-# upgrade, forward that ask; when it doesn't, send an empty Connection header
-# so ordinary keep-alive requests stay untouched. Valid here because conf.d
-# files are included at http level — this sits OUTSIDE the server block.
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      '';
-}
-
+# Rendered by the official nginx image's envsubst on start.
+#   BACKEND_URL       — the gdb-backend service (e.g. http://gdb-backend:8000)
+#   FRAPPE_SITE_NAME  — the Frappe site the backend should serve (gdb.localhost)
 server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
 
-    # Runtime configuration — MUST NOT BE CACHED.
-    #
-    # Rewritten on every container start, so a cached copy would keep an old
-    # Keycloak URL or realm alive after a redeploy — and the failure would
-    # look like a Keycloak problem rather than a caching one. It is also
-    # matched by the hashed-asset rule below (it ends in .js), which would
-    # otherwise pin it for 30 days as `immutable`. An exact-match `location =`
-    # takes priority over a regex location, so this block wins regardless of
-    # ordering. `add_header` alone rather than alongside `expires -1`: the two
-    # together emit two conflicting Cache-Control headers.
-    location = /config.js {
-        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Frappe-Site-Name ${FRAPPE_SITE_NAME};
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
     }
 
-    # The SPA entry point, likewise uncached: it names the hashed asset files,
-    # so a stale copy would ask for chunks a redeploy has already removed.
-    location = /index.html {
-        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    location /files/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Frappe-Site-Name ${FRAPPE_SITE_NAME};
     }
 
-    # SPA fallback — every client-side route answers with index.html.
     location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Build output carries a content hash in its filename, so it is safe to pin.
-    location ~* \.(?:css|js|svg|png|jpg|jpeg|gif|ico|woff2?)$ {
-        expires 30d;
-        access_log off;
-        add_header Cache-Control "public, max-age=2592000, immutable";
-    }
-
-    # ============== account provisioning (Keycloak admin API) ==============
-    #
-    # The app calls `/kcadmin/...` on its own origin and this forwards it to
-    # the realm's admin base, so `/kcadmin/users` becomes
-    # `${KC_URL}/admin/realms/${KC_REALM}/users`.
-    #
-    # NO auth_request AND NO CREDENTIAL SUBSTITUTION, deliberately: the
-    # caller's own Bearer token is passed straight through, so KEYCLOAK
-    # decides whether this person may create a user, against the
-    # realm-management roles on their account — strictly stronger than a
-    # signed-in gate, and "signed in" is not good enough for an endpoint that
-    # can mint an account holding any role in the realm.
-    location /kcadmin/ {
-        # Same-origin with the app, not with Keycloak, whose admin endpoints
-        # have a CORS filter — cleared for the same reason as /app/v1/ below.
-        proxy_set_header Origin "";
-
-        proxy_set_header Authorization     $http_authorization;
-        proxy_set_header Host              $proxy_host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        client_max_body_size 1m;
-        proxy_read_timeout   60s;
-
-        proxy_http_version 1.1;
-        proxy_ssl_server_name on;
-
-        # THE TRAILING SLASH ON BOTH SIDES IS LOAD-BEARING: with it,
-        # /kcadmin/users maps to /admin/realms/${KC_REALM}/users; without it
-        # nginx passes the /kcadmin prefix on and every call 404s inside
-        # Keycloak.
-        #
-        # KC_INTERNAL_URL, not KC_URL: this call never touches a browser, and
-        # dialling the public edge from inside the infrastructure is the
-        # hairpin that 502s.
-        proxy_pass ${KC_INTERNAL_URL}/admin/realms/${KC_REALM}/;
-    }
-
-    # ===================== the API =====================
-    #
-    # The app calls `/app/v1/...` on its own origin, the same path the backend
-    # serves at its root. The whole MFA surface rides this block too:
-    # challenge calls at /app/v1/mfa/login/*, the approval WebSocket at
-    # /app/v1/mfa/ws, the ceremony API, and the phone-facing enroll/verify
-    # pages and their hashed assets — one door, no extra edge rule.
-    #
-    # `^~` IS LOAD-BEARING: the MFA pages' hashed build output lives at
-    # /app/v1/mfa/mfa-assets/*.js, and without ^~ the `\.(css|js|…)$` regex
-    # above outranks this prefix and serves those paths from the SPA's html
-    # root — 404 for every one. Nothing under /app/v1/ may ever come from the
-    # SPA root.
-    location ^~ /app/v1/ {
-        # THE BROWSER'S `Origin` MUST NOT REACH THE UPSTREAM. A strict CORS
-        # policy in front of an API can answer a disallowed origin 200 WITH AN
-        # EMPTY BODY rather than refusing — reads work (browsers send no
-        # Origin on a same-origin GET), writes evaporate. Clearing it is
-        # correct rather than a workaround: past this point the request is
-        # server-to-server. `proxy_set_header Host` does NOT cover this.
-        proxy_set_header Origin "";
-
-        proxy_set_header Authorization     $http_authorization;
-        # $host — the app's own hostname — not $proxy_host, which would name
-        # the upstream's address and mean nothing to it.
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # 1.1 and SNI cost nothing against an IP upstream and are required the
-        # moment API_UPSTREAM is name-routed. Deliberately no proxy_ssl_verify:
-        # internal certificates are rarely issued to the address dialled.
-        proxy_http_version 1.1;
-        proxy_ssl_server_name on;
-        proxy_connect_timeout 60s;
-
-        # The MFA approval WebSocket rides this block. The map above turns
-        # these into real upgrade headers only when the client asked to
-        # upgrade; ordinary requests send an empty Connection and are untouched.
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-
-        client_max_body_size ${UPLOAD_MAX};
-        # 300s, not shorter: the approval socket is SILENT while the user
-        # finds their phone, and the login window is three minutes — a shorter
-        # read timeout cuts the socket before the window runs out. A hung
-        # ordinary call still dies, just later.
-        proxy_send_timeout   300s;
-        proxy_read_timeout   300s;
-
-        # The URI is forwarded WHOLE: strip /app/v1/, then put /app/v1/ back —
-        # which rebuilds the exact original path against any ORIGIN in
-        # API_UPSTREAM. API_UPSTREAM therefore carries scheme, host and port
-        # only: NO path, NO trailing slash.
-        proxy_pass ${API_UPSTREAM}/app/v1/;
+        try_files $uri /index.html;
     }
 }

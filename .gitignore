@@ -1,18 +1,14 @@
 node_modules/
 dist/
 coverage/
+__pycache__/
+*.pyc
 
-# Per-machine environment. Committed examples end in .example; anything a
-# developer fills in stays local.
+# Per-machine environment
 .env
 .env.*
 !.env.example
-!.env.dev.example
 *.local
-
-# The real mail relay secret (compose loads it with required:false so its
-# absence is normal). See backend/mail.dev.env for the committed dev sink.
-backend/.env.mail
 
 # Editor / OS noise
 .DS_Store
