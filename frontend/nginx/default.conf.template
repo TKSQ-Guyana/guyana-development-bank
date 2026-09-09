@@ -7,8 +7,14 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Resolve the backend lazily via Docker's DNS (a variable in proxy_pass
+    # defers resolution to request time) so nginx starts even when the backend
+    # name is momentarily unresolvable instead of crash-looping on [emerg].
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
     location /api/ {
-        proxy_pass ${BACKEND_URL};
+        set $gdb_backend ${BACKEND_URL};
+        proxy_pass $gdb_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header X-Frappe-Site-Name ${FRAPPE_SITE_NAME};
@@ -18,7 +24,8 @@ server {
     }
 
     location /files/ {
-        proxy_pass ${BACKEND_URL};
+        set $gdb_backend ${BACKEND_URL};
+        proxy_pass $gdb_backend;
         proxy_set_header Host $http_host;
         proxy_set_header X-Frappe-Site-Name ${FRAPPE_SITE_NAME};
     }
