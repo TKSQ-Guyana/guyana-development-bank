@@ -99,7 +99,25 @@ def make_custom_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	create_custom_fields(CUSTOM_FIELDS, ignore_validate=True)
+	make_property_setters()
 	frappe.db.commit()
+
+
+def make_property_setters():
+	"""Desk list ergonomics: the default list badge on a submittable doctype
+	shows docstatus (Draft/Submitted/Cancelled), so surface lending's actual
+	status (Open/Approved/Rejected) as a list column and standard filter."""
+	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+	for prop in ("in_list_view", "in_standard_filter"):
+		make_property_setter(
+			"Loan Application",
+			"status",
+			prop,
+			"1",
+			"Check",
+			validate_fields_for_doctype=False,
+		)
 
 
 def ensure_lending_defaults():

@@ -18,8 +18,12 @@ bench set-config -g redis_queue "redis://${REDIS_QUEUE:-redis:6379/1}"
 bench set-config -g redis_socketio "redis://${REDIS_QUEUE:-redis:6379/1}"
 bench set-config -gp socketio_port 9000
 
-# sites/ is a volume: regenerate apps.txt from the apps actually in the image.
+# sites/ is a volume: regenerate apps.txt from the apps actually in the image,
+# and make sure gdb_bank's static assets are linked (volumes initialized from
+# an older image won't have the symlink).
 ls -1 apps > sites/apps.txt
+mkdir -p sites/assets
+ln -sfn /home/frappe/frappe-bench/apps/gdb_bank/gdb_bank/public sites/assets/gdb_bank
 
 if [ ! -d "sites/$SITE" ]; then
   echo "Creating site $SITE ..."
