@@ -1,13 +1,13 @@
 {
   "info": {
     "name": "GDB Citizen Loan Portal",
-    "description": "Exercises the gdb_bank API through the frontend nginx proxy. Postman keeps the Frappe `sid` session cookie automatically — run a Login request first, everything after rides that session. Variables: baseUrl (default http://localhost:3001), password (default admin).",
+    "description": "Exercises the gdb_bank API through the frontend nginx proxy. Postman keeps the Frappe `sid` session cookie automatically — run a Login request first, everything after rides that session. Variables: baseUrl (default http://localhost:3000), password (default admin).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "baseUrl", "value": "http://localhost:3000" },
     { "key": "password", "value": "admin" },
-    { "key": "loanName", "value": "GDB-LOAN-00001" }
+    { "key": "loanName", "value": "ACC-LOAP-2026-00001" }
   ],
   "item": [
     {
@@ -119,18 +119,6 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"Submitted\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Review — start review",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"start_review\"\n}"
             }
           }
         },

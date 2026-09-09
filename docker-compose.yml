@@ -1,27 +1,18 @@
-# Full local stack: MariaDB + Redis + gdb-backend (ERPNext + gdb_bank) +
-# gdb-frontend (React portal on nginx).
+# The whole stack in FOUR services:
+#   mariadb, redis, backend (self-contained ERPNext), frontend (React portal).
 #
 #   docker compose up -d --build
 #
-# First boot takes several minutes: the one-shot `create-site` service creates
-# the Frappe site, installs ERPNext + gdb_bank and seeds demo users. Portal:
-# http://localhost:3000 — demo logins (password = ADMIN_PASSWORD, default
-# "admin"): citizen@example.gy (citizen), underwriter@gdb.gov.gy (underwriter).
-x-backend: &backend
-  build: ./backend
-  image: gdb-backend:local
-  environment: &backend-env
-    SITE_NAME: ${SITE_NAME:-gdb.localhost}
-    DB_HOST: mariadb
-    DB_PORT: '3306'
-    REDIS_CACHE: redis-cache:6379
-    REDIS_QUEUE: redis-queue:6379
-    DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
-    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-  volumes:
-    - sites:/home/frappe/frappe-bench/sites
-  restart: unless-stopped
-
+# The backend container does everything ERPNext: bootstraps/migrates the site
+# on start (first boot takes several minutes — watch `docker compose logs -f
+# backend`), then runs gunicorn + background worker + scheduler behind the
+# image's own nginx on :8080 (which also serves the ERPNext desk UI).
+# One Redis serves cache (DB /0) and queue (DB /1).
+#
+# Portal: http://localhost:3000    ERPNext desk: http://localhost:8080
+# Demo logins (password = ADMIN_PASSWORD, default "admin"):
+#   citizen@example.gy (citizen) · underwriter@gdb.gov.gy (underwriter)
+#   Administrator (ERPNext admin)
 services:
   mariadb:
     image: mariadb:11.8
@@ -40,86 +31,40 @@ services:
       retries: 30
     restart: unless-stopped
 
-  redis-cache:
+  redis:
     image: redis:6.2-alpine
     restart: unless-stopped
 
-  redis-queue:
-    image: redis:6.2-alpine
-    restart: unless-stopped
-
-  # One-shot: writes common_site_config, creates/migrates the site, seeds demo
-  # users. Safe to re-run.
-  create-site:
-    <<: *backend
-    restart: 'no'
-    command: ['create-site']
+  backend:
+    build: ./backend
+    image: gdb-backend:local
+    environment:
+      SITE_NAME: ${SITE_NAME:-gdb.localhost}
+      DB_HOST: mariadb
+      DB_PORT: '3306'
+      REDIS_CACHE: redis:6379/0
+      REDIS_QUEUE: redis:6379/1
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      WITH_WORKER: '1'
+      WITH_SCHEDULER: '1'
+      WITH_SOCKETIO: '0'
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+    ports:
+      - '${BACKEND_PORT:-8080}:8080'
     depends_on:
       mariadb:
         condition: service_healthy
-      redis-cache:
+      redis:
         condition: service_started
-      redis-queue:
-        condition: service_started
-
-  backend:
-    <<: *backend
-    ports:
-      - '${BACKEND_PORT:-8000}:8000'
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
-
-  worker:
-    <<: *backend
-    command: ['bench', 'worker', '--queue', 'short,default,long']
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
-
-  scheduler:
-    <<: *backend
-    command: ['bench', 'schedule']
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
-
-  # ERPNext's own web UI (the "Desk"), served the official frappe_docker way:
-  # the image's nginx on :8080 proxying gunicorn + socketio and serving static
-  # assets. Log in at http://localhost:8080 as Administrator (or the
-  # underwriter) to browse Loan Applications in ERPNext directly.
-  websocket:
-    <<: *backend
-    command: ['node', '/home/frappe/frappe-bench/apps/frappe/socketio.js']
-    depends_on:
-      create-site:
-        condition: service_completed_successfully
-
-  desk:
-    <<: *backend
-    command: ['nginx-entrypoint.sh']
-    environment:
-      BACKEND: backend:8000
-      SOCKETIO: websocket:9000
-      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:-gdb.localhost}
-      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: 'off'
-      PROXY_READ_TIMEOUT: '120'
-      CLIENT_MAX_BODY_SIZE: 50m
-    ports:
-      - '${DESK_PORT:-8080}:8080'
-    depends_on:
-      backend:
-        condition: service_started
-      websocket:
-        condition: service_started
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
     image: gdb-frontend:local
     environment:
-      BACKEND_URL: http://backend:8000
+      BACKEND_URL: http://backend:8080
       FRAPPE_SITE_NAME: ${SITE_NAME:-gdb.localhost}
     ports:
       - '${FRONTEND_PORT:-3000}:80'

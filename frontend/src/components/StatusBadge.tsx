@@ -2,7 +2,6 @@ import type { LoanStatus } from '../types';
 
 const styles: Record<LoanStatus, string> = {
   Submitted: 'bg-blue-100 text-blue-800',
-  'Under Review': 'bg-amber-100 text-amber-800',
   Approved: 'bg-green-100 text-green-800',
   Rejected: 'bg-red-100 text-red-800',
 };

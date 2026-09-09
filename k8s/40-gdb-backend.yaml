@@ -1,3 +1,6 @@
+# Self-contained backend: each pod bootstraps the site (a lock on the shared
+# sites volume serializes replicas), then runs gunicorn + worker + scheduler
+# behind the image's nginx on :8080 (which also serves the ERPNext desk UI).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,17 +17,37 @@ spec:
       containers:
         - name: gdb-backend
           image: ravinadh/ksquarenis:gdb-backend-latest
+          env:
+            - name: SITE_NAME
+              value: gdb.localhost
+            - name: DB_HOST
+              value: mariadb
+            - name: DB_PORT
+              value: '3306'
+            - name: REDIS_CACHE
+              value: redis:6379/0
+            - name: REDIS_QUEUE
+              value: redis:6379/1
+            - name: DB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: gdb-secrets, key: DB_ROOT_PASSWORD }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: gdb-secrets, key: ADMIN_PASSWORD }
+            - name: WITH_WORKER
+              value: '1'
+            - name: WITH_SCHEDULER
+              value: '1'
           ports:
-            - containerPort: 8000
+            - containerPort: 8080
           readinessProbe:
             httpGet:
               path: /api/method/ping
-              port: 8000
-              httpHeaders:
-                - name: X-Frappe-Site-Name
-                  value: gdb.localhost
-            initialDelaySeconds: 10
-            periodSeconds: 10
+              port: 8080
+            # first boot creates the site — give it time
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 40
           volumeMounts:
             - name: sites
               mountPath: /home/frappe/frappe-bench/sites
@@ -40,52 +63,4 @@ metadata:
 spec:
   selector: { app: gdb-backend }
   ports:
-    - port: 8000
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gdb-worker
-  namespace: gdb-dev
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: gdb-worker }
-  template:
-    metadata:
-      labels: { app: gdb-worker }
-    spec:
-      containers:
-        - name: worker
-          image: ravinadh/ksquarenis:gdb-backend-latest
-          command: ['bench', 'worker', '--queue', 'short,default,long']
-          volumeMounts:
-            - name: sites
-              mountPath: /home/frappe/frappe-bench/sites
-      volumes:
-        - name: sites
-          persistentVolumeClaim: { claimName: gdb-sites }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gdb-scheduler
-  namespace: gdb-dev
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: gdb-scheduler }
-  template:
-    metadata:
-      labels: { app: gdb-scheduler }
-    spec:
-      containers:
-        - name: scheduler
-          image: ravinadh/ksquarenis:gdb-backend-latest
-          command: ['bench', 'schedule']
-          volumeMounts:
-            - name: sites
-              mountPath: /home/frappe/frappe-bench/sites
-      volumes:
-        - name: sites
-          persistentVolumeClaim: { claimName: gdb-sites }
+    - port: 8080

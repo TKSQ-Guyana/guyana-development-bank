@@ -32,7 +32,7 @@ export function LoanDetail() {
 
   useEffect(load, [load]);
 
-  const review = async (action: 'start_review' | 'approve' | 'reject') => {
+  const review = async (action: 'approve' | 'reject') => {
     if (!name) return;
     setBusy(true);
     setError(null);
@@ -49,7 +49,7 @@ export function LoanDetail() {
   if (error && !loan) return <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>;
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
-  const reviewable = loan.status === 'Submitted' || loan.status === 'Under Review';
+  const reviewable = loan.status === 'Submitted';
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -102,15 +102,6 @@ export function LoanDetail() {
             className="mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
           />
           <div className="flex flex-wrap gap-2">
-            {loan.status === 'Submitted' && (
-              <button
-                disabled={busy}
-                onClick={() => void review('start_review')}
-                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
-              >
-                Start review
-              </button>
-            )}
             <button
               disabled={busy}
               onClick={() => void review('approve')}

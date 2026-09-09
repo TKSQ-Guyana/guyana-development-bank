@@ -5,7 +5,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication, LoanStatus } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
-const TABS: (LoanStatus | 'All')[] = ['All', 'Submitted', 'Under Review', 'Approved', 'Rejected'];
+const TABS: (LoanStatus | 'All')[] = ['All', 'Submitted', 'Approved', 'Rejected'];
 
 export function Review() {
   const [tab, setTab] = useState<(typeof TABS)[number]>('All');

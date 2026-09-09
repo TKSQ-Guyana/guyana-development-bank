@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: redis-cache
+  name: redis
   namespace: gdb-dev
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: redis-cache }
+    matchLabels: { app: redis }
   template:
     metadata:
-      labels: { app: redis-cache }
+      labels: { app: redis }
     spec:
       containers:
         - name: redis
@@ -20,38 +20,9 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis-cache
+  name: redis
   namespace: gdb-dev
 spec:
-  selector: { app: redis-cache }
-  ports:
-    - port: 6379
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis-queue
-  namespace: gdb-dev
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: redis-queue }
-  template:
-    metadata:
-      labels: { app: redis-queue }
-    spec:
-      containers:
-        - name: redis
-          image: redis:6.2-alpine
-          ports:
-            - containerPort: 6379
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-queue
-  namespace: gdb-dev
-spec:
-  selector: { app: redis-queue }
+  selector: { app: redis }
   ports:
     - port: 6379

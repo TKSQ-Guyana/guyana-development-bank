@@ -3,15 +3,46 @@
 All endpoints are called as POST /api/method/gdb_bank.api.<name> with a JSON
 body. Authentication is the standard Frappe session cookie obtained from
 POST /api/method/login.
+
+Storage is the official frappe/lending app's **Loan Application** doctype;
+this module maps the stable portal contract (loan_amount, purpose,
+term_months, monthly_income, phone, status Submitted/Approved/Rejected) onto
+it. Portal-only facts live in gdb_* custom fields (see install.CUSTOM_FIELDS).
 """
 
 import logging
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, now_datetime, nowdate
+
+from gdb_bank.install import LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
+
+# lending status <-> portal status (lending has no draft/review distinction:
+# a fresh application is a submitted doc with status Open)
+STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
+STATUS_FROM_PORTAL = {v: k for k, v in STATUS_TO_PORTAL.items()}
+
+LOAN_FIELDS = [
+	"name",
+	"gdb_owner",
+	"applicant_name",
+	"loan_amount",
+	"gdb_purpose",
+	"repayment_periods",
+	"gdb_monthly_income",
+	"applicant_phone_number",
+	"status",
+	"gdb_remarks",
+	"gdb_reviewed_by",
+	"gdb_reviewed_on",
+	"rate_of_interest",
+	"repayment_amount",
+	"creation",
+	"modified",
+]
 
 
 def _logger() -> logging.Logger:
@@ -21,23 +52,6 @@ def _logger() -> logging.Logger:
 	logger = frappe.logger("gdb_bank", allow_site=True)
 	logger.setLevel(logging.INFO)
 	return logger
-
-LOAN_FIELDS = [
-	"name",
-	"applicant",
-	"applicant_name",
-	"loan_amount",
-	"purpose",
-	"term_months",
-	"monthly_income",
-	"phone",
-	"status",
-	"underwriter_remarks",
-	"reviewed_by",
-	"reviewed_on",
-	"creation",
-	"modified",
-]
 
 
 def _session_user() -> str:
@@ -57,6 +71,50 @@ def _require_underwriter() -> str:
 		_logger().warning(f"denied underwriter endpoint to {user}")
 		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
 	return user
+
+
+def _portal_dict(row) -> dict:
+	"""Normalize a lending Loan Application row to the stable portal shape."""
+	get = row.get if isinstance(row, dict) else lambda f: row.get(f)
+	return {
+		"name": get("name"),
+		"applicant": get("gdb_owner"),
+		"applicant_name": get("applicant_name"),
+		"loan_amount": get("loan_amount"),
+		"purpose": get("gdb_purpose"),
+		"term_months": get("repayment_periods"),
+		"monthly_income": get("gdb_monthly_income"),
+		"phone": get("applicant_phone_number"),
+		"status": STATUS_TO_PORTAL.get(get("status"), get("status")),
+		"underwriter_remarks": get("gdb_remarks"),
+		"reviewed_by": get("gdb_reviewed_by"),
+		"reviewed_on": get("gdb_reviewed_on"),
+		"rate_of_interest": get("rate_of_interest"),
+		"monthly_repayment": get("repayment_amount"),
+		"creation": get("creation"),
+		"modified": get("modified"),
+	}
+
+
+def _get_or_create_customer(user: str) -> str:
+	"""One lending Customer per portal user, linked via the gdb_user field."""
+	customer = frappe.db.get_value("Customer", {"gdb_user": user})
+	if customer:
+		return customer
+
+	full_name = frappe.utils.get_fullname(user)
+	doc = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": full_name,
+			"customer_type": "Individual",
+			"customer_group": frappe.db.get_value("Customer Group", "Individual")
+			or frappe.db.get_value("Customer Group", "All Customer Groups"),
+			"territory": frappe.db.get_value("Territory", "All Territories"),
+			"gdb_user": user,
+		}
+	).insert(ignore_permissions=True)
+	return doc.name
 
 
 @frappe.whitelist(allow_guest=True)
@@ -111,93 +169,111 @@ def apply_loan(
 	monthly_income=None,
 	phone: str | None = None,
 ):
-	"""Create a Loan Application for the logged-in citizen."""
+	"""Create a lending Loan Application for the logged-in citizen."""
 	user = _session_user()
+
+	loan_amount = flt(loan_amount)
+	term_months = cint(term_months)
+	purpose = (purpose or "").strip()
+	if loan_amount <= 0:
+		frappe.throw(_("Loan amount must be greater than zero."))
+	if not (1 <= term_months <= 360):
+		frappe.throw(_("Term must be between 1 and 360 months."))
+	if not purpose:
+		frappe.throw(_("Purpose is required."))
+
+	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
+	if not product:
+		frappe.throw(_("Loan Product is not configured. Contact the administrator."))
+
 	doc = frappe.get_doc(
 		{
 			"doctype": "Loan Application",
-			"applicant": user,
+			"applicant_type": "Customer",
+			"applicant": _get_or_create_customer(user),
 			"applicant_name": frappe.utils.get_fullname(user),
-			"loan_amount": flt(loan_amount),
-			"purpose": (purpose or "").strip(),
-			"term_months": cint(term_months),
-			"monthly_income": flt(monthly_income) if monthly_income else 0,
-			"phone": (phone or "").strip(),
-			"status": "Submitted",
+			"applicant_email_address": user,
+			"applicant_phone_number": (phone or "").strip(),
+			"company": frappe.db.get_value("Loan Product", product, "company"),
+			"posting_date": nowdate(),
+			"loan_product": product,
+			"loan_amount": loan_amount,
+			"is_term_loan": 1,
+			"repayment_method": "Repay Over Number of Periods",
+			"repayment_periods": term_months,
+			"status": "Open",
+			"gdb_owner": user,
+			"gdb_purpose": purpose,
+			"gdb_monthly_income": flt(monthly_income) if monthly_income else 0,
 		}
-	).insert(ignore_permissions=True)
+	)
+	doc.flags.ignore_permissions = True
+	doc.insert()
+	doc.submit()
 	frappe.db.commit()
-	_logger().info(f"loan application {doc.name} submitted by {user} for {doc.loan_amount}")
-	return _loan_dict(doc.name)
+	_logger().info(f"loan application {doc.name} submitted by {user} for {loan_amount}")
+	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
 
 
 @frappe.whitelist()
 def my_loans():
 	"""The logged-in citizen's applications, newest first."""
 	user = _session_user()
-	return frappe.get_all(
+	rows = frappe.get_all(
 		"Loan Application",
-		filters={"applicant": user},
+		filters={"gdb_owner": user},
 		fields=LOAN_FIELDS,
 		order_by="creation desc",
 	)
+	return [_portal_dict(r) for r in rows]
 
 
 @frappe.whitelist()
 def loan_detail(name: str):
 	user = _session_user()
-	doc = _loan_dict(name)
-	if doc["applicant"] != user and not _is_underwriter(user):
+	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(name))
+	if row.gdb_owner != user and not _is_underwriter(user):
 		frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
-	return doc
+	return _portal_dict(row)
 
 
 @frappe.whitelist()
 def all_loans(status: str | None = None):
 	"""Underwriter queue: every citizen application, optionally by status."""
 	_require_underwriter()
-	filters = {"status": status} if status else {}
-	return frappe.get_all(
+	filters = {}
+	if status:
+		filters["status"] = STATUS_FROM_PORTAL.get(status, status)
+	rows = frappe.get_all(
 		"Loan Application",
 		filters=filters,
 		fields=LOAN_FIELDS,
 		order_by="creation desc",
 	)
+	return [_portal_dict(r) for r in rows]
 
 
 @frappe.whitelist()
 def review_loan(name: str, action: str, remarks: str | None = None):
-	"""Underwriter action on an application.
-
-	action: start_review | approve | reject
-	"""
+	"""Underwriter decision on an application: approve | reject."""
 	user = _require_underwriter()
 	doc = frappe.get_doc("Loan Application", name)
 
-	transitions = {
-		"start_review": ({"Submitted"}, "Under Review"),
-		"approve": ({"Submitted", "Under Review"}, "Approved"),
-		"reject": ({"Submitted", "Under Review"}, "Rejected"),
-	}
-	if action not in transitions:
+	new_status = {"approve": "Approved", "reject": "Rejected"}.get(action)
+	if not new_status:
 		frappe.throw(_("Unknown action: {0}").format(action))
-	allowed_from, new_status = transitions[action]
-	if doc.status not in allowed_from:
-		frappe.throw(
-			_("Cannot {0} an application in status {1}.").format(action, doc.status)
-		)
+	if doc.status != "Open":
+		frappe.throw(_("Cannot {0} an application in status {1}.").format(action, doc.status))
 
-	doc.status = new_status
+	# db_set: the doc is submitted (docstatus 1); status is permlevel-guarded
+	# and the review fields are allow_on_submit.
+	doc.db_set("status", new_status)
 	if remarks:
-		doc.underwriter_remarks = remarks.strip()
-	doc.reviewed_by = user
-	doc.reviewed_on = now_datetime()
-	doc.save(ignore_permissions=True)
+		doc.db_set("gdb_remarks", remarks.strip())
+	doc.db_set("gdb_reviewed_by", user)
+	doc.db_set("gdb_reviewed_on", now_datetime())
 	frappe.db.commit()
 	_logger().info(f"loan {doc.name}: {action} by {user} -> {new_status}")
-	return _loan_dict(doc.name)
-
-
-def _loan_dict(name: str) -> dict:
-	doc = frappe.get_doc("Loan Application", name)
-	return {f: doc.get(f) for f in LOAN_FIELDS}
+	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))

@@ -4,36 +4,40 @@ Citizens apply for GDB loans and track their history online; GDB underwriters
 review, approve or reject every application. **ERPNext is the backend** (with a
 custom Frappe app), **React is the citizen portal**.
 
-## Architecture
+## Architecture — four services, total
 
 ```
                  ┌──────────────────────────────┐
- browser ──────▶ │ gdb-frontend (nginx)         │
+ browser ──────▶ │ gdb-frontend (nginx)         │ :3000
                  │  • React SPA (citizen portal)│
                  │  • /api → proxied to backend │
                  └───────────────┬──────────────┘
-                                 │  X-Frappe-Site-Name: gdb.localhost
                  ┌───────────────▼──────────────┐
-                 │ gdb-backend (ERPNext v16)    │──▶ MariaDB 11.8
-                 │  + gdb_bank custom app       │──▶ Redis (cache, queue)
-                 │  /api/method/gdb_bank.api.*  │
+                 │ gdb-backend (self-contained) │ :8080 (nginx: desk UI + API)
+                 │  ERPNext v16 + frappe/lending│──▶ MariaDB 11.8
+                 │  + gdb_bank custom app       │──▶ Redis (cache /0, queue /1)
+                 │  gunicorn+worker+scheduler   │
                  └──────────────────────────────┘
 ```
 
-- **`backend/`** — `gdb_bank` Frappe app layered on `frappe/erpnext:v16.34.2`:
-  - **Loan Application** doctype: amount, purpose, term, income, phone; status
-    `Submitted → Under Review → Approved/Rejected`.
-  - Roles: **Citizen** (website user, own applications only) and
-    **Loan Underwriter** (the GDB persona, sees everything).
-  - REST endpoints (`POST /api/method/gdb_bank.api.<name>`): `signup`,
-    `whoami`, `apply_loan`, `my_loans`, `loan_detail`, `all_loans`,
-    `review_loan`. Auth = standard Frappe session cookie via
-    `/api/method/login`.
+- **`backend/`** — one image, one container, everything ERPNext: on start it
+  bootstraps/migrates the site (lock-guarded, replica-safe), then runs
+  gunicorn + background worker + scheduler behind the image's own nginx
+  (:8080), which also serves the **ERPNext desk UI**. Apps baked in:
+  - **[frappe/lending](https://github.com/frappe/lending)** (v16.5.0) — loans
+    live in its official **Loan Application** doctype (`ACC-LOAP-…`); the
+    seeded **GDB Standard Loan** product carries the terms.
+  - **`gdb_bank`** — Citizen/Loan Underwriter roles, portal REST endpoints
+    (`signup`, `whoami`, `apply_loan`, `my_loans`, `loan_detail`, `all_loans`,
+    `review_loan`) mapping a stable portal contract onto lending, headless
+    setup-wizard completion, and lending master seeding. Auth = standard
+    Frappe session cookie via `/api/method/login`.
 - **`frontend/`** — React 18 + Vite + Tailwind SPA served by nginx, which
   proxies `/api` to the backend (same origin — no CORS). Underwriters see an
-  extra **Review Queue** with approve/reject actions.
+  extra **Review Queue** with approve/reject actions. Statuses:
+  `Submitted → Approved/Rejected` (lending's Open maps to Submitted).
 - **ERPNext needs MariaDB, not Postgres** — the framework's Postgres support
-  does not extend to ERPNext. MariaDB + Redis are part of this stack.
+  does not extend to ERPNext. One MariaDB + one Redis complete the stack.
 
 ## Run locally
 
@@ -41,23 +45,26 @@ custom Frappe app), **React is the citizen portal**.
 docker compose up -d --build
 ```
 
-First boot takes several minutes — the one-shot `create-site` service creates
-the Frappe site, installs ERPNext + gdb_bank, and seeds demo users. Watch it:
-`docker compose logs -f create-site`.
+First boot takes several minutes — the backend creates the Frappe site,
+installs ERPNext + lending + gdb_bank, completes the setup wizard, and seeds
+demo users and the loan product. Watch it: `docker compose logs -f backend`.
 
-Then open **http://localhost:3000**. Demo logins (password = `ADMIN_PASSWORD`
-env, default `admin`):
+Then open the **portal at http://localhost:3000** and the **ERPNext desk at
+http://localhost:8080**. Demo logins (password = `ADMIN_PASSWORD` env, default
+`admin`):
 
 | user | role |
 | --- | --- |
-| `citizen@example.gy` | Citizen |
-| `underwriter@gdb.gov.gy` | Loan Underwriter |
-| `Administrator` | System Manager (ERPNext admin) |
+| `citizen@example.gy` | Citizen (portal) |
+| `underwriter@gdb.gov.gy` | Loan Underwriter + Loan Manager (portal + desk) |
+| `Administrator` | System Manager (desk) |
 
 Citizens can also self-register from the portal's **Create an account** page.
+Heads-up: `localhost` cookies are shared across ports — log out of the portal
+before logging into the desk (or use a second browser profile).
 
 Frontend dev loop: keep the compose stack up, then `cd frontend && npm install
-&& npm run dev` → vite on :5173 proxies `/api` to the backend on :8000.
+&& npm run dev` → vite on :5173 proxies `/api` to the backend on :8080.
 
 ## API documentation
 

@@ -3,7 +3,9 @@ info:
   title: GDB Citizen Loan Portal API
   version: 0.1.0
   description: |
-    REST surface of the `gdb_bank` Frappe app (ERPNext backend).
+    REST surface of the `gdb_bank` Frappe app (ERPNext backend). Applications
+    are stored in the official frappe/lending app's Loan Application doctype;
+    these endpoints expose a stable portal contract over it.
 
     Every custom endpoint is a Frappe *whitelisted method* invoked as
     `POST /api/method/gdb_bank.api.<name>` with a JSON body. Authentication is
@@ -13,10 +15,10 @@ info:
 
     Served through the gdb-frontend nginx, `/api` is same-origin with the SPA.
 servers:
-  - url: http://localhost:3001
+  - url: http://localhost:3000
     description: Local compose stack (through the frontend nginx proxy)
-  - url: http://localhost:8000
-    description: Backend direct (send X-Frappe-Site-Name: gdb.localhost)
+  - url: http://localhost:8080
+    description: Backend direct (the backend's own nginx)
 
 tags:
   - name: auth
@@ -157,7 +159,7 @@ paths:
               type: object
               required: [name]
               properties:
-                name: { type: string, example: GDB-LOAN-00001 }
+                name: { type: string, example: ACC-LOAP-2026-00001 }
       responses:
         '200':
           description: Application
@@ -182,7 +184,7 @@ paths:
               properties:
                 status:
                   type: string
-                  enum: [Submitted, Under Review, Approved, Rejected]
+                  enum: [Submitted, Approved, Rejected]
       responses:
         '200':
           description: Application list
@@ -199,11 +201,10 @@ paths:
   /api/method/gdb_bank.api.review_loan:
     post:
       tags: [underwriter]
-      summary: Underwriter action on an application
+      summary: Underwriter decision on an application
       description: |
-        Transitions: `start_review` (Submitted → Under Review),
-        `approve` / `reject` (Submitted or Under Review → Approved/Rejected).
-        Records reviewer, timestamp and optional remarks.
+        `approve` / `reject` a Submitted application. Records reviewer,
+        timestamp and optional remarks.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -213,10 +214,10 @@ paths:
               type: object
               required: [name, action]
               properties:
-                name: { type: string, example: GDB-LOAN-00001 }
+                name: { type: string, example: ACC-LOAP-2026-00001 }
                 action:
                   type: string
-                  enum: [start_review, approve, reject]
+                  enum: [approve, reject]
                 remarks: { type: string, example: Income verified; approved. }
       responses:
         '200':
@@ -250,7 +251,7 @@ components:
     LoanApplication:
       type: object
       properties:
-        name: { type: string, example: GDB-LOAN-00001 }
+        name: { type: string, example: ACC-LOAP-2026-00001 }
         applicant: { type: string, example: citizen@example.gy }
         applicant_name: { type: string, example: Demo Citizen }
         loan_amount: { type: number, example: 2500000 }
@@ -260,7 +261,7 @@ components:
         phone: { type: string, nullable: true }
         status:
           type: string
-          enum: [Submitted, Under Review, Approved, Rejected]
+          enum: [Submitted, Approved, Rejected]
         underwriter_remarks: { type: string, nullable: true }
         reviewed_by: { type: string, nullable: true }
         reviewed_on: { type: string, nullable: true, example: '2026-09-09 18:17:30.004591' }

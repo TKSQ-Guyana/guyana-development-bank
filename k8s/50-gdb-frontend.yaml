@@ -16,7 +16,7 @@ spec:
           image: ravinadh/ksquarenis:gdb-latest
           env:
             - name: BACKEND_URL
-              value: http://gdb-backend:8000
+              value: http://gdb-backend:8080
             - name: FRAPPE_SITE_NAME
               value: gdb.localhost
           ports:
@@ -27,7 +27,6 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
-      volumes: []
 ---
 apiVersion: v1
 kind: Service
