@@ -5,11 +5,22 @@ body. Authentication is the standard Frappe session cookie obtained from
 POST /api/method/login.
 """
 
+import logging
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
+
+
+def _logger() -> logging.Logger:
+	"""Frappe-native logging: rotating logs/gdb_bank.log at bench and site
+	level. Fetched lazily (frappe.logger caches per request-site) and pinned to
+	INFO — frappe's process default is ERROR and site config has no say."""
+	logger = frappe.logger("gdb_bank", allow_site=True)
+	logger.setLevel(logging.INFO)
+	return logger
 
 LOAN_FIELDS = [
 	"name",
@@ -43,6 +54,7 @@ def _is_underwriter(user: str | None = None) -> bool:
 def _require_underwriter() -> str:
 	user = _session_user()
 	if not _is_underwriter(user):
+		_logger().warning(f"denied underwriter endpoint to {user}")
 		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
 	return user
 
@@ -76,6 +88,7 @@ def signup(full_name: str, email: str, password: str):
 
 	update_password(user.name, password)
 	frappe.db.commit()
+	_logger().info(f"citizen signup: {user.name}")
 	return {"user": user.name, "full_name": user.full_name}
 
 
@@ -114,6 +127,7 @@ def apply_loan(
 		}
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
+	_logger().info(f"loan application {doc.name} submitted by {user} for {doc.loan_amount}")
 	return _loan_dict(doc.name)
 
 
@@ -180,6 +194,7 @@ def review_loan(name: str, action: str, remarks: str | None = None):
 	doc.reviewed_on = now_datetime()
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
+	_logger().info(f"loan {doc.name}: {action} by {user} -> {new_status}")
 	return _loan_dict(doc.name)
 
 

@@ -1,0 +1,268 @@
+openapi: 3.0.3
+info:
+  title: GDB Citizen Loan Portal API
+  version: 0.1.0
+  description: |
+    REST surface of the `gdb_bank` Frappe app (ERPNext backend).
+
+    Every custom endpoint is a Frappe *whitelisted method* invoked as
+    `POST /api/method/gdb_bank.api.<name>` with a JSON body. Authentication is
+    the standard Frappe **session cookie** (`sid`) obtained from
+    `POST /api/method/login`. Results are wrapped as `{"message": <result>}`;
+    errors carry `exc_type` / `_server_messages`.
+
+    Served through the gdb-frontend nginx, `/api` is same-origin with the SPA.
+servers:
+  - url: http://localhost:3001
+    description: Local compose stack (through the frontend nginx proxy)
+  - url: http://localhost:8000
+    description: Backend direct (send X-Frappe-Site-Name: gdb.localhost)
+
+tags:
+  - name: auth
+  - name: citizen
+  - name: underwriter
+
+paths:
+  /api/method/login:
+    post:
+      tags: [auth]
+      summary: Log in (sets the sid session cookie)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usr, pwd]
+              properties:
+                usr: { type: string, example: citizen@example.gy }
+                pwd: { type: string, example: admin }
+      responses:
+        '200':
+          description: Logged in; `Set-Cookie: sid=…`
+        '401':
+          description: Wrong credentials
+
+  /api/method/logout:
+    post:
+      tags: [auth]
+      summary: Log out (invalidates the session)
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: Logged out }
+
+  /api/method/gdb_bank.api.signup:
+    post:
+      tags: [auth]
+      summary: Citizen self-registration (guest-allowed)
+      description: Creates a Website User with the **Citizen** role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [full_name, email, password]
+              properties:
+                full_name: { type: string, example: Aisha Persaud }
+                email: { type: string, format: email, example: aisha@example.gy }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      user: { type: string }
+                      full_name: { type: string }
+        '417': { description: Validation error (duplicate email, weak password…) }
+
+  /api/method/gdb_bank.api.whoami:
+    post:
+      tags: [auth]
+      summary: Current session user, roles, and underwriter flag
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Session identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/Whoami' }
+        '401': { description: Not logged in }
+
+  /api/method/gdb_bank.api.apply_loan:
+    post:
+      tags: [citizen]
+      summary: Submit a loan application (status starts at Submitted)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loan_amount, purpose, term_months]
+              properties:
+                loan_amount: { type: number, example: 2500000 }
+                purpose: { type: string, example: Working capital for agro-processing }
+                term_months: { type: integer, minimum: 1, maximum: 360, example: 36 }
+                monthly_income: { type: number, example: 450000 }
+                phone: { type: string, example: '+592-600-1234' }
+      responses:
+        '200':
+          description: Created application
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanApplication' }
+
+  /api/method/gdb_bank.api.my_loans:
+    post:
+      tags: [citizen]
+      summary: The logged-in citizen's applications (history), newest first
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: Application list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: array
+                    items: { $ref: '#/components/schemas/LoanApplication' }
+
+  /api/method/gdb_bank.api.loan_detail:
+    post:
+      tags: [citizen]
+      summary: One application (owner or underwriter only)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: GDB-LOAN-00001 }
+      responses:
+        '200':
+          description: Application
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanApplication' }
+        '403': { description: Not the owner and not an underwriter }
+
+  /api/method/gdb_bank.api.all_loans:
+    post:
+      tags: [underwriter]
+      summary: 'Underwriter queue: all applications, optionally by status'
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [Submitted, Under Review, Approved, Rejected]
+      responses:
+        '200':
+          description: Application list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: array
+                    items: { $ref: '#/components/schemas/LoanApplication' }
+        '403': { description: Caller is not a Loan Underwriter / System Manager }
+
+  /api/method/gdb_bank.api.review_loan:
+    post:
+      tags: [underwriter]
+      summary: Underwriter action on an application
+      description: |
+        Transitions: `start_review` (Submitted → Under Review),
+        `approve` / `reject` (Submitted or Under Review → Approved/Rejected).
+        Records reviewer, timestamp and optional remarks.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, action]
+              properties:
+                name: { type: string, example: GDB-LOAN-00001 }
+                action:
+                  type: string
+                  enum: [start_review, approve, reject]
+                remarks: { type: string, example: Income verified; approved. }
+      responses:
+        '200':
+          description: Updated application
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanApplication' }
+        '403': { description: Caller is not an underwriter }
+        '417': { description: Illegal transition for the current status }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: Frappe session cookie from /api/method/login
+  schemas:
+    Whoami:
+      type: object
+      properties:
+        user: { type: string, example: citizen@example.gy }
+        full_name: { type: string, example: Demo Citizen }
+        roles:
+          type: array
+          items: { type: string }
+        is_underwriter: { type: boolean }
+    LoanApplication:
+      type: object
+      properties:
+        name: { type: string, example: GDB-LOAN-00001 }
+        applicant: { type: string, example: citizen@example.gy }
+        applicant_name: { type: string, example: Demo Citizen }
+        loan_amount: { type: number, example: 2500000 }
+        purpose: { type: string }
+        term_months: { type: integer, example: 36 }
+        monthly_income: { type: number, example: 450000 }
+        phone: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [Submitted, Under Review, Approved, Rejected]
+        underwriter_remarks: { type: string, nullable: true }
+        reviewed_by: { type: string, nullable: true }
+        reviewed_on: { type: string, nullable: true, example: '2026-09-09 18:17:30.004591' }
+        creation: { type: string }
+        modified: { type: string }

@@ -59,6 +59,18 @@ Citizens can also self-register from the portal's **Create an account** page.
 Frontend dev loop: keep the compose stack up, then `cd frontend && npm install
 && npm run dev` → vite on :5173 proxies `/api` to the backend on :8000.
 
+## API documentation
+
+- **OpenAPI spec**: [docs/openapi.yaml](docs/openapi.yaml) — every portal
+  endpoint with schemas; paste into https://editor.swagger.io to browse.
+- **Postman collection**: [docs/postman/gdb.postman_collection.json](docs/postman/gdb.postman_collection.json)
+  — import, run a Login request, Postman keeps the session cookie for the rest.
+
+Logging is Frappe-native: `frappe.logger("gdb_bank")` writes rotating logs to
+the bench's `logs/` (and container stdout); unexpected errors also appear in
+the **Error Log** doctype in the ERPNext desk. No extra logging library
+(loguru etc.) is needed or wanted inside a Frappe app.
+
 ## Images / CI
 
 Push to `main` (or `development`) builds and pushes both images to Docker Hub

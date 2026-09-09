@@ -1,0 +1,164 @@
+{
+  "info": {
+    "name": "GDB Citizen Loan Portal",
+    "description": "Exercises the gdb_bank API through the frontend nginx proxy. Postman keeps the Frappe `sid` session cookie automatically — run a Login request first, everything after rides that session. Variables: baseUrl (default http://localhost:3001), password (default admin).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "password", "value": "admin" },
+    { "key": "loanName", "value": "GDB-LOAN-00001" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login — citizen",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"citizen@example.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — underwriter",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"underwriter@gdb.gov.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Signup (guest)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.signup",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Aisha Persaud\",\n  \"email\": \"aisha@example.gy\",\n  \"password\": \"Str0ng-Pass-2026\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Whoami",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.whoami",
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/logout",
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Citizen",
+      "item": [
+        {
+          "name": "Apply for a loan",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.apply_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loan_amount\": 2500000,\n  \"purpose\": \"Working capital for agro-processing business\",\n  \"term_months\": 36,\n  \"monthly_income\": 450000,\n  \"phone\": \"+592-600-1234\"\n}"
+            }
+          }
+        },
+        {
+          "name": "My loans (history)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.my_loans",
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Loan detail",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.loan_detail",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Underwriter",
+      "item": [
+        {
+          "name": "All loans (queue)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.all_loans",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Submitted\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Review — start review",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"start_review\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Review — approve",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"approve\",\n  \"remarks\": \"Income verified; approved at standard rate.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Review — reject",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"reject\",\n  \"remarks\": \"Debt-to-income ratio too high.\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

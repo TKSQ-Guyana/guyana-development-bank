@@ -30,16 +30,16 @@ if [ ! -d "sites/$SITE" ]; then
     --install-app erpnext \
     --install-app gdb_bank \
     --set-default
-  # The React portal is a separate origin proxied through nginx; the classic
-  # frappe CSRF token is not available to it, so disable CSRF for this
-  # API-only deployment (cookies are SameSite; nginx keeps /api same-origin).
-  bench --site "$SITE" set-config ignore_csrf 1
-  bench --site "$SITE" set-config mute_emails 1
   bench --site "$SITE" execute gdb_bank.install.make_demo_users
 else
   echo "Site $SITE exists — migrating ..."
-  bench --site "$SITE" set-config ignore_csrf 1
   bench --site "$SITE" migrate
 fi
+
+# The React portal is a separate origin proxied through nginx; the classic
+# frappe CSRF token is not available to it, so disable CSRF for this API-only
+# deployment (cookies are SameSite; nginx keeps /api same-origin).
+bench --site "$SITE" set-config ignore_csrf 1
+bench --site "$SITE" set-config mute_emails 1
 
 echo "Site $SITE ready."
