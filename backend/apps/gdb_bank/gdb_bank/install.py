@@ -24,6 +24,52 @@ def after_install():
 	ensure_roles()
 
 
+def complete_setup_wizard():
+	"""Complete the ERPNext first-boot setup wizard headlessly so the desk is
+	usable immediately. Idempotent — invoked by scripts/create-site.sh."""
+	from frappe.utils import cint, nowdate
+
+	if cint(frappe.db.get_single_value("System Settings", "setup_complete")):
+		print("setup wizard already complete")
+		return
+
+	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+
+	# The wizard's set_missing_values() sources country/currency/time_zone from
+	# System Settings, so those must be set BEFORE setup_complete runs.
+	system_settings = frappe.get_single("System Settings")
+	system_settings.update(
+		{
+			"country": "Guyana",
+			"currency": "GYD",
+			"time_zone": "America/Guyana",
+			"language": "en",
+		}
+	)
+	system_settings.save()
+	frappe.db.commit()
+
+	year = nowdate()[:4]
+	frappe.set_user("Administrator")
+	setup_complete(
+		{
+			"language": "English",
+			"country": "Guyana",
+			"timezone": "America/Guyana",
+			"time_zone": "America/Guyana",
+			"currency": "GYD",
+			"company_name": "Guyana Development Bank",
+			"company_abbr": "GDB",
+			"chart_of_accounts": "Standard",
+			"fy_start_date": f"{year}-01-01",
+			"fy_end_date": f"{year}-12-31",
+			"setup_demo": 0,
+		}
+	)
+	frappe.db.commit()
+	print("setup wizard completed for Guyana Development Bank")
+
+
 def make_demo_users():
 	"""Create demo portal accounts. Password comes from GDB_DEMO_PASSWORD (or
 	ADMIN_PASSWORD) in the environment — invoked by scripts/create-site.sh via

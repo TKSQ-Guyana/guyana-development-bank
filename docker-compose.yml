@@ -84,6 +84,37 @@ services:
       create-site:
         condition: service_completed_successfully
 
+  # ERPNext's own web UI (the "Desk"), served the official frappe_docker way:
+  # the image's nginx on :8080 proxying gunicorn + socketio and serving static
+  # assets. Log in at http://localhost:8080 as Administrator (or the
+  # underwriter) to browse Loan Applications in ERPNext directly.
+  websocket:
+    <<: *backend
+    command: ['node', '/home/frappe/frappe-bench/apps/frappe/socketio.js']
+    depends_on:
+      create-site:
+        condition: service_completed_successfully
+
+  desk:
+    <<: *backend
+    command: ['nginx-entrypoint.sh']
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:-gdb.localhost}
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: 'off'
+      PROXY_READ_TIMEOUT: '120'
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - '${DESK_PORT:-8080}:8080'
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+
   frontend:
     build: ./frontend
     image: gdb-frontend:local

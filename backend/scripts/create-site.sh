@@ -41,5 +41,8 @@ fi
 # deployment (cookies are SameSite; nginx keeps /api same-origin).
 bench --site "$SITE" set-config ignore_csrf 1
 bench --site "$SITE" set-config mute_emails 1
+# Complete the ERPNext first-boot wizard headlessly so the desk (:8080) is
+# usable right away. Idempotent.
+bench --site "$SITE" execute gdb_bank.install.complete_setup_wizard
 
 echo "Site $SITE ready."
