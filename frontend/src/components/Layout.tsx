@@ -37,6 +37,9 @@ export function Layout() {
             <NavLink to="/apply" className={navLinkClass}>
               Apply
             </NavLink>
+            <NavLink to="/cluster" className={navLinkClass}>
+              My Cluster
+            </NavLink>
             {user?.is_underwriter && (
               <NavLink to="/review" className={navLinkClass}>
                 Review Queue

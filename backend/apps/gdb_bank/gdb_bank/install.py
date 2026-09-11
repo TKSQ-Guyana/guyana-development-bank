@@ -35,6 +35,13 @@ CUSTOM_FIELDS = {
 			"insert_after": "gdb_purpose",
 		},
 		{
+			"fieldname": "gdb_cluster",
+			"label": "GDB Cluster",
+			"fieldtype": "Link",
+			"options": "GDB Cluster",
+			"insert_after": "gdb_monthly_income",
+		},
+		{
 			"fieldname": "gdb_remarks",
 			"label": "Underwriter Remarks",
 			"fieldtype": "Small Text",

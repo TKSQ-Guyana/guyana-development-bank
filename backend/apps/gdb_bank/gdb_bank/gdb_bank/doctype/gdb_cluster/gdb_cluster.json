@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:cluster_name",
+ "creation": "2026-09-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "cluster_name",
+  "region",
+  "sector",
+  "column_break_head",
+  "head",
+  "status",
+  "section_break_plan",
+  "loan_purpose",
+  "business_plan",
+  "section_break_members",
+  "members"
+ ],
+ "fields": [
+  {
+   "fieldname": "cluster_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cluster Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Region"
+  },
+  {
+   "fieldname": "sector",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sector"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The citizen who created the cluster and applies on its behalf.",
+   "fieldname": "head",
+   "fieldtype": "Link",
+   "label": "Cluster Head",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nClosed"
+  },
+  {
+   "fieldname": "section_break_plan",
+   "fieldtype": "Section Break",
+   "label": "Shared Plan"
+  },
+  {
+   "fieldname": "loan_purpose",
+   "fieldtype": "Data",
+   "label": "Loan Purpose"
+  },
+  {
+   "fieldname": "business_plan",
+   "fieldtype": "Text",
+   "label": "Business Plan"
+  },
+  {
+   "fieldname": "section_break_members",
+   "fieldtype": "Section Break",
+   "label": "Members"
+  },
+  {
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Members",
+   "options": "GDB Cluster Member"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Cluster",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Loan Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Loan Underwriter"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

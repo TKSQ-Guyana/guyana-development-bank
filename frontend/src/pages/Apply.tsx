@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { call } from '../api';
-import type { LoanApplication } from '../types';
+import type { Cluster, LoanApplication } from '../types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green';
@@ -14,6 +14,16 @@ export function Apply() {
   const [income, setIncome] = useState('');
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [cluster, setCluster] = useState<Cluster | null>(null);
+
+  useEffect(() => {
+    call<Cluster | null>('gdb_bank.api.my_cluster')
+      .then((c) => {
+        setCluster(c);
+        if (c?.loan_purpose) setPurpose(c.loan_purpose);
+      })
+      .catch(() => setCluster(null));
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,6 +53,14 @@ export function Apply() {
       <p className="mb-6 text-sm text-slate-500">
         Your application goes straight to a GDB underwriter for review.
       </p>
+      {cluster && (
+        <p className="mb-6 rounded-md bg-gdb-gold/20 px-3 py-2 text-sm text-gdb-green-dark">
+          This application will be linked to your cluster <strong>{cluster.name}</strong>
+          {cluster.is_head
+            ? ' — as head, you are applying on behalf of the group.'
+            : ' — it stays your own application.'}
+        </p>
+      )}
       <form onSubmit={(e) => void onSubmit(e)} className="space-y-4 rounded-xl bg-white p-6 shadow">
         {error && (
           <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">

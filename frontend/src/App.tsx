@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Apply } from './pages/Apply';
+import { Cluster } from './pages/Cluster';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { MyLoans } from './pages/MyLoans';
@@ -43,6 +44,7 @@ export function App() {
           >
             <Route index element={<MyLoans />} />
             <Route path="/apply" element={<Apply />} />
+            <Route path="/cluster" element={<Cluster />} />
             <Route path="/loans/:name" element={<LoanDetail />} />
             <Route
               path="/review"
