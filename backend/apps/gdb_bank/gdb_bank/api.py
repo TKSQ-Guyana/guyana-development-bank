@@ -28,6 +28,7 @@ STATUS_FROM_PORTAL = {v: k for k, v in STATUS_TO_PORTAL.items()}
 LOAN_FIELDS = [
 	"name",
 	"gdb_owner",
+	"gdb_cluster",
 	"applicant_name",
 	"loan_amount",
 	"gdb_purpose",
@@ -79,6 +80,7 @@ def _portal_dict(row) -> dict:
 	return {
 		"name": get("name"),
 		"applicant": get("gdb_owner"),
+		"cluster": get("gdb_cluster"),
 		"applicant_name": get("applicant_name"),
 		"loan_amount": get("loan_amount"),
 		"purpose": get("gdb_purpose"),
@@ -277,3 +279,100 @@ def review_loan(name: str, action: str, remarks: str | None = None):
 	frappe.db.commit()
 	_logger().info(f"loan {doc.name}: {action} by {user} -> {new_status}")
 	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))
+
+
+# --------------------------------------------------------------------------
+# Clusters (capability C4)
+#
+# A cluster groups applicants who share a project and a plan. It never
+# borrows: every member holds their own Loan Application, decision and Loan.
+# --------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def convert_lead(lead: str, cluster: str | None = None, purpose: str | None = None):
+	"""Turn a submitted Loan Lead into a Loan Application.
+
+	lending ships convert_to_loan_application but types its argument as a
+	Document, so frappe's typing validation rejects any REST payload, and
+	loan_lead.js adds no button — from a portal the function is unreachable.
+	This wrapper hands it the real doc (it prefills the applicant fields and
+	resolves Customer + company), then adds the facts only GDB knows.
+	"""
+	user = _require_underwriter()
+	lead_doc = frappe.get_doc("Loan Lead", lead)
+	if lead_doc.docstatus != 1:
+		frappe.throw(_("Submit lead {0} before converting it.").format(lead))
+
+	from lending.loan_origination.doctype.loan_lead.loan_lead import convert_to_loan_application
+
+	# the converter returns nothing, so diff the table to find what it made
+	before = set(frappe.get_all("Loan Application", pluck="name"))
+	convert_to_loan_application(lead_doc)
+	created = set(frappe.get_all("Loan Application", pluck="name")) - before
+	if not created:
+		frappe.throw(_("Lead {0} produced no application.").format(lead))
+
+	doc = frappe.get_doc("Loan Application", created.pop())
+	doc.is_term_loan = 1
+	doc.repayment_method = "Repay Over Number of Periods"
+	doc.gdb_owner = frappe.db.get_value("User", {"email": lead_doc.email}) or user
+	doc.gdb_purpose = (purpose or "").strip()
+	doc.gdb_monthly_income = flt(lead_doc.income)
+	if cluster:
+		doc.gdb_cluster = cluster
+	doc.save()
+	frappe.db.commit()
+	_logger().info(f"lead {lead} -> application {doc.name} by {user}")
+	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
+
+
+@frappe.whitelist()
+def cluster_view(cluster: str):
+	"""What one member of a cluster may see about the others.
+
+	Who is on the roster and how far each case has moved — never another
+	member's figures (R-066). Your own row carries your amount.
+	"""
+	user = _session_user()
+	doc = frappe.get_doc("GDB Cluster", cluster)
+	roster = [m.as_dict() for m in doc.get("members") or []]
+
+	members = {m.get("member") for m in roster if m.get("member")}
+	if not (_is_underwriter(user) or user in members or doc.get("head") == user):
+		frappe.throw(_("You are not a member of this cluster."), frappe.PermissionError)
+
+	cases = frappe.get_all(
+		"Loan Application",
+		filters={"gdb_cluster": cluster},
+		fields=["name", "applicant_name", "status", "gdb_owner", "loan_amount", "repayment_amount"],
+		order_by="creation asc",
+	)
+	by_owner = {c.gdb_owner: c for c in cases}
+
+	rows = []
+	for m in roster:
+		case = by_owner.get(m.get("member"))
+		mine = m.get("member") == user
+		row = {
+			"member": m.get("member_name"),
+			"is_head": bool(m.get("is_head")),
+			"is_you": mine,
+			"roster_status": m.get("member_status"),
+			"application": case.name if case else None,
+			"stage": STATUS_TO_PORTAL.get(case.status, case.status) if case else "Not started",
+		}
+		if mine and case:
+			row["loan_amount"] = case.loan_amount
+			row["monthly_repayment"] = case.repayment_amount
+		rows.append(row)
+
+	stages = [r["stage"] for r in rows]
+	return {
+		"cluster": doc.name,
+		"region": doc.get("region"),
+		"sector": doc.get("sector"),
+		"viewer": user,
+		"summary": {s: stages.count(s) for s in sorted(set(stages))},
+		"roster": rows,
+	}
