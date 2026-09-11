@@ -66,6 +66,16 @@ CUSTOM_FIELDS = {
 			"insert_after": "gdb_reviewed_by",
 		},
 	],
+	"Loan Repayment": [
+		{
+			"fieldname": "gdb_paid_by",
+			"label": "Paid By (Portal)",
+			"fieldtype": "Link",
+			"options": "User",
+			"read_only": 1,
+			"insert_after": "posting_date",
+		},
+	],
 	"Customer": [
 		{
 			"fieldname": "gdb_user",
@@ -100,6 +110,29 @@ def after_migrate():
 	ensure_roles()
 	if "lending" in frappe.get_installed_apps():
 		make_custom_fields()
+		ensure_loan_permissions()
+
+
+def ensure_loan_permissions():
+	"""Citizens read Loan — lending's calculate_amounts demands it — scoped to
+	their own rows by gdb_bank.permissions. Read only: no create, write or
+	delete, and nothing at permlevel 1."""
+	from frappe.permissions import add_permission, update_permission_property
+
+	if not frappe.db.exists("Custom DocPerm", {"parent": "Loan", "role": "Citizen"}):
+		add_permission("Loan", "Citizen", 0)
+	for ptype, value in (
+		("read", 1),
+		("create", 0),
+		("write", 0),
+		("delete", 0),
+		("submit", 0),
+		("cancel", 0),
+		("export", 0),
+		("report", 0),
+	):
+		update_permission_property("Loan", "Citizen", 0, ptype, value)
+	frappe.db.commit()
 
 
 def make_custom_fields():

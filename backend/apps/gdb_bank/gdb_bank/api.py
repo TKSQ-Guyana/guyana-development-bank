@@ -541,3 +541,138 @@ def cluster_view(cluster: str):
 		],
 		"applications": cases,
 	}
+
+
+# --------------------------------------------------------------------------
+# The loan account a borrower sees once the application is booked
+# --------------------------------------------------------------------------
+
+
+LOAN_ACCOUNT_FIELDS = [
+	"name",
+	"status",
+	"loan_amount",
+	"disbursed_amount",
+	"total_payment",
+	"total_amount_paid",
+	"total_principal_paid",
+	"monthly_repayment_amount",
+	"rate_of_interest",
+	"repayment_periods",
+	"company",
+]
+
+
+def _readable_application(name: str, user: str):
+	"""The application row, if this user is allowed to see it."""
+	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(name))
+	if row.gdb_owner != user and not _is_underwriter(user) and not _is_shared_with(row, user):
+		frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
+	return row
+
+
+@frappe.whitelist()
+def loan_account(application: str):
+	"""Booked loan, repayment schedule and what is left to pay.
+
+	Returns loan: None while the application is still with the underwriter.
+	"""
+	user = _session_user()
+	_readable_application(application, user)
+
+	loan = frappe.db.get_value(
+		"Loan", {"loan_application": application}, LOAN_ACCOUNT_FIELDS, as_dict=True
+	)
+	if not loan:
+		return {"application": application, "loan": None, "schedule": [], "next_due": None}
+
+	schedule = []
+	sched = frappe.db.get_value(
+		"Loan Repayment Schedule", {"loan": loan.name, "status": "Active"}, "name"
+	)
+	if sched:
+		schedule = frappe.get_all(
+			"Repayment Schedule",
+			filters={"parent": sched},
+			fields=["payment_date", "principal_amount", "interest_amount", "total_payment", "balance_loan_amount"],
+			order_by="idx asc",
+		)
+
+	# What is owed is lending's answer, never ours. lending.api.get_due_details
+	# is the same computation, but it gates on a Loan role no citizen holds and
+	# writes into frappe.response instead of returning — so call the function
+	# underneath it and relay lending's own keys unchanged.
+	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
+
+	amounts = calculate_amounts(loan.name, nowdate())
+	dues = {
+		"overdue_penalty_amount": amounts.get("penalty_amount"),
+		"overdue_interest_amount": amounts.get("interest_amount"),
+		"overdue_principal_amount": amounts.get("payable_principal_amount"),
+		"principal_outstanding": amounts.get("pending_principal_amount"),
+		"overdue_total_amount": amounts.get("payable_amount"),
+		"applicable_future_interest": amounts.get("unaccrued_interest"),
+		"unbooked_interest": amounts.get("unbooked_interest"),
+		"oldest_due_date": amounts.get("due_date"),
+		"overdue_charges": amounts.get("total_charges_payable"),
+		"written_off_amount": amounts.get("written_off_amount"),
+		"excess_amount_paid": amounts.get("excess_amount_paid"),
+	}
+
+	return {
+		"application": application,
+		"loan": loan,
+		"schedule": schedule,
+		"dues": dues,
+	}
+
+
+@frappe.whitelist()
+def make_repayment(application: str, amount):
+	"""Record a repayment against the loan booked from this application.
+
+	Any member of the cluster may pay the group's facility — the ledger records
+	who made the payment, not only whose facility it is.
+	"""
+	user = _session_user()
+	_readable_application(application, user)
+
+	amount = flt(amount)
+	if amount <= 0:
+		frappe.throw(_("Enter an amount greater than zero."))
+
+	loan = frappe.db.get_value(
+		"Loan", {"loan_application": application}, ["name", "company", "status"], as_dict=True
+	)
+	if not loan:
+		frappe.throw(_("No loan has been booked for {0} yet.").format(application))
+	if loan.status not in ("Disbursed", "Partially Disbursed", "Active"):
+		frappe.throw(_("Loan {0} is not open for repayment (status {1}).").format(loan.name, loan.status))
+
+	# Posting a repayment is a bank operation: lending's path writes Loan Demand
+	# and the repayment schedule, which no citizen may touch. This endpoint has
+	# already established who is allowed to pay this loan, so the ledger write
+	# runs as the system and the record keeps the name of whoever asked.
+	caller = frappe.session.user
+	frappe.set_user("Administrator")
+	try:
+		doc = frappe.get_doc(
+			{
+				"doctype": "Loan Repayment",
+				"against_loan": loan.name,
+				"company": loan.company,
+				"posting_date": nowdate(),
+				"amount_paid": amount,
+				"gdb_paid_by": caller,
+			}
+		)
+		doc.insert()
+		doc.submit()
+		frappe.db.commit()
+	finally:
+		frappe.set_user(caller)
+
+	_logger().info(f"repayment {doc.name}: {amount} on {loan.name} by {user}")
+	return loan_account(application)

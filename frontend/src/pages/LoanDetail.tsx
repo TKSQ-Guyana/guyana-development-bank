@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { LoanAccount } from '../components/LoanAccount';
 import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
@@ -73,6 +74,8 @@ export function LoanDetail() {
           <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
         </div>
       </div>
+
+      {loan.status === 'Approved' && name && <LoanAccount application={name} />}
 
       {(loan.underwriter_remarks || loan.reviewed_by) && (
         <div className="mt-4 rounded-xl bg-white p-6 shadow">

@@ -57,6 +57,46 @@ export interface InviteResult {
   password: string | null;
 }
 
+export interface ScheduleRow {
+  payment_date: string;
+  principal_amount: number;
+  interest_amount: number;
+  total_payment: number;
+  balance_loan_amount: number;
+}
+
+/** Straight from lending.api.get_due_details — never computed in the portal. */
+export interface LoanDues {
+  overdue_principal_amount?: number;
+  overdue_interest_amount?: number;
+  overdue_charges?: number;
+  overdue_total_amount?: number;
+  principal_outstanding?: number;
+  oldest_due_date?: string | null;
+  unbooked_interest?: number;
+  excess_amount_paid?: number;
+}
+
+export interface BookedLoan {
+  name: string;
+  status: string;
+  loan_amount: number;
+  disbursed_amount: number;
+  total_payment: number;
+  total_amount_paid: number;
+  total_principal_paid: number;
+  monthly_repayment_amount: number;
+  rate_of_interest: number;
+  repayment_periods: number;
+}
+
+export interface LoanAccount {
+  application: string;
+  loan: BookedLoan | null;
+  schedule: ScheduleRow[];
+  dues?: LoanDues;
+}
+
 export interface Whoami {
   user: string;
   full_name: string;
