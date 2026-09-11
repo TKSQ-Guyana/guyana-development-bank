@@ -49,6 +49,8 @@ export async function call<T>(method: string, args?: Record<string, unknown>): P
   if (!res.ok) {
     throw new ApiError(extractErrorMessage(data, `Request failed (${res.status})`), res.status);
   }
+  // Frappe omits `message` entirely when a whitelisted method returns None
+  if (data && typeof data === 'object' && !('message' in data)) return null as T;
   const d = data as { message?: T };
   return (d?.message ?? (data as T)) as T;
 }
