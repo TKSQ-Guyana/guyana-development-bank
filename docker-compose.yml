@@ -1,5 +1,6 @@
-# The whole stack in FOUR services:
-#   mariadb, redis, backend (self-contained ERPNext), frontend (React portal).
+# The whole stack in FIVE services:
+#   mariadb, redis, backend (self-contained ERPNext), frontend (React portal),
+#   keycloak (e-ID sign-in).
 #
 #   docker compose up -d --build
 #
@@ -10,9 +11,17 @@
 # One Redis serves cache (DB /0) and queue (DB /1).
 #
 # Portal: http://localhost:3000    ERPNext desk: http://localhost:8080
-# Demo logins (password = ADMIN_PASSWORD, default "admin"):
-#   citizen@example.gy (citizen) · underwriter@gdb.gov.gy (underwriter)
-#   Administrator (ERPNext admin)
+# Keycloak: http://localhost:8086  (admin/admin — realm gdb-citizen)
+#
+# TWO WAYS IN, on purpose, while e-ID sign-in is being proven:
+#   e-ID + password  -> Keycloak, realm gdb-citizen (see keycloak/README.md)
+#                       592-1111-0001 · 592-2222-0002 · 592-3333-0003,
+#                       password ChangeMe@123
+#   email + password -> Frappe's own login, unchanged
+#                       citizen@example.gy (citizen) ·
+#                       underwriter@gdb.gov.gy (underwriter) ·
+#                       Administrator (ERPNext admin)
+#                       password = ADMIN_PASSWORD, default "admin"
 services:
   mariadb:
     image: mariadb:11.8
@@ -49,6 +58,37 @@ services:
       WITH_WORKER: '1'
       WITH_SCHEDULER: '1'
       WITH_SOCKETIO: '0'
+      # e-ID sign-in (gdb_bank.identity). In-network hostname: the browser
+      # never talks to Keycloak — the backend runs the password grant itself,
+      # so this needs no public URL and no CORS entry. Unset any one of the
+      # three and the e-ID form says "not configured" instead of failing oddly.
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-gdb-citizen}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-gdb-citizen-portal}
+      # Public client in the seeded realm, so no secret. A confidential client
+      # sets this and nothing else changes.
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      # --- the GOVERNMENT staff realm (optional) --------------------------
+      #
+      # A GDB underwriter is a public servant, so their identity already lives
+      # in the government directory — the SAME realm the MPS portal uses. Point
+      # GDB at it and one government account signs into both systems.
+      #
+      # Tried BEFORE the citizen realm, and it NEVER provisions: being in the
+      # government directory proves employment, not that the Bank granted you
+      # access. No pre-provisioned Frappe user => refused (identity.py).
+      #
+      # Locally this is the sibling MPS-Guyana stack on :8085, so it needs that
+      # stack running; when it is not, the realm is simply skipped and citizen
+      # sign-in is unaffected. Unset KEYCLOAK_STAFF_REALM to switch it off.
+      KEYCLOAK_STAFF_URL: ${KEYCLOAK_STAFF_URL:-http://host.docker.internal:8085}
+      KEYCLOAK_STAFF_REALM: ${KEYCLOAK_STAFF_REALM:-Guyana-Gov}
+      KEYCLOAK_STAFF_CLIENT_ID: ${KEYCLOAK_STAFF_CLIENT_ID:-mps-staff-console}
+      KEYCLOAK_STAFF_CLIENT_SECRET: ${KEYCLOAK_STAFF_CLIENT_SECRET:-}
+    # host.docker.internal is automatic on Docker Desktop; this makes the same
+    # compose file work on Linux engines too.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - sites:/home/frappe/frappe-bench/sites
     ports:
@@ -58,6 +98,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      # service_started, not healthy: the backend only calls Keycloak when
+      # somebody signs in with an e-ID, so a slow realm import must not hold
+      # up the site bootstrap.
+      keycloak:
+        condition: service_started
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    # start-dev = dev mode (no TLS, H2 store). The realm is imported ONLY if it
+    # does not already exist in the volume — see keycloak/README.md for how to
+    # force a re-import after editing gdb-realm.json.
+    command: ['start-dev', '--import-realm']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak/gdb-realm.json:/opt/keycloak/data/import/gdb-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    ports:
+      - '${KEYCLOAK_PORT:-8086}:8080'
     restart: unless-stopped
 
   frontend:
@@ -76,3 +137,4 @@ services:
 volumes:
   sites:
   mariadb-data:
+  keycloak-data:

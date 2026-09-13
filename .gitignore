@@ -17,3 +17,13 @@ __pycache__/
 
 # Claude Code session-local config
 .claude/settings.local.json
+
+# Agent tooling, not project code. Installed plugins and their framework —
+# reinstallable, machine-local, and 234 files of noise in a source-control
+# view that should be showing the ~12 files of GDB work in flight.
+.claude/skills/
+_bmad/
+
+# Scratch output from reading the .docx briefs in General Overview/
+docx_text.txt
+docx_utf8.txt

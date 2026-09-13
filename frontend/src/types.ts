@@ -90,11 +90,27 @@ export interface BookedLoan {
   repayment_periods: number;
 }
 
+/** A Loan row as it comes off Frappe's generic REST surface, for the
+ *  disbursement queue. Deliberately a different shape from BookedLoan: this is
+ *  the raw doctype, not the portal contract. */
+export interface LoanRow {
+  name: string;
+  applicant_name: string | null;
+  loan_application: string | null;
+  loan_amount: number;
+  disbursed_amount: number;
+  status: string;
+  posting_date: string | null;
+}
+
 export interface LoanAccount {
   application: string;
   loan: BookedLoan | null;
   schedule: ScheduleRow[];
   dues?: LoanDues;
+  /** What lending says is still drawable. Server-side only for underwriters;
+   *  null for everyone else. Never derive this on the client. */
+  disbursable?: number | null;
 }
 
 export interface Whoami {

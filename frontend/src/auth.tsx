@@ -1,12 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ApiError, call, login as apiLogin, logout as apiLogout } from './api';
+import {
+  ApiError,
+  call,
+  eidLogin as apiEidLogin,
+  login as apiLogin,
+  logout as apiLogout,
+} from './api';
 import type { Whoami } from './types';
 
 interface AuthState {
   user: Whoami | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /** Sign in with a national e-ID (`123-4567-8901`) via Keycloak. */
+  loginWithEid: (eid: string, password: string) => Promise<void>;
   signup: (fullName: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -43,6 +51,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  // Same shape as `login`: the backend has already set the session cookie by
+  // the time this resolves, so refresh() reads it the same way either way.
+  const loginWithEid = useCallback(
+    async (eid: string, password: string) => {
+      await apiEidLogin(eid, password);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const signup = useCallback(
     async (fullName: string, email: string, password: string) => {
       await call('gdb_bank.api.signup', { full_name: fullName, email, password });
@@ -61,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithEid, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );

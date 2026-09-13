@@ -15,6 +15,12 @@ export function Apply() {
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
   const [cluster, setCluster] = useState<Cluster | null>(null);
+  // Where GDB pays out. Captured here because the applicant is the only one
+  // who knows it, and a disbursement has nowhere to go without it.
+  const [banks, setBanks] = useState<string[]>([]);
+  const [bank, setBank] = useState('');
+  const [accountNo, setAccountNo] = useState('');
+  const [branchCode, setBranchCode] = useState('');
 
   useEffect(() => {
     call<Cluster | null>('gdb_bank.api.my_cluster')
@@ -24,6 +30,20 @@ export function Apply() {
       })
       .catch(() => setCluster(null));
   }, []);
+
+  useEffect(() => {
+    call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
+    call<{ bank: string; bank_account_no: string; branch_code: string } | null>(
+      'gdb_bank.api.my_bank_details',
+    )
+      .then((d) => {
+        if (!d) return;
+        setBank(d.bank ?? '');
+        setAccountNo(d.bank_account_no ?? '');
+        setBranchCode(d.branch_code ?? '');
+      })
+      .catch(() => undefined);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -32,6 +52,13 @@ export function Apply() {
     setError(null);
     setBusy(true);
     try {
+      // Save the payout destination first: if this fails the applicant should
+      // fix it and retry, not end up with a loan nobody can pay.
+      await call('gdb_bank.api.save_bank_details', {
+        bank,
+        bank_account_no: accountNo,
+        branch_code: branchCode,
+      });
       const loan = await call<LoanApplication>('gdb_bank.api.apply_loan', {
         loan_amount: Number(amount),
         purpose,
@@ -121,6 +148,56 @@ export function Apply() {
             className={inputClass}
           />
         </label>
+
+        <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
+          <legend className="px-1 text-sm font-semibold text-slate-700">
+            Where should we pay you?
+          </legend>
+          <p className="mb-3 text-xs text-slate-500">
+            If your loan is approved, GDB transfers the funds to this account. It must be in your
+            own name.
+          </p>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-sm font-medium text-slate-700">Bank</span>
+            <select
+              required
+              value={bank}
+              onChange={(e) => setBank(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Select your bank…</option>
+              {banks.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-3 block">
+            <span className="mb-1 block text-sm font-medium text-slate-700">Account number</span>
+            <input
+              required
+              inputMode="numeric"
+              pattern="[0-9]+"
+              value={accountNo}
+              onChange={(e) => setAccountNo(e.target.value)}
+              placeholder="Digits only, as printed on your statement"
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-slate-700">
+              Branch code <span className="font-normal text-slate-400">(optional)</span>
+            </span>
+            <input
+              value={branchCode}
+              onChange={(e) => setBranchCode(e.target.value)}
+              placeholder="e.g. DEM-GT-04"
+              className={inputClass}
+            />
+          </label>
+        </fieldset>
+
         <button
           type="submit"
           disabled={busy}

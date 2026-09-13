@@ -1,0 +1,69 @@
+{
+  "realm": "gdb-citizen",
+  "enabled": true,
+  "displayName": "Guyana Development Bank",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "clients": [
+    {
+      "clientId": "gdb-citizen-portal",
+      "name": "GDB Citizen Portal",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*", "http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:3000", "http://localhost:5173"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:5173/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "592-1111-0001",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "citizen@example.gy",
+      "firstName": "Demo",
+      "lastName": "Citizen",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+    },
+    {
+      "username": "592-2222-0002",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "underwriter@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Underwriter",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+    },
+    {
+      "username": "592-3333-0003",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "asha.persaud@example.gy",
+      "firstName": "Asha",
+      "lastName": "Persaud",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+    }
+  ]
+}

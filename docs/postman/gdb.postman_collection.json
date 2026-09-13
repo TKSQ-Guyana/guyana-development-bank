@@ -1,13 +1,26 @@
 {
   "info": {
     "name": "GDB Citizen Loan Portal",
-    "description": "Exercises the gdb_bank API through the frontend nginx proxy. Postman keeps the Frappe `sid` session cookie automatically — run a Login request first, everything after rides that session. Variables: baseUrl (default http://localhost:3000), password (default admin).",
+    "description": "Exercises the gdb_bank API through the frontend nginx proxy. Postman keeps the Frappe `sid` session cookie automatically — run a Login request first, everything after rides that session. Two ways in: email+password (Frappe's own login) and e-ID+password (Keycloak, realm gdb-citizen) — both end in the same sid session, so every request below works after either. Variables: baseUrl (default http://localhost:3000), password (default admin, the Frappe demo users), eidPassword (default ChangeMe@123, the Keycloak accounts).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "password", "value": "admin" },
-    { "key": "loanName", "value": "ACC-LOAP-2026-00001" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "password",
+      "value": "admin"
+    },
+    {
+      "key": "eidPassword",
+      "value": "ChangeMe@123"
+    },
+    {
+      "key": "loanName",
+      "value": "ACC-LOAP-2026-00001"
+    }
   ],
   "item": [
     {
@@ -17,7 +30,12 @@
           "name": "Login — citizen",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/login",
             "body": {
               "mode": "raw",
@@ -29,7 +47,12 @@
           "name": "Login — underwriter",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/login",
             "body": {
               "mode": "raw",
@@ -38,10 +61,105 @@
           }
         },
         {
+          "name": "Login — e-ID (citizen)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "description": "Keycloak password grant with the e-ID as the username, then the ordinary Frappe sid session. 592-1111-0001 LINKS to the already-seeded citizen@example.gy — no duplicate account, so `provisioned` is false.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-1111-0001\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — e-ID (underwriter)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "description": "Signs in as the underwriter and keeps its FRAPPE roles — Keycloak grants none. `is_underwriter` comes back true.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-2222-0002\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — e-ID (provisions a new citizen)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "description": "No Frappe user exists for this e-ID: the first sign-in provisions a Website User with the Citizen role and answers `provisioned: true`. Bare digits (33333333333) are normalised to the same thing.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-3333-0003\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — e-ID (wrong password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "description": "401 \"Incorrect e-ID or password.\" — deliberately the SAME answer an unknown e-ID gets, so the endpoint never reveals which e-IDs exist. Rate-limited to 8 attempts per e-ID per minute; the 9th is a 429.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-2222-0002\",\n  \"password\": \"WrongPassword1!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "e-ID sign-in available?",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.eid_login_available",
+            "description": "False when any of keycloak_url / keycloak_realm / keycloak_client_id is unset (site_config, or the matching KEYCLOAK_* environment variable).",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
           "name": "Signup (guest)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.signup",
             "body": {
               "mode": "raw",
@@ -53,18 +171,34 @@
           "name": "Whoami",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.whoami",
-            "body": { "mode": "raw", "raw": "{}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
           }
         },
         {
           "name": "Logout",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/logout",
-            "body": { "mode": "raw", "raw": "{}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
           }
         }
       ]
@@ -76,7 +210,12 @@
           "name": "Apply for a loan",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.apply_loan",
             "body": {
               "mode": "raw",
@@ -88,21 +227,70 @@
           "name": "My loans (history)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.my_loans",
-            "body": { "mode": "raw", "raw": "{}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
           }
         },
         {
           "name": "Loan detail",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.loan_detail",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"{{loanName}}\"\n}"
             }
+          }
+        },
+        {
+          "name": "Loan account (schedule + dues)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.loan_account",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            },
+            "description": "Returns loan: null until the bank books the loan, and an empty schedule until it is disbursed. Every figure is lending's own."
+          }
+        },
+        {
+          "name": "Make a repayment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.make_repayment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\",\n  \"amount\": 38442\n}"
+            },
+            "description": "Submits a lending Loan Repayment. Needs the loan to be Disbursed, Partially Disbursed or Active. Any cluster member may pay."
           }
         }
       ]
@@ -114,7 +302,12 @@
           "name": "All loans (queue)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.all_loans",
             "body": {
               "mode": "raw",
@@ -126,7 +319,12 @@
           "name": "Review — approve",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
             "body": {
               "mode": "raw",
@@ -138,12 +336,53 @@
           "name": "Review — reject",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"reject\",\n  \"remarks\": \"Debt-to-income ratio too high.\"\n}"
             }
+          }
+        },
+        {
+          "name": "Book loan (from an approved application)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.book_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            },
+            "description": "Creates the Loan via lending's own create_loan mapper and submits it (status Sanctioned). Approving does not book - this is a separate act."
+          }
+        },
+        {
+          "name": "Disburse loan (generates the schedule)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.disburse_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            },
+            "description": "Submits a lending Loan Disbursement. Omit amount to disburse the full undrawn balance; lending validates the figure. This is what generates the repayment schedule."
           }
         }
       ]

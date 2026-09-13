@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './auth';
 import { Layout } from './components/Layout';
 import { Apply } from './pages/Apply';
 import { Cluster } from './pages/Cluster';
+import { Disbursements } from './pages/Disbursements';
+import { Finance } from './pages/Finance';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { MyLoans } from './pages/MyLoans';
@@ -51,6 +53,22 @@ export function App() {
               element={
                 <RequireUnderwriter>
                   <Review />
+                </RequireUnderwriter>
+              }
+            />
+            <Route
+              path="/finance"
+              element={
+                <RequireUnderwriter>
+                  <Finance />
+                </RequireUnderwriter>
+              }
+            />
+            <Route
+              path="/disbursements"
+              element={
+                <RequireUnderwriter>
+                  <Disbursements />
                 </RequireUnderwriter>
               }
             />

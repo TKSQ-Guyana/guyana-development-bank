@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { Disbursement } from '../components/Disbursement';
 import { LoanAccount } from '../components/LoanAccount';
 import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication } from '../types';
@@ -23,6 +24,9 @@ export function LoanDetail() {
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Bumped when the bank books or disburses, so the borrower-facing account
+  // below remounts and refetches instead of showing a stale schedule.
+  const [accountKey, setAccountKey] = useState(0);
 
   const load = useCallback(() => {
     if (!name) return;
@@ -75,7 +79,11 @@ export function LoanDetail() {
         </div>
       </div>
 
-      {loan.status === 'Approved' && name && <LoanAccount application={name} />}
+      {loan.status === 'Approved' && name && user?.is_underwriter && (
+        <Disbursement application={name} onChange={() => setAccountKey((k) => k + 1)} />
+      )}
+
+      {loan.status === 'Approved' && name && <LoanAccount key={accountKey} application={name} />}
 
       {(loan.underwriter_remarks || loan.reviewed_by) && (
         <div className="mt-4 rounded-xl bg-white p-6 shadow">

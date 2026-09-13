@@ -11,10 +11,11 @@ it. Portal-only facts live in gdb_* custom fields (see install.CUSTOM_FIELDS).
 """
 
 import logging
+from contextlib import contextmanager
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime, nowdate
+from frappe.utils import cint, flt, fmt_money, now_datetime, nowdate
 
 from gdb_bank.install import LOAN_PRODUCT_NAME
 
@@ -72,6 +73,33 @@ def _require_underwriter() -> str:
 		_logger().warning(f"denied underwriter endpoint to {user}")
 		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
 	return user
+
+
+@contextmanager
+def _as_system():
+	"""Run a bank-side write as Administrator, handing the session back intact.
+
+	Elevation is unavoidable for these writes: lending creates Loan Demand and
+	repayment-schedule rows of its own downstream, so ignore_permissions on the
+	outer doc would not reach them, and frappe.has_permission only
+	short-circuits for Administrator.
+
+	The catch is that frappe.set_user() overwrites local.session.sid with the
+	username it is given (frappe/__init__.py), so set_user -> work ->
+	set_user(caller) leaves the caller holding a sid that no longer resolves:
+	their very next request is Guest and 403s. Capture the real sid and session
+	data, and put them back.
+	"""
+	caller = frappe.session.user
+	sid = frappe.session.sid
+	data = frappe.session.data
+	frappe.set_user("Administrator")
+	try:
+		yield caller
+	finally:
+		frappe.set_user(caller)
+		frappe.local.session.sid = sid
+		frappe.local.session.data = data
 
 
 def _portal_dict(row) -> dict:
@@ -280,6 +308,18 @@ def review_loan(name: str, action: str, remarks: str | None = None):
 	"""Underwriter decision on an application: approve | reject."""
 	user = _require_underwriter()
 	doc = frappe.get_doc("Loan Application", name)
+
+	# SEGREGATION OF DUTIES. Holding the underwriter role says you may decide
+	# OTHER people's applications, never your own — an underwriter is also a
+	# citizen who may borrow, and one account can legitimately hold both
+	# capacities (more so now that a government persona can sign in from the
+	# staff realm and hold `Citizen` alongside their staff role). Without this
+	# the same person could file and approve in two calls.
+	if doc.gdb_owner == user:
+		frappe.throw(
+			_("You cannot review your own application. Ask another underwriter."),
+			frappe.PermissionError,
+		)
 
 	new_status = {"approve": "Approved", "reject": "Rejected"}.get(action)
 	if not new_status:
@@ -621,11 +661,30 @@ def loan_account(application: str):
 		"excess_amount_paid": amounts.get("excess_amount_paid"),
 	}
 
+	# What is still drawable is lending's answer too, and only the bank is shown
+	# it. get_disbursal_amount nets off adjustments, refunds and write-offs,
+	# honours a Line of Credit limit and returns 0 while a secured loan is in
+	# security shortfall - none of which a loan_amount - disbursed_amount
+	# subtraction would catch. Elevated because it gates on a Loan permission
+	# portal roles do not hold, and it takes a row lock (for_update), so it is
+	# computed only for the underwriter who is about to act on it.
+	disbursable = None
+	if _is_underwriter(user):
+		from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
+			get_disbursal_amount,
+		)
+
+		with _as_system():
+			# Returns (disbursal_amount, pending_principal_amount) — unpack it;
+			# flt() on the raw tuple silently yields 0.0.
+			disbursable = flt(get_disbursal_amount(loan.name)[0])
+
 	return {
 		"application": application,
 		"loan": loan,
 		"schedule": schedule,
 		"dues": dues,
+		"disbursable": disbursable,
 	}
 
 
@@ -651,19 +710,41 @@ def make_repayment(application: str, amount):
 	if loan.status not in ("Disbursed", "Partially Disbursed", "Active"):
 		frappe.throw(_("Loan {0} is not open for repayment (status {1}).").format(loan.name, loan.status))
 
+	# Which of lending's twenty repayment types this is depends on what is
+	# currently due, and lending is the one that knows. A Normal Repayment is
+	# capped at the amount demanded so far (validate_normal_repayment on the
+	# product), so paying ahead of the schedule has to go in as an Advance
+	# Payment or lending rejects it. Nothing here computes money: the due
+	# figures and the ceiling are all lending's own numbers.
+	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
+
+	amounts = calculate_amounts(loan.name, nowdate(), "Normal Repayment") or {}
+	due_now = flt(amounts.get("payable_amount"))
+	outstanding = (
+		flt(amounts.get("pending_principal_amount"))
+		+ flt(amounts.get("interest_amount"))
+		+ flt(amounts.get("penalty_amount"))
+	)
+
+	if amount > outstanding > 0:
+		frappe.throw(
+			_("Amount exceeds the {0} outstanding on this loan.").format(fmt_money(outstanding))
+		)
+
+	repayment_type = "Normal Repayment" if due_now and amount <= due_now else "Advance Payment"
+
 	# Posting a repayment is a bank operation: lending's path writes Loan Demand
 	# and the repayment schedule, which no citizen may touch. This endpoint has
 	# already established who is allowed to pay this loan, so the ledger write
 	# runs as the system and the record keeps the name of whoever asked.
-	caller = frappe.session.user
-	frappe.set_user("Administrator")
-	try:
+	with _as_system() as caller:
 		doc = frappe.get_doc(
 			{
 				"doctype": "Loan Repayment",
 				"against_loan": loan.name,
 				"company": loan.company,
 				"posting_date": nowdate(),
+				"repayment_type": repayment_type,
 				"amount_paid": amount,
 				"gdb_paid_by": caller,
 			}
@@ -671,8 +752,221 @@ def make_repayment(application: str, amount):
 		doc.insert()
 		doc.submit()
 		frappe.db.commit()
-	finally:
-		frappe.set_user(caller)
 
-	_logger().info(f"repayment {doc.name}: {amount} on {loan.name} by {user}")
+	_logger().info(f"repayment {doc.name}: {amount} ({repayment_type}) on {loan.name} by {user}")
 	return loan_account(application)
+
+
+# --------------------------------------------------------------------------
+# Booking and disbursement — the bank's side of an approved application
+#
+# Both steps are lending's own. `create_loan` is lending's mapper from a
+# submitted Loan Application onto a Loan; disbursement is lending's Loan
+# Disbursement doctype, whose submit is what generates the repayment schedule.
+# Nothing here computes money: the schedule, the interest and the balances are
+# lending's answer, exactly as they are in loan_account. What this module adds
+# is who may ask, and when.
+# --------------------------------------------------------------------------
+
+
+BOOKED_LOAN_FIELDS = [
+	"name",
+	"status",
+	"company",
+	"applicant",
+	"applicant_type",
+	"loan_amount",
+	"disbursed_amount",
+]
+
+
+def _booked_loan(application: str):
+	"""The Loan booked from this application, if one exists yet."""
+	return frappe.db.get_value(
+		"Loan", {"loan_application": application}, BOOKED_LOAN_FIELDS, as_dict=True
+	)
+
+
+@frappe.whitelist()
+def book_loan(application: str):
+	"""Create the Loan for an approved application. Underwriter only.
+
+	Booking is a decision the bank makes after approval, not a consequence of
+	it — which is why this is a separate act with its own audit line rather
+	than a hook on review_loan.
+	"""
+	user = _require_underwriter()
+
+	row = frappe.db.get_value(
+		"Loan Application", application, ["name", "status", "gdb_owner"], as_dict=True
+	)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(application))
+	if row.status != "Approved":
+		frappe.throw(
+			_("Only an approved application can be booked ({0} is {1}).").format(
+				application, STATUS_TO_PORTAL.get(row.status, row.status)
+			)
+		)
+
+	existing = _booked_loan(application)
+	if existing:
+		frappe.throw(_("Loan {0} is already booked for {1}.").format(existing.name, application))
+
+	# lending guards its own mapper with has_permission("Loan", "create"), a
+	# permission no portal role holds. Who may ask has been settled above, so
+	# the write runs as the system — the same shape as make_repayment.
+	from lending.loan_management.doctype.loan_application.loan_application import create_loan
+
+	with _as_system():
+		loan = create_loan(application, submit=1)
+		frappe.db.commit()
+
+	_logger().info(f"loan {loan.name} booked from {application} by {user}")
+	return loan_account(application)
+
+
+@frappe.whitelist()
+def disburse_loan(application: str, amount=None):
+	"""Disburse a booked loan. Underwriter only.
+
+	Omit `amount` to disburse everything lending says is still drawable. Both
+	the default and the ceiling are lending's: get_disbursal_amount decides what
+	is available, validate_disbursal_amount rules on whatever is asked for, so
+	neither number is computed here.
+	"""
+	user = _require_underwriter()
+
+	loan = _booked_loan(application)
+	if not loan:
+		frappe.throw(_("No loan has been booked for {0} yet.").format(application))
+	if loan.status not in ("Sanctioned", "Partially Disbursed"):
+		frappe.throw(
+			_("Loan {0} is not awaiting disbursement (status {1}).").format(loan.name, loan.status)
+		)
+
+	from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
+		get_disbursal_amount,
+	)
+
+	with _as_system() as caller:
+		amount = flt(amount) if amount else flt(get_disbursal_amount(loan.name)[0])
+		if amount <= 0:
+			frappe.throw(
+				_("Nothing is available to disburse on {0} right now.").format(loan.name)
+			)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Loan Disbursement",
+				"against_loan": loan.name,
+				"company": loan.company,
+				"applicant_type": loan.applicant_type,
+				"applicant": loan.applicant,
+				"posting_date": nowdate(),
+				"disbursement_date": nowdate(),
+				"disbursed_amount": amount,
+				"gdb_disbursed_by": caller,
+			}
+		)
+		doc.insert()
+		doc.submit()
+		frappe.db.commit()
+
+	_logger().info(f"disbursement {doc.name}: {amount} on {loan.name} by {user}")
+	return loan_account(application)
+
+
+# --------------------------------------------------------------------------
+# Where the money goes — the citizen's own bank account
+#
+# GDB pays out through the commercial banks citizens already hold accounts
+# with, so a disbursement needs a destination and the applicant is the only
+# one who knows it. This is ERPNext's stock Bank Account doctype, linked to
+# the citizen's Customer by party — the same record ERPNext's Payment Order
+# reads when a payment run is assembled. No doctype of our own, and nothing
+# here formats a payment file: this only captures the destination.
+#
+# Citizens hold no permission on Bank or Bank Account (deliberately — the
+# generic REST surface would expose every other citizen's account), so the
+# portal brokers both the list of banks and the write.
+# --------------------------------------------------------------------------
+
+BANK_ACCOUNT_FIELDS = ["name", "bank", "bank_account_no", "branch_code", "account_name"]
+
+
+@frappe.whitelist()
+def bank_options():
+	"""Banks a citizen may nominate. Names only — nothing else is theirs to see."""
+	_session_user()
+	return frappe.get_all("Bank", fields=["name"], order_by="name asc", pluck="name")
+
+
+@frappe.whitelist()
+def my_bank_details():
+	"""The nominated account for the logged-in citizen, or None."""
+	user = _session_user()
+	customer = frappe.db.get_value("Customer", {"gdb_user": user})
+	if not customer:
+		return None
+	row = frappe.db.get_value(
+		"Bank Account", {"party_type": "Customer", "party": customer}, BANK_ACCOUNT_FIELDS, as_dict=True
+	)
+	return row or None
+
+
+@frappe.whitelist()
+def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None = None):
+	"""Record (or update) where this citizen should be paid.
+
+	One account per citizen: a second call replaces the first rather than
+	adding another, so a payment run can never find two destinations for the
+	same person and have to guess.
+	"""
+	user = _session_user()
+	bank = (bank or "").strip()
+	bank_account_no = (bank_account_no or "").strip()
+	branch_code = (branch_code or "").strip()
+
+	if not bank or not frappe.db.exists("Bank", bank):
+		frappe.throw(_("Choose a bank from the list."))
+	if not bank_account_no:
+		frappe.throw(_("Account number is required."))
+	if not bank_account_no.isdigit():
+		frappe.throw(_("Account number should contain digits only."))
+
+	customer = _get_or_create_customer(user)
+	full_name = frappe.utils.get_fullname(user)
+
+	# Writing a Bank Account is a bank-side operation; the citizen has no
+	# permission on the doctype, and this endpoint has already established
+	# that they are only ever touching their own.
+	with _as_system():
+		existing = frappe.db.get_value(
+			"Bank Account", {"party_type": "Customer", "party": customer}, "name"
+		)
+		if existing:
+			doc = frappe.get_doc("Bank Account", existing)
+			doc.update({"bank": bank, "bank_account_no": bank_account_no, "branch_code": branch_code})
+			doc.save()
+		else:
+			# Named for the person, never "<name> — <bank>": a citizen may switch
+			# banks, and ERPNext derives the record id from this at creation and
+			# never revisits it. A label naming the old bank next to a field
+			# naming the new one is how a payment gets misrouted.
+			doc = frappe.get_doc(
+				{
+					"doctype": "Bank Account",
+					"account_name": full_name,
+					"bank": bank,
+					"party_type": "Customer",
+					"party": customer,
+					"bank_account_no": bank_account_no,
+					"branch_code": branch_code,
+					"is_company_account": 0,
+				}
+			)
+			doc.insert()
+		frappe.db.commit()
+
+	_logger().info(f"bank details saved for {user}: {bank} ****{bank_account_no[-4:]}")
+	return frappe.db.get_value("Bank Account", doc.name, BANK_ACCOUNT_FIELDS, as_dict=True)

@@ -41,6 +41,16 @@ export function Layout() {
               My Cluster
             </NavLink>
             {user?.is_underwriter && (
+              <NavLink to="/finance" className={navLinkClass}>
+                Finance
+              </NavLink>
+            )}
+            {user?.is_underwriter && (
+              <NavLink to="/disbursements" className={navLinkClass}>
+                Disbursements
+              </NavLink>
+            )}
+            {user?.is_underwriter && (
               <NavLink to="/review" className={navLinkClass}>
                 Review Queue
               </NavLink>

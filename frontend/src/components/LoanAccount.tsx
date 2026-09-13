@@ -19,7 +19,11 @@ export function LoanAccount({ application }: { application: string }) {
 
   const apply = useCallback((a: LoanAccountType) => {
     setAccount(a);
-    const due = a?.dues?.overdue_total_amount ?? a?.loan?.monthly_repayment_amount;
+    // `||`, not `??`: nothing overdue comes back as 0, not null, and a citizen
+    // paying on time is the normal case — falling through to the instalment is
+    // what makes the box usable before the first demand is raised. The backend
+    // posts that as an Advance Payment.
+    const due = a?.dues?.overdue_total_amount || a?.loan?.monthly_repayment_amount;
     if (due) setAmount(String(Math.round(due)));
   }, []);
 
@@ -99,7 +103,9 @@ export function LoanAccount({ application }: { application: string }) {
             <span className="text-slate-600"> · nothing overdue</span>
           )}
         </p>
-        {(dues.overdue_principal_amount || dues.overdue_interest_amount || dues.overdue_charges) && (
+        {Boolean(
+          dues.overdue_principal_amount || dues.overdue_interest_amount || dues.overdue_charges,
+        ) && (
           <p className="mt-1 text-xs text-slate-500">
             principal {formatGyd(dues.overdue_principal_amount ?? 0)} · interest{' '}
             {formatGyd(dues.overdue_interest_amount ?? 0)} · charges {formatGyd(dues.overdue_charges ?? 0)}

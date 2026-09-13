@@ -42,9 +42,90 @@ paths:
                 pwd: { type: string, example: admin }
       responses:
         '200':
-          description: Logged in; `Set-Cookie: sid=…`
+          description: 'Logged in; `Set-Cookie: sid=…`'
         '401':
           description: Wrong credentials
+
+  /api/method/gdb_bank.identity.password_login:
+    post:
+      tags: [auth]
+      summary: Log in with a national e-ID (guest-allowed; sets the sid cookie)
+      description: |
+        Runs the **Keycloak password grant** with the e-ID as the username,
+        confirms the token against Keycloak's `userinfo`, maps the identity
+        onto a Frappe User and mints the ordinary `sid` session — so every
+        other endpoint behaves identically whichever way the caller signed in.
+
+        The e-ID **is** the Keycloak username, shape `123-4567-8901` (3-4-4,
+        eleven digits). Input is normalised first, so bare digits or spaced
+        variants are accepted.
+
+        First sign-in either **links** the e-ID to an existing User with the
+        same email, or **provisions** a new Website User with the `Citizen`
+        role. Roles are never taken from Keycloak: staff access stays a manual
+        grant in Frappe.
+
+        Rate-limited to 8 attempts per e-ID per minute — this path does not go
+        through Frappe's own `track_login_attempts`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eid, password]
+              properties:
+                eid: { type: string, pattern: '^\d{3}-\d{4}-\d{4}$', example: '592-1111-0001' }
+                password: { type: string, format: password, example: ChangeMe@123 }
+      responses:
+        '200':
+          description: 'Logged in; `Set-Cookie: sid=…`'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    allOf:
+                      - $ref: '#/components/schemas/Whoami'
+                      - type: object
+                        properties:
+                          provisioned:
+                            type: boolean
+                            description: True when this sign-in created the User.
+        '401':
+          description: |
+            Incorrect e-ID or password — deliberately the same answer for an
+            unknown e-ID as for a wrong password, so the endpoint does not
+            reveal which e-IDs exist. Also returned for a disabled account.
+        '417':
+          description: |
+            Malformed e-ID, e-ID sign-in not configured on this site, the
+            Keycloak client has direct access grants disabled, or the account
+            has no email address on file.
+        '429':
+          description: Rate limit exceeded (8 attempts per e-ID per minute)
+
+  /api/method/gdb_bank.identity.eid_login_available:
+    post:
+      tags: [auth]
+      summary: Whether this site has e-ID sign-in configured (guest-allowed)
+      description: |
+        False when any of `keycloak_url` / `keycloak_realm` /
+        `keycloak_client_id` is unset (site_config, or the matching
+        `KEYCLOAK_*` environment variable).
+      responses:
+        '200':
+          description: Availability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      available: { type: boolean }
 
   /api/method/logout:
     post:
@@ -231,6 +312,141 @@ paths:
         '403': { description: Caller is not an underwriter }
         '417': { description: Illegal transition for the current status }
 
+  /api/method/gdb_bank.api.book_loan:
+    post:
+      tags: [underwriter]
+      summary: Book the Loan for an approved application
+      description: |
+        Creates the lending **Loan** from an Approved application using
+        lending's own `create_loan` mapper, and submits it (status
+        `Sanctioned`). Booking is a separate act from approval, with its own
+        audit line - approving does not book.
+
+        Refuses an application that is not Approved, or one already booked.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application]
+              properties:
+                application: { type: string, example: ACC-LOAP-2026-00001 }
+      responses:
+        '200':
+          description: The loan account after booking (schedule still empty)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanAccount' }
+        '403': { description: Caller is not an underwriter }
+        '417': { description: Not Approved, or already booked }
+
+  /api/method/gdb_bank.api.disburse_loan:
+    post:
+      tags: [underwriter]
+      summary: Disburse a booked loan (generates the repayment schedule)
+      description: |
+        Submits a lending **Loan Disbursement** against the booked Loan. This
+        is the step that generates the repayment schedule.
+
+        Omit `amount` to disburse everything still undrawn. The figure is
+        passed to lending untouched - lending's own `validate_disbursal_amount`
+        rules on whether it is allowed, so the limit lives in one place.
+
+        Requires loan status `Sanctioned` or `Partially Disbursed`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application]
+              properties:
+                application: { type: string, example: ACC-LOAP-2026-00001 }
+                amount:
+                  type: number
+                  example: 650000
+                  description: Defaults to the full undrawn balance.
+      responses:
+        '200':
+          description: The loan account after disbursement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanAccount' }
+        '403': { description: Caller is not an underwriter }
+        '417': { description: Not booked, or not awaiting disbursement }
+
+  /api/method/gdb_bank.api.loan_account:
+    post:
+      tags: [citizen]
+      summary: Booked loan, repayment schedule and what is left to pay
+      description: |
+        Returns `loan: null` while the application is still with the
+        underwriter or not yet booked. Every figure is lending's own - the
+        schedule rows it generated and the dues from its `calculate_amounts`.
+        Readable by the owner, a cluster member, or an underwriter.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application]
+              properties:
+                application: { type: string, example: ACC-LOAP-2026-00001 }
+      responses:
+        '200':
+          description: Loan account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanAccount' }
+        '403': { description: Not your application }
+
+  /api/method/gdb_bank.api.make_repayment:
+    post:
+      tags: [citizen]
+      summary: Record a repayment against the booked loan
+      description: |
+        Submits a lending **Loan Repayment**. Any member of a cluster may pay
+        the group's facility; the ledger records who paid (`gdb_paid_by`), not
+        only whose facility it is.
+
+        Requires loan status `Disbursed`, `Partially Disbursed` or `Active`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application, amount]
+              properties:
+                application: { type: string, example: ACC-LOAP-2026-00001 }
+                amount: { type: number, example: 38442 }
+      responses:
+        '200':
+          description: The loan account after the payment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanAccount' }
+        '403': { description: Not your application }
+        '417': { description: Not booked, or not open for repayment }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -239,6 +455,59 @@ components:
       name: sid
       description: Frappe session cookie from /api/method/login
   schemas:
+    LoanAccount:
+      type: object
+      properties:
+        application: { type: string, example: ACC-LOAP-2026-00001 }
+        loan:
+          nullable: true
+          description: Null until the application is booked.
+          type: object
+          properties:
+            name: { type: string, example: ACC-LOAN-2026-00003 }
+            status:
+              type: string
+              example: Disbursed
+              description: Sanctioned | Partially Disbursed | Disbursed | Active | Closed
+            loan_amount: { type: number, example: 650000 }
+            disbursed_amount: { type: number, example: 650000 }
+            total_payment: { type: number, example: 690731.15 }
+            total_amount_paid: { type: number, example: 38442 }
+            total_principal_paid: { type: number, example: 38442 }
+            monthly_repayment_amount: { type: number, example: 38442 }
+            rate_of_interest: { type: number, example: 8 }
+            repayment_periods: { type: integer, example: 18 }
+        schedule:
+          type: array
+          description: Generated by lending on disbursement; empty before it.
+          items:
+            type: object
+            properties:
+              payment_date: { type: string, format: date }
+              principal_amount: { type: number }
+              interest_amount: { type: number }
+              total_payment: { type: number }
+              balance_loan_amount: { type: number }
+        disbursable:
+          type: number
+          nullable: true
+          description: |
+            What lending reports as still drawable
+            (`loan_disbursement.get_disbursal_amount`) - it nets off
+            adjustments, refunds and write-offs, honours a Line of Credit
+            limit, and is 0 while a secured loan is in security shortfall.
+            Returned only to underwriters; null for everyone else. Clients
+            must not derive this from loan_amount - disbursed_amount.
+        dues:
+          type: object
+          description: Relayed from lending's calculate_amounts, keys unchanged.
+          properties:
+            overdue_total_amount: { type: number }
+            overdue_principal_amount: { type: number }
+            overdue_interest_amount: { type: number }
+            overdue_charges: { type: number }
+            principal_outstanding: { type: number }
+            oldest_due_date: { type: string, format: date, nullable: true }
     Whoami:
       type: object
       properties:
