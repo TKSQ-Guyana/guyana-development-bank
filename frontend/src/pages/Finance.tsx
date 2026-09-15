@@ -75,7 +75,17 @@ export function Finance() {
         }[]).find((y) => y.year_start_date <= today && today <= y.year_end_date);
         setFiscalYear(covering?.name ?? years[0]?.name ?? null);
       })
-      .catch((err: Error) => setError(err.message));
+      // A permission failure here is the same fact as one from a report, and
+      // has to reach the same panel: the bootstrap runs first, so without
+      // this the raw Frappe string ("Insufficient Permission for Fiscal
+      // Year") is all a user without accounting access ever sees.
+      .catch((err: Error) => {
+        if (err instanceof ApiError && (err.status === 403 || /permission/i.test(err.message))) {
+          setDenied(true);
+        } else {
+          setError(err.message);
+        }
+      });
   }, []);
 
   const load = useCallback(async () => {

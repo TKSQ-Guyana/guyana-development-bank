@@ -30,6 +30,9 @@ LOAN_FIELDS = [
 	"name",
 	"gdb_owner",
 	"gdb_cluster",
+	"gdb_business_stage",
+	"gdb_dcra_number",
+	"gdb_business_name",
 	"applicant_name",
 	"loan_amount",
 	"gdb_purpose",
@@ -109,6 +112,9 @@ def _portal_dict(row) -> dict:
 		"name": get("name"),
 		"applicant": get("gdb_owner"),
 		"cluster": get("gdb_cluster"),
+		"business_stage": get("gdb_business_stage"),
+		"dcra_number": get("gdb_dcra_number"),
+		"business_name": get("gdb_business_name"),
 		"applicant_name": get("applicant_name"),
 		"loan_amount": get("loan_amount"),
 		"purpose": get("gdb_purpose"),
@@ -186,6 +192,10 @@ def whoami():
 	return {
 		"user": user,
 		"full_name": frappe.utils.get_fullname(user),
+		# The e-ID this login is bound to, when they signed in that way. The
+		# portal shows it back so an applicant can see which identity the
+		# application will be filed under before they submit it.
+		"eid": frappe.db.get_value("User", user, "gdb_eid"),
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
 	}
@@ -199,6 +209,9 @@ def apply_loan(
 	monthly_income=None,
 	phone: str | None = None,
 	cluster: str | None = None,
+	business_stage: str | None = None,
+	dcra_number: str | None = None,
+	business_name: str | None = None,
 ):
 	"""Create a lending Loan Application for the logged-in citizen."""
 	user = _session_user()
@@ -212,6 +225,23 @@ def apply_loan(
 		frappe.throw(_("Term must be between 1 and 360 months."))
 	if not purpose:
 		frappe.throw(_("Purpose is required."))
+
+	# Existing vs new business is a real fork, not a label: an existing trading
+	# business is expected to name its DCRA registration, a start-up has none
+	# to give. Enforce that here so an underwriter never sees "Existing" with
+	# nothing behind it.
+	business_stage = (business_stage or "").strip().title()
+	if business_stage and business_stage not in ("Existing", "New"):
+		frappe.throw(_("Business stage must be Existing or New."))
+	dcra_number = (dcra_number or "").strip().upper()
+	business_name = (business_name or "").strip()
+	if business_stage == "Existing" and not dcra_number:
+		frappe.throw(_("Give the DCRA registration number of your existing business."))
+	if business_stage == "New":
+		# A start-up has no registration yet, so never carry one over.
+		dcra_number = ""
+	if business_stage and not business_name:
+		frappe.throw(_("Business name is required."))
 
 	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
 	if not product:
@@ -237,6 +267,9 @@ def apply_loan(
 			"gdb_purpose": purpose,
 			"gdb_monthly_income": flt(monthly_income) if monthly_income else 0,
 			"gdb_cluster": cluster or _cluster_of(user),
+			"gdb_business_stage": business_stage,
+			"gdb_dcra_number": dcra_number,
+			"gdb_business_name": business_name,
 		}
 	)
 	doc.flags.ignore_permissions = True
@@ -688,6 +721,47 @@ def loan_account(application: str):
 	}
 
 
+
+def repayment_plan(loan_name: str, amount) -> dict:
+	"""How a payment of this size against this loan should be posted.
+
+	Which of lending's twenty repayment types applies depends on what is
+	currently due, and lending is the one that knows. A Normal Repayment is
+	capped at the amount demanded so far (validate_normal_repayment on the
+	product), so paying ahead of schedule has to go in as an Advance Payment or
+	lending rejects it. Nothing here computes money — the due figures and the
+	ceiling are all lending's own numbers.
+
+	Shared by the portal payment box and the bank collections file, so a
+	payment is decided the same way however it reaches GDB. Returns `error` as
+	a message rather than throwing, because a bank file needs to report a bad
+	row and carry on rather than abandon the batch.
+	"""
+	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
+
+	amount = flt(amount)
+	amounts = calculate_amounts(loan_name, nowdate(), "Normal Repayment") or {}
+	due_now = flt(amounts.get("payable_amount"))
+	outstanding = (
+		flt(amounts.get("pending_principal_amount"))
+		+ flt(amounts.get("interest_amount"))
+		+ flt(amounts.get("penalty_amount"))
+	)
+
+	error = None
+	if amount <= 0:
+		error = _("Enter an amount greater than zero.")
+	elif amount > outstanding > 0:
+		error = _("Amount exceeds the {0} outstanding on this loan.").format(fmt_money(outstanding))
+
+	return {
+		"repayment_type": "Normal Repayment" if due_now and amount <= due_now else "Advance Payment",
+		"due_now": due_now,
+		"outstanding": outstanding,
+		"error": error,
+	}
+
+
 @frappe.whitelist()
 def make_repayment(application: str, amount):
 	"""Record a repayment against the loan booked from this application.
@@ -710,28 +784,10 @@ def make_repayment(application: str, amount):
 	if loan.status not in ("Disbursed", "Partially Disbursed", "Active"):
 		frappe.throw(_("Loan {0} is not open for repayment (status {1}).").format(loan.name, loan.status))
 
-	# Which of lending's twenty repayment types this is depends on what is
-	# currently due, and lending is the one that knows. A Normal Repayment is
-	# capped at the amount demanded so far (validate_normal_repayment on the
-	# product), so paying ahead of the schedule has to go in as an Advance
-	# Payment or lending rejects it. Nothing here computes money: the due
-	# figures and the ceiling are all lending's own numbers.
-	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
-
-	amounts = calculate_amounts(loan.name, nowdate(), "Normal Repayment") or {}
-	due_now = flt(amounts.get("payable_amount"))
-	outstanding = (
-		flt(amounts.get("pending_principal_amount"))
-		+ flt(amounts.get("interest_amount"))
-		+ flt(amounts.get("penalty_amount"))
-	)
-
-	if amount > outstanding > 0:
-		frappe.throw(
-			_("Amount exceeds the {0} outstanding on this loan.").format(fmt_money(outstanding))
-		)
-
-	repayment_type = "Normal Repayment" if due_now and amount <= due_now else "Advance Payment"
+	plan = repayment_plan(loan.name, amount)
+	if plan["error"]:
+		frappe.throw(plan["error"])
+	repayment_type = plan["repayment_type"]
 
 	# Posting a repayment is a bank operation: lending's path writes Loan Demand
 	# and the repayment schedule, which no citizen may touch. This endpoint has
@@ -813,6 +869,18 @@ def book_loan(application: str):
 	if existing:
 		frappe.throw(_("Loan {0} is already booked for {1}.").format(existing.name, application))
 
+	# An approval is a credit decision; it does not bind either side. What puts
+	# a borrower on GDB's books is their acceptance of the Letter of Offer, so
+	# booking waits for the executed agreement rather than the decision.
+	from gdb_bank.offers import accepted_offer
+
+	agreement = accepted_offer(application)
+	if not agreement:
+		frappe.throw(
+			_("No accepted offer for {0}. Issue a Letter of Offer and wait for the "
+			  "applicant to accept it before booking.").format(application)
+		)
+
 	# lending guards its own mapper with has_permission("Loan", "create"), a
 	# permission no portal role holds. Who may ask has been settled above, so
 	# the write runs as the system — the same shape as make_repayment.
@@ -848,6 +916,20 @@ def disburse_loan(application: str, amount=None):
 	from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
 		get_disbursal_amount,
 	)
+
+
+	# Conditions precedent are not advice. The Letter of Offer says no funds
+	# move until they are met, so release checks the checklist rather than
+	# trusting that somebody looked.
+	from gdb_bank.conditions import outstanding
+
+	blocking = outstanding(application)
+	if blocking:
+		frappe.throw(
+			_("{0} condition(s) precedent are still outstanding: {1}").format(
+				len(blocking), "; ".join(blocking[:3])
+			)
+		)
 
 	with _as_system() as caller:
 		amount = flt(amount) if amount else flt(get_disbursal_amount(loan.name)[0])
@@ -891,7 +973,19 @@ def disburse_loan(application: str, amount=None):
 # portal brokers both the list of banks and the write.
 # --------------------------------------------------------------------------
 
-BANK_ACCOUNT_FIELDS = ["name", "bank", "bank_account_no", "branch_code", "account_name"]
+BANK_ACCOUNT_FIELDS = [
+	"name",
+	"bank",
+	"bank_account_no",
+	"branch_code",
+	"account_name",
+	# The verification check, recorded the way plan.md 6.1 asks every external
+	# check to be recorded: result, source, timestamp, reference.
+	"gdb_verification_status",
+	"gdb_verification_source",
+	"gdb_verified_on",
+	"gdb_verification_reference",
+]
 
 
 @frappe.whitelist()
@@ -937,6 +1031,22 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 	customer = _get_or_create_customer(user)
 	full_name = frappe.utils.get_fullname(user)
 
+	# Check the account before recording it, whether it was picked from the
+	# switch or typed. Advisory, never a gate: a bank holding a maiden name is
+	# a case for an underwriter, not a dead end on an application form. What
+	# this does guarantee is that nobody downstream has to wonder whether the
+	# destination was ever checked — the answer, including "we could not tell",
+	# is on the record.
+	from gdb_bank.integrations import bank_registry
+
+	check = bank_registry.verify(bank, bank_account_no, full_name)
+	verification = {
+		"gdb_verification_status": _check_result(check),
+		"gdb_verification_source": check.get("source"),
+		"gdb_verified_on": frappe.utils.now_datetime(),
+		"gdb_verification_reference": check.get("reference") or check.get("account_name"),
+	}
+
 	# Writing a Bank Account is a bank-side operation; the citizen has no
 	# permission on the doctype, and this endpoint has already established
 	# that they are only ever touching their own.
@@ -946,7 +1056,14 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 		)
 		if existing:
 			doc = frappe.get_doc("Bank Account", existing)
-			doc.update({"bank": bank, "bank_account_no": bank_account_no, "branch_code": branch_code})
+			doc.update(
+				{
+					"bank": bank,
+					"bank_account_no": bank_account_no,
+					"branch_code": branch_code,
+					**verification,
+				}
+			)
 			doc.save()
 		else:
 			# Named for the person, never "<name> — <bank>": a citizen may switch
@@ -963,10 +1080,203 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 					"bank_account_no": bank_account_no,
 					"branch_code": branch_code,
 					"is_company_account": 0,
+					**verification,
 				}
 			)
 			doc.insert()
 		frappe.db.commit()
 
-	_logger().info(f"bank details saved for {user}: {bank} ****{bank_account_no[-4:]}")
+	_logger().info(
+		f"bank details saved for {user}: {bank} {bank_registry.mask(bank_account_no)} -> "
+		f"{verification['gdb_verification_status']} ({verification['gdb_verification_source']})"
+	)
 	return frappe.db.get_value("Bank Account", doc.name, BANK_ACCOUNT_FIELDS, as_dict=True)
+
+
+# --------------------------------------------------------------------------
+# Is that account real, and is it theirs?
+#
+# A typed account number proves nothing: a transposed digit and a relative's
+# account look identical on a form, and a payment instruction to either is
+# money GDB does not get back. So the destination is discovered rather than
+# typed — the national payment switch is asked which accounts the applicant's
+# e-ID holds, and they pick one.
+#
+# Adapter: gdb_bank/integrations/bank_registry.py, contract in
+# docs/integrations/bank-account-verification.md. Sandbox until the switch
+# exists, and `source` says which answered on every result.
+# --------------------------------------------------------------------------
+
+
+def _check_result(result: dict) -> str:
+	"""The recorded outcome of one account check.
+
+	Five outcomes, not two. `Unavailable` is a state of its own and never
+	becomes a pass (plan.md 6.1); `Inactive Account` means the account is real
+	and the name matches and it still cannot receive funds.
+	"""
+	status = (result or {}).get("status")
+	if status in (None, "Unavailable"):
+		return "Unavailable"
+	if status == "Not Found":
+		return "Not Found"
+	if result.get("name_match") is False:
+		return "Name Mismatch"
+	if status != "Active":
+		return "Inactive Account"
+	return "Verified"
+
+
+@frappe.whitelist()
+def my_bank_accounts():
+	"""Accounts the national payment switch says this citizen holds.
+
+	The portal fills the payout destination from this rather than asking for a
+	number, so what reaches a payment run is a destination the switch already
+	said is in the applicant's own name.
+
+	Keyed on the e-ID bound to the *user*, not the session: identity.py writes
+	gdb_eid on first e-ID sign-in and it persists, so a later email login
+	searches just the same. A user who has never signed in with an e-ID has
+	none, so there is nothing to search on and they get the manual path — which
+	`verify_bank_account` then checks.
+	"""
+	user = _session_user()
+	eid = frappe.db.get_value("User", user, "gdb_eid")
+	if not eid:
+		return []
+
+	from gdb_bank.integrations import bank_registry
+
+	found = bank_registry.accounts_for(eid, frappe.utils.get_fullname(user))
+	# Only banks GDB can actually pay. An account at a bank with no Bank record
+	# cannot be saved as a destination, so offering it is offering a dead end.
+	known = set(frappe.get_all("Bank", pluck="name"))
+	usable = [row for row in found if row.get("bank") in known]
+	_logger().info(f"bank registry search for {user}: {len(found)} found, {len(usable)} payable")
+	return usable
+
+
+@frappe.whitelist()
+def verify_bank_account(bank: str, bank_account_no: str):
+	"""Check one account: does it exist, and is it in this person's name?
+
+	For the manual path. The result is advisory here — it is recorded, shown,
+	and never used to block an application, because a bank holding a maiden
+	name is a case for a human, not a dead end on a form.
+	"""
+	user = _session_user()
+
+	from gdb_bank.integrations import bank_registry
+
+	result = bank_registry.verify(bank, bank_account_no, frappe.utils.get_fullname(user))
+	result["result"] = _check_result(result)
+	_logger().info(
+		f"bank verify for {user}: {bank} {bank_registry.mask(bank_account_no)} -> "
+		f"{result['result']} (source={result.get('source')})"
+	)
+	return result
+
+
+# --------------------------------------------------------------------------
+# DCRA — the applicant's registered business
+#
+# The Deeds and Commercial Registries Authority is where a Guyanese business
+# is registered, so a DCRA number is the strongest evidence an underwriter has
+# that a development loan is going to a real trading concern rather than a
+# name on a form.
+#
+# There is no DCRA API wired up. `dcra_lookup` therefore answers from what GDB
+# already knows — a returning applicant's own earlier filings — and returns
+# `source` so the caller can tell a confirmed registry hit from a recalled
+# one. When DCRA exposes a service, it slots in at the marked seam and the
+# portal contract does not change.
+# --------------------------------------------------------------------------
+
+
+def _dcra_from_history(dcra_number: str, user: str | None = None) -> dict | None:
+	"""The most recent application carrying this registration number."""
+	filters = {"gdb_dcra_number": dcra_number}
+	if user:
+		filters["gdb_owner"] = user
+	rows = frappe.get_all(
+		"Loan Application",
+		filters=filters,
+		fields=["gdb_dcra_number", "gdb_business_name", "creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return rows[0] if rows else None
+
+
+@frappe.whitelist()
+def dcra_lookup(dcra_number: str):
+	"""Resolve a DCRA registration number to a business.
+
+	The registry is the authority, so this asks DCRA first through the adapter
+	in gdb_bank.integrations.dcra. GDB's own earlier filings are consulted only
+	when the registry has nothing to say, and the reply always states which of
+	the two answered so nothing recalled is mistaken for something verified.
+	"""
+	user = _session_user()
+	from gdb_bank.integrations import dcra
+
+	number = dcra.normalize(dcra_number)
+	if not number:
+		frappe.throw(_("Enter a DCRA registration number."))
+
+	result = dcra.lookup(number)
+	if result.get("business_name"):
+		_logger().info(f"dcra lookup {number} -> {result.get('source')} ({result.get('status')})")
+		return result
+
+	# Registry silent. Fall back to what this citizen told GDB before, clearly
+	# labelled — a remembered name is a convenience, never evidence.
+	row = _dcra_from_history(number, user=user)
+	if row:
+		return {
+			"registration_number": number,
+			"business_name": row.gdb_business_name,
+			"status": result.get("status"),
+			"source": "gdb_history",
+			"last_seen": row.creation,
+		}
+	return result
+
+
+@frappe.whitelist()
+def my_businesses():
+	"""Businesses DCRA says this applicant is a proprietor of.
+
+	The applicant never types a registration number: they sign in as
+	themselves, and the register says which businesses are theirs. That is
+	both the convenience and the control — a business they do not own cannot
+	appear in this list, so it cannot be claimed on an application.
+	"""
+	user = _session_user()
+	from gdb_bank.integrations import dcra
+
+	full_name = frappe.utils.get_fullname(user)
+	found = dcra.businesses_for(full_name)
+	_logger().info(f"dcra proprietor search for {user}: {len(found)} business(es)")
+	return found
+
+
+@frappe.whitelist()
+def my_business():
+	"""The business this citizen last applied with, for prefilling the form."""
+	user = _session_user()
+	rows = frappe.get_all(
+		"Loan Application",
+		filters={"gdb_owner": user, "gdb_dcra_number": ["is", "set"]},
+		fields=["gdb_dcra_number", "gdb_business_name", "creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not rows:
+		return None
+	return {
+		"dcra_number": rows[0].gdb_dcra_number,
+		"business_name": rows[0].gdb_business_name,
+		"last_seen": rows[0].creation,
+	}

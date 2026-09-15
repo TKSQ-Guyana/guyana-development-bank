@@ -116,6 +116,63 @@ export interface LoanAccount {
 export interface Whoami {
   user: string;
   full_name: string;
+  /** The e-ID this login is bound to, when they signed in that way. Null for
+   *  an email/password session — the portal keeps both doors open. */
+  eid: string | null;
   roles: string[];
   is_underwriter: boolean;
+}
+
+/** A Letter of Offer. Once accepted, this is the executed loan agreement —
+ *  `agreement_text` is the wording frozen server-side at issue. */
+export interface LoanOffer {
+  name: string;
+  application: string;
+  applicant_name: string;
+  business_name: string | null;
+  status: 'Draft' | 'Issued' | 'Accepted' | 'Declined' | 'Expired' | 'Withdrawn';
+  valid_until: string;
+  loan_product: string;
+  offered_amount: number;
+  term_months: number;
+  rate_of_interest: number;
+  monthly_instalment: number;
+  total_repayable: number;
+  first_repayment_date: string | null;
+  conditions: string[];
+  agreement_text: string | null;
+  issued_by: string | null;
+  issued_on: string | null;
+  accepted_name: string | null;
+  responded_on: string | null;
+  decline_reason: string | null;
+  can_accept: boolean;
+}
+
+/** What DCRA said about a registration number. `source` is load-bearing:
+ *  only "dcra" is evidence — "sandbox" and "gdb_history" are conveniences. */
+/** One account the national payment switch says the applicant holds.
+ *  `source` is the whole point: `sandbox` is never evidence, and
+ *  `unavailable` means GDB could not tell — not that the account is bad. */
+export interface BankAccountRecord {
+  bank: string;
+  account_number: string;
+  account_name: string | null;
+  branch_code?: string;
+  account_type?: string;
+  status?: 'Active' | 'Dormant' | 'Closed' | 'Not Found' | 'Unavailable';
+  name_match?: boolean | null;
+  result?: 'Verified' | 'Name Mismatch' | 'Inactive Account' | 'Not Found' | 'Unavailable';
+  source: 'bank_registry' | 'sandbox' | 'unavailable';
+}
+
+export interface DcraRecord {
+  registration_number: string;
+  business_name: string | null;
+  business_type?: string;
+  status?: string;
+  registered_on?: string;
+  region?: string;
+  proprietors?: string[];
+  source: 'dcra' | 'sandbox' | 'gdb_history' | 'unavailable';
 }

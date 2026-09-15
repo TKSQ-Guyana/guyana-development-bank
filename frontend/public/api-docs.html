@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GDB API — Swagger UI</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      body { margin: 0; background: #fafafa; }
+      .gdb-head {
+        background: #0f2f4f; color: #fff;
+        padding: 16px 24px; font: 14px/1.5 system-ui, sans-serif;
+      }
+      .gdb-head h1 { margin: 0 0 4px; font-size: 17px; }
+      .gdb-head p { margin: 0; opacity: .85; }
+      .gdb-head code {
+        background: rgba(255,255,255,.14); padding: 1px 5px; border-radius: 3px;
+      }
+      .swagger-ui .topbar { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="gdb-head">
+      <h1>Guyana Development Bank — portal API</h1>
+      <p>
+        Session-cookie auth: run <code>POST /api/method/login</code> (or
+        <code>gdb_bank.identity.password_login</code> for an e-ID) with
+        <b>Try it out</b> first — the <code>sid</code> cookie it sets is reused
+        by every call below. Demo users: <code>citizen@example.gy</code> ·
+        <code>underwriter@gdb.gov.gy</code>, password <code>admin</code>.
+        Keep the server set to <code>/</code> so the cookie stays same-origin.
+      </p>
+    </div>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: '/openapi.yaml',
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis],
+        layout: 'BaseLayout',
+        docExpansion: 'list',
+        tryItOutEnabled: true,
+        persistAuthorization: true,
+        // Frappe authenticates with the sid cookie, so Try it out must send
+        // credentials; the site runs with ignore_csrf, no token needed.
+        withCredentials: true,
+      });
+    </script>
+  </body>
+</html>

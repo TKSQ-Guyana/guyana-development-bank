@@ -27,8 +27,14 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:3000/*", "http://localhost:5173/*"],
-      "webOrigins": ["http://localhost:3000", "http://localhost:5173"],
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ],
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:5173/*"
       }
@@ -43,7 +49,13 @@
       "firstName": "Demo",
       "lastName": "Citizen",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
     },
     {
       "username": "592-2222-0002",
@@ -53,7 +65,13 @@
       "firstName": "GDB",
       "lastName": "Underwriter",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
     },
     {
       "username": "592-3333-0003",
@@ -63,7 +81,29 @@
       "firstName": "Asha",
       "lastName": "Persaud",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "ChangeMe@123", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-4444-0004",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "hemanth.persaud@example.gy",
+      "firstName": "Hemanth",
+      "lastName": "Narine",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

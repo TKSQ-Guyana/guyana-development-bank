@@ -6,6 +6,18 @@ import frappe
 # underwriter is a system role so GDB staff can also use the ERPNext desk.
 ROLES = (("Citizen", 0), ("Loan Underwriter", 1))
 
+# The banks a citizen may nominate for a payout. Seeded, because the portal's
+# payout destination is a Link to Bank and an empty list is an approved loan
+# nobody can disburse. Bank of Guyana is here for GDB's own operating and
+# collections accounts, not as a citizen destination.
+BANKS = (
+	"Bank of Guyana",
+	"Citizens Bank Guyana",
+	"Demerara Bank",
+	"Guyana Bank for Trade and Industry",
+	"Republic Bank (Guyana)",
+)
+
 LOAN_PRODUCT_NAME = "GDB Standard Loan"
 OFFSET_ORDER_TITLE = "GDB Standard Offset Order"
 
@@ -87,6 +99,34 @@ CUSTOM_FIELDS = {
 			"options": "GDB Cluster",
 			"insert_after": "gdb_monthly_income",
 		},
+		# Existing trading business or a start-up. The two are different credit
+		# propositions — one has a DCRA registration and a history to verify,
+		# the other has neither — so the application records which it is rather
+		# than leaving an underwriter to infer it from a blank field.
+		{
+			"fieldname": "gdb_business_stage",
+			"label": "Business Stage",
+			"fieldtype": "Select",
+			"options": "\nExisting\nNew",
+			"insert_after": "gdb_cluster",
+		},
+		# DCRA — the Deeds and Commercial Registries Authority registration an
+		# applicant's business already holds. A registered business is the
+		# strongest evidence an underwriter has that a development loan is
+		# going to a real trading concern, so it is captured at application
+		# time rather than asked for later.
+		{
+			"fieldname": "gdb_dcra_number",
+			"label": "DCRA Registration No.",
+			"fieldtype": "Data",
+			"insert_after": "gdb_business_stage",
+		},
+		{
+			"fieldname": "gdb_business_name",
+			"label": "Registered Business Name",
+			"fieldtype": "Data",
+			"insert_after": "gdb_dcra_number",
+		},
 		{
 			"fieldname": "gdb_remarks",
 			"label": "Underwriter Remarks",
@@ -144,6 +184,51 @@ CUSTOM_FIELDS = {
 	],
 }
 
+# The bank account check (gdb_bank.integrations.bank_registry). Kept apart from
+# CUSTOM_FIELDS above because those hang off lending doctypes; Bank Account is
+# ERPNext's own and is present whether or not lending is installed.
+#
+# Four fields because plan.md 6.1 asks every external check to record four
+# things — result, source, timestamp, reference — and a check whose source is
+# unknown is not a check. All read-only: this is what the registry said, not
+# something staff may edit into a pass.
+ERPNEXT_CUSTOM_FIELDS = {
+	"Bank Account": [
+		{
+			"fieldname": "gdb_verification_status",
+			"label": "GDB Account Check",
+			"fieldtype": "Select",
+			# Unavailable is a state of its own and never becomes a pass.
+			"options": "\nVerified\nName Mismatch\nInactive Account\nNot Found\nUnavailable",
+			"read_only": 1,
+			"insert_after": "branch_code",
+		},
+		{
+			"fieldname": "gdb_verification_source",
+			"label": "Checked Against",
+			"fieldtype": "Data",
+			"read_only": 1,
+			"description": "bank_registry (the switch), sandbox (not evidence), or unavailable.",
+			"insert_after": "gdb_verification_status",
+		},
+		{
+			"fieldname": "gdb_verified_on",
+			"label": "Checked On",
+			"fieldtype": "Datetime",
+			"read_only": 1,
+			"insert_after": "gdb_verification_source",
+		},
+		{
+			"fieldname": "gdb_verification_reference",
+			"label": "Check Reference",
+			"fieldtype": "Data",
+			"read_only": 1,
+			"description": "The name the bank holds on the account, or the switch's reference.",
+			"insert_after": "gdb_verified_on",
+		},
+	]
+}
+
 # The e-ID link (gdb_bank.identity). Kept apart from CUSTOM_FIELDS above
 # because every field there hangs off a lending or ERPNext doctype and is only
 # created when lending is installed — User is core frappe and always present.
@@ -185,11 +270,16 @@ def after_install():
 def after_migrate():
 	ensure_roles()
 	make_user_custom_fields()
+	if "erpnext" in frappe.get_installed_apps():
+		make_erpnext_custom_fields()
+		ensure_banks()
+		ensure_accounts_read()
 	if "lending" in frappe.get_installed_apps():
 		make_custom_fields()
 		ensure_loan_permissions()
 		ensure_loan_accounting()
 		ensure_product_terms()
+		ensure_payment_file_report()
 
 
 def make_user_custom_fields():
@@ -197,6 +287,207 @@ def make_user_custom_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	create_custom_fields(USER_CUSTOM_FIELDS, ignore_validate=True)
+	frappe.db.commit()
+
+
+def make_erpnext_custom_fields():
+	"""The account-check fields on ERPNext's Bank Account."""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields(ERPNEXT_CUSTOM_FIELDS, ignore_validate=True)
+	frappe.db.commit()
+
+
+def ensure_banks():
+	"""The banks a citizen may be paid through.
+
+	Names only. A Bank record carries no account of anyone's — it is the list
+	the portal's payout destination links to, and without it an approved loan
+	has nowhere to go.
+	"""
+	for bank_name in BANKS:
+		if not frappe.db.exists("Bank", bank_name):
+			frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(
+				ignore_permissions=True
+			)
+	frappe.db.commit()
+
+
+# Reading the books, and nothing more. Deliberately NOT ERPNext's stock
+# `Accounts User` role, which the Finance page's own error text suggests: that
+# role also creates and submits Journal Entries, Payment Entries and invoices,
+# and an underwriter who can post entries can move money on the books. The SOW
+# asks for separation of duties, so an underwriter gets read and the `report`
+# permission query_report.run demands — every other permission is set to 0
+# explicitly rather than left to whatever add_permission defaults to.
+ACCOUNTS_READ_DOCTYPES = ("Company", "Fiscal Year", "Account", "GL Entry")
+
+# The four statements the portal's Finance page renders. Each is a standard
+# Script Report over GL Entry, gated on Accounts User / Accounts Manager /
+# Auditor.
+ACCOUNTS_REPORTS = (
+	"Trial Balance",
+	"General Ledger",
+	"Balance Sheet",
+	"Profit and Loss Statement",
+)
+
+ACCOUNTS_READER_ROLE = "Loan Underwriter"
+
+
+def ensure_accounts_read():
+	"""Let an underwriter read the ledger without being able to post to it."""
+	from frappe.permissions import add_permission, update_permission_property
+
+	for doctype in ACCOUNTS_READ_DOCTYPES:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		if not frappe.db.exists(
+			"Custom DocPerm", {"parent": doctype, "role": ACCOUNTS_READER_ROLE}
+		):
+			add_permission(doctype, ACCOUNTS_READER_ROLE, 0)
+		for ptype, value in (
+			("read", 1),
+			# query_report.run checks `report` on the report's ref_doctype, so
+			# without this the statements 403 even with read granted.
+			("report", 1),
+			("create", 0),
+			("write", 0),
+			("delete", 0),
+			("submit", 0),
+			("cancel", 0),
+			("amend", 0),
+			("export", 0),
+		):
+			update_permission_property(doctype, ACCOUNTS_READER_ROLE, 0, ptype, value)
+
+	for report in ACCOUNTS_REPORTS:
+		if not frappe.db.exists("Report", report):
+			continue
+		# A standard Report cannot be edited outside developer mode, so the role
+		# goes on a Custom Role instead. Note that Report.is_permitted REPLACES
+		# the standard roles with the custom ones when a Custom Role exists — so
+		# the roles already on the report are carried across, or granting an
+		# underwriter access would revoke it from every accountant.
+		standard = frappe.get_all(
+			"Has Role", filters={"parent": report, "parenttype": "Report"}, pluck="role"
+		)
+		wanted = sorted(set(standard) | {ACCOUNTS_READER_ROLE})
+
+		existing = frappe.db.get_value("Custom Role", {"report": report})
+		doc = (
+			frappe.get_doc("Custom Role", existing)
+			if existing
+			else frappe.get_doc({"doctype": "Custom Role", "report": report})
+		)
+		if sorted({r.role for r in doc.roles}) == wanted:
+			continue
+		doc.roles = []
+		for role in wanted:
+			doc.append("roles", {"role": role})
+		doc.save(ignore_permissions=True) if existing else doc.insert(ignore_permissions=True)
+
+	frappe.db.commit()
+
+
+# The file the bank actually receives, and the roles allowed to pull it.
+#
+# It lives here rather than only in the database because a report created by
+# hand in the desk exists in exactly one environment: a fresh site rendered the
+# portal's "Payment file" tab against a report that was not there. The SQL is
+# still the single place the layout is defined — editing it here and migrating
+# is the way the bank's format changes, never the SPA.
+#
+# These rows carry citizens' account numbers, so the role list is deliberate
+# and short: the accounting roles that already see bank details, plus the
+# portal's own underwriter, who is the only staff role the SPA has and whose
+# Disbursements page this is. Nothing wider.
+PAYMENT_FILE_REPORT = "GDB Disbursement Payment File"
+
+PAYMENT_FILE_REF_DOCTYPE = "Loan Disbursement"
+
+PAYMENT_FILE_ROLES = ("Accounts User", "Accounts Manager", "System Manager", ACCOUNTS_READER_ROLE)
+
+PAYMENT_FILE_QUERY = """SELECT
+    ba.bank                              AS "Bank:Data:160",
+    ba.bank_account_no                   AS "Account Number:Data:150",
+    IFNULL(ba.branch_code, '')           AS "Branch Code:Data:110",
+    ba.account_name                      AS "Beneficiary:Data:180",
+    ld.disbursed_amount                  AS "Amount:Currency:120",
+    l.name                               AS "Loan:Link/Loan:150",
+    ld.name                              AS "Disbursement:Link/Loan Disbursement:150",
+    ld.disbursement_date                 AS "Value Date:Date:100"
+FROM `tabLoan Disbursement` ld
+JOIN `tabLoan` l          ON l.name = ld.against_loan
+LEFT JOIN `tabBank Account` ba
+       ON ba.party_type = 'Customer' AND ba.party = l.applicant
+WHERE ld.docstatus = 1
+  AND ld.company = %(company)s
+  AND ld.disbursement_date BETWEEN %(from_date)s AND %(to_date)s
+ORDER BY ba.bank, ld.disbursement_date"""
+
+
+def ensure_payment_file_report():
+	"""Seed the payment file report and open both gates in front of it.
+
+	A query report is guarded twice and the portal needs to clear both:
+	`Report.is_permitted` reads the roles on the report itself, and then
+	`query_report.run` demands the `report` permission on its ref_doctype. The
+	underwriter held neither by right — the ref_doctype check passed only by way
+	of lending's `Loan Manager`, which the demo user happens to carry and a real
+	underwriter would not, so that grant is made here on the role the portal
+	actually uses rather than left to a coincidence of the seed data.
+
+	Read and report only. An underwriter must be able to pull the file, never to
+	post a disbursement — the same separation `ensure_accounts_read` keeps over
+	the ledger.
+	"""
+	from frappe.permissions import add_permission, update_permission_property
+
+	if not frappe.db.exists("DocType", PAYMENT_FILE_REF_DOCTYPE):
+		return
+
+	if not frappe.db.exists("Report", PAYMENT_FILE_REPORT):
+		frappe.get_doc(
+			{
+				"doctype": "Report",
+				"report_name": PAYMENT_FILE_REPORT,
+				"ref_doctype": PAYMENT_FILE_REF_DOCTYPE,
+				"report_type": "Query Report",
+				"is_standard": "No",
+				"module": "GDB Bank",
+				"query": PAYMENT_FILE_QUERY,
+			}
+		).insert(ignore_permissions=True)
+
+	# Roles are a union, so a grant somebody made in the desk survives a migrate.
+	report = frappe.get_doc("Report", PAYMENT_FILE_REPORT)
+	wanted = sorted({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES))
+	if sorted({r.role for r in report.roles}) != wanted:
+		report.roles = []
+		for role in wanted:
+			report.append("roles", {"role": role})
+		report.save(ignore_permissions=True)
+
+	if not frappe.db.exists(
+		"Custom DocPerm", {"parent": PAYMENT_FILE_REF_DOCTYPE, "role": ACCOUNTS_READER_ROLE}
+	):
+		add_permission(PAYMENT_FILE_REF_DOCTYPE, ACCOUNTS_READER_ROLE, 0)
+	for ptype, value in (
+		("read", 1),
+		("report", 1),
+		("create", 0),
+		("write", 0),
+		("delete", 0),
+		("submit", 0),
+		("cancel", 0),
+		("amend", 0),
+		("export", 0),
+	):
+		update_permission_property(
+			PAYMENT_FILE_REF_DOCTYPE, ACCOUNTS_READER_ROLE, 0, ptype, value
+		)
+
 	frappe.db.commit()
 
 

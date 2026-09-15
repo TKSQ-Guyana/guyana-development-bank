@@ -4,6 +4,9 @@ import { call } from '../api';
 import { useAuth } from '../auth';
 import { Disbursement } from '../components/Disbursement';
 import { LoanAccount } from '../components/LoanAccount';
+import { OfferPanel } from '../components/OfferPanel';
+import { Conditions } from '../components/Conditions';
+import { IssueOffer } from '../components/IssueOffer';
 import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
@@ -78,6 +81,30 @@ export function LoanDetail() {
           <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
         </div>
       </div>
+
+      {/* Offer before money. An approval is a decision; the accepted Letter
+          of Offer is the agreement, and booking waits on it. */}
+      {loan.status === 'Approved' && name && (
+        <OfferPanel
+          key={`offer-${accountKey}`}
+          application={name}
+          onExecuted={() => setAccountKey((k) => k + 1)}
+        />
+      )}
+
+      {loan.status === 'Approved' && name && user?.is_underwriter && (
+        <IssueOffer application={name} onIssued={() => setAccountKey((k) => k + 1)} />
+      )}
+
+      {/* Conditions precedent sit between the accepted offer and release, so
+          they read between them here too. */}
+      {loan.status === 'Approved' && name && (
+        <Conditions
+          key={`cp-${accountKey}`}
+          application={name}
+          onChange={() => setAccountKey((k) => k + 1)}
+        />
+      )}
 
       {loan.status === 'Approved' && name && user?.is_underwriter && (
         <Disbursement application={name} onChange={() => setAccountKey((k) => k + 1)} />

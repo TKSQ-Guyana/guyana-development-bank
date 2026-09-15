@@ -8,7 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "predev": "node scripts/sync-openapi.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/sync-openapi.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"

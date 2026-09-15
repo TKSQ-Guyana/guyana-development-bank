@@ -91,6 +91,16 @@ services:
       - 'host.docker.internal:host-gateway'
     volumes:
       - sites:/home/frappe/frappe-bench/sites
+      # DEV ONLY. gdb_bank is baked into the image at build time, so without
+      # this every one-line Python change costs a full image rebuild plus a
+      # site bootstrap. Mounting the source over it means a Python change needs
+      # only `docker compose restart backend`; only a new DocType or custom
+      # field still needs `bench migrate`.
+      #
+      # The mount shadows the copy in the image, so the host tree becomes the
+      # source of truth. Production must NOT carry this line — there the baked
+      # image is the artefact being deployed.
+      - ./backend/apps/gdb_bank:/home/frappe/frappe-bench/apps/gdb_bank
     ports:
       - '${BACKEND_PORT:-8080}:8080'
     depends_on:
