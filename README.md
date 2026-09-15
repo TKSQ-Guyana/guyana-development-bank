@@ -46,6 +46,8 @@ CORS):
 
 - [docs/openapi.yaml](docs/openapi.yaml) — full API spec ·
   [docs/postman/](docs/postman) — runnable collection
+- [docs/testing.md](docs/testing.md) — manual lifecycle walkthrough ·
+  [docs/troubleshooting.md](docs/troubleshooting.md) — stack-down recovery
 - This README, [CLAUDE.md](CLAUDE.md), [k8s/README.md](k8s/README.md) —
   architecture, run instructions, demo credentials, the RWX-volume caveat
 

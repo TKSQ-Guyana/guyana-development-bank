@@ -197,6 +197,9 @@ policy. **Open.**
 
 ## 8. Gotchas that waste an afternoon
 
+**Stack will not come up at all?** That is a different document —
+[troubleshooting.md](troubleshooting.md).
+
 - **`localhost` shares cookies across :3000 and :8080.** Signing into the desk
   kills your portal session and vice versa. Log out of one first, or use two
   browser profiles.
