@@ -14,7 +14,7 @@ ERPNext):
 
 | Piece | What it does |
 | --- | --- |
-| **[frappe/lending](https://github.com/frappe/lending) v16.5.0** | Baked into the image; loans are its official `Loan Application` doctype (`ACC-LOAP-…`) with real amortization from the seeded loan product (e.g. 8% on 2.5M/36mo → GYD 78,341/mo) |
+| **[frappe/lending](https://github.com/frappe/lending) v16.5.0** | Baked into the image; loans are its official `Loan Application` doctype (`ACC-LOAP-…`) with real amortization from the seeded loan product (e.g. 0% on 2.5M/36mo → GYD 69,444/mo) |
 | **`gdb_bank` custom app** | Roles (Citizen, Loan Underwriter), 7 portal REST endpoints (`signup, whoami, apply_loan, my_loans, loan_detail, all_loans, review_loan`), `gdb_*` custom fields (purpose, income, remarks, reviewer, portal-user link), frappe-native INFO logging to `logs/gdb_bank.log` |
 | **Seeding (idempotent)** | Headless setup-wizard completion (company "Guyana Development Bank", GYD), "GDB Standard Loan" product + demand offset order, demo users |
 | **`start-backend.sh`** | On start: lock-guarded site create/migrate → gunicorn + worker + scheduler → the image's nginx on **:8080** (serves the ERPNext desk UI + API) |

@@ -55,9 +55,20 @@ underwriter review queue. The official name everywhere is
   `request_information`. `apply_loan` is still the published one-shot
   contract — the two steps back to back.
 - Seeded lending masters (`install.ensure_lending_defaults`): Loan Product
-  "GDB Standard Loan" (GDB-STD, 8% term loan) + "GDB Standard Offset Order"
-  demand offset order wired into the Company. Loan accounting stays DISABLED
-  on the company — enabling it makes ~16 GL accounts mandatory on the product.
+  "GDB Standard Loan" (GDB-STD, **0% term loan** — GDB lends interest-free) +
+  "GDB Standard Offset Order" demand offset order wired into the Company.
+  The product is INSERTED with `rate_of_interest: 8.0` and then forced to 0 by
+  `install.ensure_product_terms` on EVERY migrate, so 8.0 is never the live
+  rate on any site — read the rate there, not at the insert. Leaving it at 8
+  would make lending compute interest into every schedule and show citizens
+  interest they will never be charged. `maximum_loan_amount: 0` means NO
+  ceiling in lending, not zero allowed — nothing overrides it the way the rate
+  is overridden, and that is the uncapped amount behind R-131. Loan accounting
+  is **ENABLED** on the company by `install.ensure_loan_accounting`, which sets
+  `enable_loan_accounting: 1` and creates the ~16 GL accounts lending then
+  makes mandatory on the product (`LOAN_ACCOUNT_SPECS`). Disbursements and
+  repayments post real GL entries; without those accounts every accounting
+  hook is an early `return` and money moves while the ledger stays silent.
 - All portal APIs are whitelisted methods in `gdb_bank/api.py`
   (`/api/method/gdb_bank.api.*`); auth is the Frappe session cookie from
   `/api/method/login`. The site runs with `ignore_csrf: 1` because the SPA
@@ -146,7 +157,9 @@ migrate + seeds again). `localhost` cookies are shared across ports 3000/8080
 `keycloak/gdb-realm.json`). e-ID accounts, password `ChangeMe@123`:
 `592-1111-0001` (links to the seeded citizen), `592-2222-0002` (links to the
 underwriter), `592-5555-0005` (links to the finance officer), `592-3333-0003`
-(provisions a new citizen). **8086, not 8085** —
+(provisions a new citizen — but ONLY on a site where it has never signed in;
+once provisioned it links to that User like the rest, so testing the
+provisioning path needs a fresh site or an unused e-ID). **8086, not 8085** —
 the sibling MPS-Guyana stack holds 8085 and both run on this machine.
 Keycloak imports a realm ONLY if it does not already exist, so editing the
 realm JSON needs `docker compose rm -sf keycloak && docker volume rm

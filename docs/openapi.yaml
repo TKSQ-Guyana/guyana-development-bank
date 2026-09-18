@@ -1105,7 +1105,7 @@ components:
             total_amount_paid: { type: number, example: 38442 }
             total_principal_paid: { type: number, example: 38442 }
             monthly_repayment_amount: { type: number, example: 38442 }
-            rate_of_interest: { type: number, example: 8 }
+            rate_of_interest: { type: number, example: 0 }
             repayment_periods: { type: integer, example: 18 }
         schedule:
           type: array
