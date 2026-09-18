@@ -6,6 +6,7 @@ import { Apply } from './pages/Apply';
 import { Cluster } from './pages/Cluster';
 import { Disbursements } from './pages/Disbursements';
 import { Finance } from './pages/Finance';
+import { Portfolio } from './pages/Portfolio';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { MyLoans } from './pages/MyLoans';
@@ -71,6 +72,14 @@ export function App() {
               element={
                 <RequireFinance>
                   <Finance />
+                </RequireFinance>
+              }
+            />
+            <Route
+              path="/portfolio"
+              element={
+                <RequireFinance>
+                  <Portfolio />
                 </RequireFinance>
               }
             />

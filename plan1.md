@@ -356,7 +356,7 @@ Show payment history across all facilities held by the borrower
 
 C3 — Field and regional capabilities 
 
-F3.1  Sourcing and agent-assisted origination 
+F3.1  Sourcing and agent-assisted originatn 
 
 ID 
 

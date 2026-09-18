@@ -113,7 +113,7 @@ export function Disbursement({
 
       {awaitingRelease && !mayRelease && (
         <p className="text-sm text-slate-600">
-          {formatGyd(drawable)} is awaiting release. Funds are released by the finance officer,
+          {formatGyd(drawable)} is awaiting release. Funds are released by the disbursement officer,
           who must be someone other than the officer who approved this application.
         </p>
       )}

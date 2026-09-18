@@ -92,6 +92,11 @@ underwriter review queue. The official name everywhere is
   `Citizen` (website user; own applications only), `Loan Underwriter` (decides:
   review, offer, conditions, booking, document review) and `Finance Officer`
   (moves money: disbursement, payment file, collections, the ledger views).
+  That third persona is called the **Disbursement Officer** everywhere a human
+  reads it — the badge, the seeded user's name, the refusal messages. The
+  Frappe Role is still named `Finance Officer` and so are `FINANCE_ROLES` /
+  `_require_finance`; renaming the Role itself needs a `rename_doc` patch or
+  existing sites lose the grant, so it has deliberately not been done.
   Enforcement is server-side in `api.py` (`_require_underwriter`,
   `_require_finance`), mirrored in the SPA (`is_underwriter` / `is_finance`
   from `whoami`). `disburse_loan` carries a SECOND gate on top of the role —

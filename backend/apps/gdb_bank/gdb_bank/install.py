@@ -287,6 +287,7 @@ def after_migrate():
 		ensure_loan_accounting()
 		ensure_product_terms()
 		ensure_payment_file_report()
+		ensure_lending_reports_read()
 
 
 def make_user_custom_fields():
@@ -387,14 +388,22 @@ def ensure_accounts_read():
 		):
 			update_permission_property(doctype, ACCOUNTS_READER_ROLE, 0, ptype, value)
 
-	for report in ACCOUNTS_REPORTS:
+	_grant_reports(ACCOUNTS_REPORTS)
+	frappe.db.commit()
+
+
+def _grant_reports(reports):
+	"""Put ACCOUNTS_READER_ROLE on each of these standard reports.
+
+	A standard Report cannot be edited outside developer mode, so the role goes
+	on a Custom Role instead. Note that Report.is_permitted REPLACES the
+	standard roles with the custom ones when a Custom Role exists — so the
+	roles already on the report are carried across, or granting the finance
+	officer access would revoke it from every accountant.
+	"""
+	for report in reports:
 		if not frappe.db.exists("Report", report):
 			continue
-		# A standard Report cannot be edited outside developer mode, so the role
-		# goes on a Custom Role instead. Note that Report.is_permitted REPLACES
-		# the standard roles with the custom ones when a Custom Role exists — so
-		# the roles already on the report are carried across, or granting an
-		# underwriter access would revoke it from every accountant.
 		standard = frappe.get_all(
 			"Has Role", filters={"parent": report, "parenttype": "Report"}, pluck="role"
 		)
@@ -416,6 +425,57 @@ def ensure_accounts_read():
 			doc.append("roles", {"role": role})
 		doc.save(ignore_permissions=True) if existing else doc.insert(ignore_permissions=True)
 
+
+# THE PORTFOLIO. Lending ships these as standard Script Reports and they have
+# been sitting unreachable: granted to `Loan Manager` and `Employee`, which the
+# disbursement officer only holds by accident of the demo seed, and rendered
+# nowhere in the portal. So the Bank could not answer "what is outstanding" or
+# "what is due next month" without opening the desk.
+#
+# The four Loan Security reports are deliberately NOT here. This build takes no
+# collateral, so they would render an empty table that looks like a portfolio
+# with nothing pledged rather than a feature that does not apply.
+LENDING_REPORTS = (
+	"Loan Outstanding Report",
+	"Past Cashflow Report",
+	"Future Cashflow Report",
+	"Loan Repayment and Closure",
+	"Loan Statement of Account",
+)
+
+# query_report.run checks the `report` permission on the report's ref_doctype,
+# so read alone is not enough to run one — the same lesson ACCOUNTS_READ_DOCTYPES
+# records. Read and report ONLY: this persona reads the portfolio, and every
+# write it is entitled to goes through a whitelisted endpoint in api.py that
+# logs who did it.
+LENDING_READ_DOCTYPES = ("Loan", "Loan Repayment", "Loan Disbursement", "Loan Demand")
+
+
+def ensure_lending_reports_read():
+	"""Let the disbursement officer read the portfolio without writing to it."""
+	from frappe.permissions import add_permission, update_permission_property
+
+	for doctype in LENDING_READ_DOCTYPES:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		if not frappe.db.exists(
+			"Custom DocPerm", {"parent": doctype, "role": ACCOUNTS_READER_ROLE}
+		):
+			add_permission(doctype, ACCOUNTS_READER_ROLE, 0)
+		for ptype, value in (
+			("read", 1),
+			("report", 1),
+			("create", 0),
+			("write", 0),
+			("delete", 0),
+			("submit", 0),
+			("cancel", 0),
+			("amend", 0),
+			("export", 0),
+		):
+			update_permission_property(doctype, ACCOUNTS_READER_ROLE, 0, ptype, value)
+
+	_grant_reports(LENDING_REPORTS)
 	frappe.db.commit()
 
 
@@ -755,7 +815,7 @@ def make_demo_users():
 	# api.disburse_loan).
 	demo_users = (
 		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
-		("finance@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
+		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Finance Officer"),
 		("citizen@example.gy", "Demo Citizen", "Website User", "Citizen"),
 	)
 	from frappe.utils.password import update_password
@@ -779,6 +839,17 @@ def make_demo_users():
 				user.add_roles("Loan Manager")
 			update_password(user.name, password)
 			print(f"created {user_type} {email} with role {role}")
+		elif frappe.db.get_value("User", email, "first_name") != full_name:
+			# The persona was RENAMED after this site was seeded. Seeding runs
+			# on every boot exactly so a later change reaches a site that
+			# already exists, and a display name is no different from a new
+			# persona: without this, "GDB Finance Officer" would outlive the
+			# rename on every environment already built. Saved through the doc
+			# so Frappe recomputes full_name, which is what the portal shows.
+			existing = frappe.get_doc("User", email)
+			existing.first_name = full_name
+			existing.save(ignore_permissions=True)
+			print(f"renamed {email} to {full_name}")
 	frappe.db.commit()
 
 

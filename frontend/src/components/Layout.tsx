@@ -49,6 +49,11 @@ export function Layout() {
               </NavLink>
             )}
             {user?.is_finance && (
+              <NavLink to="/portfolio" className={navLinkClass}>
+                Portfolio
+              </NavLink>
+            )}
+            {user?.is_finance && (
               <NavLink to="/disbursements" className={navLinkClass}>
                 Disbursements
               </NavLink>
@@ -72,7 +77,7 @@ export function Layout() {
             )}
             {user?.is_finance && (
               <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-semibold text-sky-800">
-                Finance
+                Disbursement Officer
               </span>
             )}
             {user?.eid && <span className="ml-2 font-mono text-xs text-slate-400">{user.eid}</span>}

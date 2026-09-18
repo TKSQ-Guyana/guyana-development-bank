@@ -98,7 +98,7 @@ def _require_finance() -> str:
 	if not _is_finance(user):
 		_logger().warning(f"denied finance endpoint to {user}")
 		frappe.throw(
-			_("Only the GDB finance officer may do this."), frappe.PermissionError
+			_("Only the GDB disbursement officer may do this."), frappe.PermissionError
 		)
 	return user
 
