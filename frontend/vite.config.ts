@@ -14,6 +14,14 @@ export default defineConfig({
         changeOrigin: true,
         headers: { 'X-Frappe-Site-Name': 'gdb.localhost' },
       },
+      // Uploaded evidence is private, and Frappe serves private files from
+      // /private/files/ with a permission check of its own. Without this route
+      // an applicant's own PDF 404s against the vite dev server.
+      '/private/files': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        headers: { 'X-Frappe-Site-Name': 'gdb.localhost' },
+      },
     },
   },
 });

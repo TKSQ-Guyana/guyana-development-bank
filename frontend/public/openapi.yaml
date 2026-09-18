@@ -26,6 +26,16 @@ tags:
   - name: auth
   - name: citizen
   - name: underwriter
+    description: |
+      The officer who DECIDES: review, offer, conditions, booking, document
+      review. Not release — see the finance tag.
+  - name: finance
+    description: |
+      The officer who MOVES MONEY: disbursement, the payment file, collections.
+      A separate role from the underwriter, and `disburse_loan` additionally
+      refuses whoever approved the case, so one person holding both roles
+      still cannot decide and pay the same application.
+  - name: documents
 
 paths:
   /api/method/login:
@@ -184,10 +194,559 @@ paths:
                   message: { $ref: '#/components/schemas/Whoami' }
         '401': { description: Not logged in }
 
+  /api/method/gdb_bank.api.save_application:
+    post:
+      tags: [citizen]
+      summary: Create or update the applicant's DRAFT application
+      description: |
+        A draft is not before the Bank: `all_loans` excludes it and only
+        `submit_application` moves it across. It exists so evidence can be
+        attached to something before the application is made, and so a dropped
+        session loses nothing. Pass `name` to update an existing draft.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loan_amount, purpose, term_months]
+              properties:
+                loan_amount: { type: number, example: 450000 }
+                purpose: { type: string, example: Expand the poultry pens }
+                term_months: { type: integer, minimum: 1, maximum: 360, example: 18 }
+                monthly_income: { type: number, example: 90000 }
+                phone: { type: string, example: '+592-600-1234' }
+                business_stage: { type: string, enum: [Existing, New] }
+                dcra_number: { type: string, nullable: true }
+                business_name: { type: string, nullable: true }
+                name:
+                  type: string
+                  nullable: true
+                  description: An existing draft to update. Omit to create one.
+      responses:
+        '200':
+          description: The draft, status `Draft`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanApplication' }
+        '403': { description: Not your draft }
+
+  /api/method/gdb_bank.api.submit_application:
+    post:
+      tags: [citizen]
+      summary: Put a draft before the Bank (documents are optional)
+      description: |
+        Never refused for missing evidence. Documents are optional at
+        submission: the types the Bank EXPECTS (Identity always, plus
+        Financials for an existing business or a Business Plan for a new one)
+        are advisory only, surfaced as the `missing` array of
+        `gdb_bank.documents.list_documents` and recorded on the submit log
+        line. An underwriter chases what is outstanding with
+        `gdb_bank.documents.request_information`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: ACC-LOAP-2026-00028 }
+      responses:
+        '200':
+          description: The submitted application, status `Submitted`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanApplication' }
+        '417': { description: Not a draft — already submitted }
+
+  /api/method/gdb_bank.api.discard_application:
+    post:
+      tags: [citizen]
+      summary: Abandon a draft (drafts only — a submitted application is the Bank's record)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200': { description: "{ discarded: <name> }" }
+        '403': { description: Not your draft }
+
+  /api/method/gdb_bank.documents.new_document:
+    post:
+      tags: [documents]
+      summary: Open a shelf row — step 1 of 3 in adding evidence
+      description: |
+        Evidence is added in three calls, and the middle one is the framework's:
+
+          1. `new_document` — the row, so the file has something to attach to
+          2. `POST /api/method/upload_file` (multipart: `file`,
+             `doctype=GDB Applicant Document`, `docname=<row name>`,
+             `is_private=1`) — Frappe's own endpoint
+          3. `confirm_document` — the row is stamped with what arrived
+
+        Step 2 is what makes the private file readable by exactly the people
+        who may read the row: `File.has_permission` delegates to the attached
+        document. PDF only, 10 MB, enforced in a `File.before_insert` hook.
+
+        Omit `application` for a personal document (Identity, Proof of
+        Address); those follow the person across applications.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [document_type]
+              properties:
+                document_type:
+                  type: string
+                  enum: [Identity, Proof of Address, Financials, Business Plan, Bank Statement, Quotation, Other]
+                application: { type: string, nullable: true }
+                request:
+                  type: string
+                  nullable: true
+                  description: The information request this answers; it closes when the file lands.
+      responses:
+        '200':
+          description: The shelf row, with no file yet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/ApplicantDocument' }
+        '403': { description: Not your application — staff cannot upload on an applicant's behalf }
+
+  /api/method/upload_file:
+    post:
+      tags: [documents]
+      summary: Frappe's OWN upload endpoint — step 2 of 3, multipart
+      description: |
+        Not a gdb_bank endpoint. It is used directly because
+        `File.has_permission` delegates a private file's access to the document
+        it is attached to: attaching to the shelf row is what makes the PDF
+        readable by the applicant and by GDB staff and by nobody else, decided
+        by the framework rather than by a second implementation here.
+
+        Send `multipart/form-data` and let the client set the boundary — naming
+        `Content-Type` by hand breaks the upload. POST only (Frappe v16).
+
+        The file lands as `/private/files/<name>`, which Frappe serves only
+        after checking permissions, and which nginx and vite both proxy.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, doctype, docname, is_private]
+              properties:
+                file: { type: string, format: binary, description: PDF, 10 MB max. }
+                doctype: { type: string, enum: [GDB Applicant Document] }
+                docname: { type: string, description: The row from new_document. }
+                is_private: { type: integer, enum: [1] }
+      responses:
+        '200':
+          description: The File document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      file_url: { type: string, example: /private/files/national-id.pdf }
+                      file_name: { type: string }
+                      file_size: { type: integer }
+                      is_private: { type: integer, example: 1 }
+        '403': { description: No write permission on the row being attached to }
+        '417': { description: Not a PDF, or over the size limit }
+
+  /api/method/gdb_bank.documents.confirm_document:
+    post:
+      tags: [documents]
+      summary: Stamp the shelf row with the uploaded file — step 3 of 3
+      description: |
+        Also retires the previous document of the same type on the same case
+        (`status: Replaced`, `superseded_by` pointing at this one), and closes
+        the information request this answers, if any.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: GDB-DOC-2026-00002 }
+      responses:
+        '200':
+          description: The stamped row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/ApplicantDocument' }
+        '417': { description: No file arrived for this row }
+
+  /api/method/gdb_bank.documents.list_documents:
+    post:
+      tags: [documents]
+      summary: The shelf for a case (plus the applicant's personal documents)
+      description: |
+        Readable by whoever may read the case. Staff may also pass `applicant`
+        to read one person's shelf — how a cluster member's own documents reach
+        the underwriter deciding the head's application.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                application: { type: string, nullable: true }
+                applicant: { type: string, nullable: true, description: Staff only. }
+      responses:
+        '200':
+          description: Documents, what is still missing, and the upload limits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      documents:
+                        type: array
+                        items: { $ref: '#/components/schemas/ApplicantDocument' }
+                      missing:
+                        type: array
+                        description: Expected document types not yet on file. Advisory — it blocks nothing.
+                        items: { type: string }
+                      settings:
+                        type: object
+                        properties:
+                          types: { type: array, items: { type: string } }
+                          personal_types: { type: array, items: { type: string } }
+                          accepts: { type: string, example: .pdf }
+                          max_bytes: { type: integer, example: 10485760 }
+        '403': { description: Not your application, or not your shelf }
+
+  /api/method/gdb_bank.documents.delete_document:
+    post:
+      tags: [documents]
+      summary: Remove a document from a draft
+      description: Refused once the application is submitted — replace it instead.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200': { description: "{ deleted: <name>, missing: [...] }" }
+        '403': { description: Not your document }
+        '417': { description: Belongs to a submitted application }
+
+  /api/method/gdb_bank.documents.review_document:
+    post:
+      tags: [underwriter]
+      summary: Accept or reject one document, with a reason the applicant sees
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, status]
+              properties:
+                name: { type: string, example: GDB-DOC-2026-00005 }
+                status: { type: string, enum: [Accepted, Rejected] }
+                note: { type: string, example: Only three months are shown. }
+      responses:
+        '200':
+          description: The reviewed row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/ApplicantDocument' }
+        '403': { description: Underwriters only }
+
+  /api/method/gdb_bank.documents.request_information:
+    post:
+      tags: [underwriter]
+      summary: Ask the applicant for something, itemised
+      description: |
+        An open item both sides can see and count, rather than a message. The
+        applicant answers by uploading against it (`new_document` with
+        `request`), and it closes itself.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application, item]
+              properties:
+                application: { type: string }
+                item: { type: string, example: Six months of bank statements }
+                document_type: { type: string, nullable: true }
+      responses:
+        '200':
+          description: The request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/InformationRequest' }
+        '403': { description: Underwriters only }
+        '417': { description: Application not submitted yet }
+
+  /api/method/gdb_bank.documents.withdraw_request:
+    post:
+      tags: [underwriter]
+      summary: Take back an ask (kept as a withdrawn row, never deleted)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200': { description: The withdrawn request }
+        '403': { description: Underwriters only }
+
+  /api/method/gdb_bank.documents.list_requests:
+    post:
+      tags: [documents]
+      summary: Everything the Bank has asked for on this case
+      description: Applicant-visible by design — an ask nobody can read cannot be answered.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application]
+              properties:
+                application: { type: string }
+      responses:
+        '200':
+          description: Requests and how many are open
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      requests:
+                        type: array
+                        items: { $ref: '#/components/schemas/InformationRequest' }
+                      open: { type: integer }
+
+  /api/method/gdb_bank.profiles.my_profile:
+    post:
+      tags: [citizen]
+      summary: The applicant's own details — asserted and declared, side by side
+      description: |
+        Two blocks that are never merged: `verified_*` is what the e-ID
+        directory said at sign-in, the rest is what the applicant typed. An
+        underwriter reads both, because where they disagree is the case worth
+        looking at.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: The profile, created empty on first read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/CitizenProfile' }
+
+  /api/method/gdb_bank.profiles.save_profile:
+    post:
+      tags: [citizen]
+      summary: Fill in the declared half of the profile
+      description: The verified half is the directory's and cannot be written here.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string }
+                date_of_birth: { type: string, format: date }
+                occupation: { type: string }
+                region: { type: string, example: Region 4 — Demerara-Mahaica }
+                village_or_town: { type: string }
+                address: { type: string }
+                next_of_kin: { type: string }
+                next_of_kin_phone: { type: string }
+      responses:
+        '200':
+          description: The updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/CitizenProfile' }
+
+  /api/method/gdb_bank.profiles.profile_of:
+    post:
+      tags: [underwriter]
+      summary: One person's profile, for staff (read only)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user]
+              properties:
+                user: { type: string, example: asha.persaud@example.gy }
+      responses:
+        '200':
+          description: The profile, or null if they have never filled one in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/CitizenProfile' }
+        '403': { description: Staff only, or your own }
+
+  /api/method/gdb_bank.api.invite_member:
+    post:
+      tags: [citizen]
+      summary: The cluster head invites an e-ID
+      description: |
+        The invitee joins by ACCEPTING, signed in as themselves — nobody is
+        added to a group they never agreed to. An e-ID with no portal account
+        yet is a valid invitee: the row waits against the bare e-ID and links
+        on their first e-ID sign-in.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eid]
+              properties:
+                eid: { type: string, example: 592-3333-0003 }
+                full_name: { type: string, nullable: true, description: Shown until they sign in. }
+      responses:
+        '200': { description: The cluster, with the invitation on the roster }
+        '403': { description: Cluster head only }
+        '417': { description: Already invited, or already in a cluster }
+
+  /api/method/gdb_bank.api.my_invitations:
+    post:
+      tags: [citizen]
+      summary: Clusters this person has been asked to join and has not answered
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: Array of clusters, each with head_name and invited_on }
+
+  /api/method/gdb_bank.api.respond_to_invitation:
+    post:
+      tags: [citizen]
+      summary: Accept or decline an invitation
+      description: |
+        Accepting is what turns the row from an e-ID into a member: `member` is
+        stamped from the session, so a row can never be activated for somebody
+        other than the person answering it.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cluster]
+              properties:
+                cluster: { type: string }
+                accept: { type: integer, enum: [0, 1], default: 1 }
+      responses:
+        '200': { description: "The cluster on accept; { declined: <cluster> } on decline" }
+        '417': { description: No outstanding invitation, or already in a cluster }
+
+  /api/method/gdb_bank.conditions.add_condition:
+    post:
+      tags: [underwriter]
+      summary: Add a case-specific condition precedent after the offer went out
+      description: |
+        Blocks release exactly like a condition raised from the Letter of Offer
+        — `disburse_loan` reads `outstanding`, which does not care where a
+        condition came from — and the applicant sees it in the same checklist.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application, description]
+              properties:
+                application: { type: string }
+                description: { type: string, example: Site visit to the pens completed. }
+                is_required: { type: integer, enum: [0, 1], default: 1 }
+      responses:
+        '200': { description: The condition }
+        '403': { description: Underwriters only }
+
   /api/method/gdb_bank.api.apply_loan:
     post:
       tags: [citizen]
-      summary: Submit a loan application (status starts at Submitted)
+      summary: Save and submit in one call
+      description: |
+        `save_application` followed by `submit_application`. Documents are
+        optional at submission, so this one-shot call succeeds with an empty
+        shelf; use the two-phase flow when the applicant wants to attach
+        evidence before the Bank sees the case.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -349,7 +908,7 @@ paths:
 
   /api/method/gdb_bank.api.disburse_loan:
     post:
-      tags: [underwriter]
+      tags: [finance]
       summary: Disburse a booked loan (generates the repayment schedule)
       description: |
         Submits a lending **Loan Disbursement** against the booked Loan. This
@@ -450,6 +1009,10 @@ paths:
         '417': { description: Not booked, or not open for repayment }
 
 components:
+  schemas_note: |
+    ApplicantDocument, InformationRequest and CitizenProfile below are the
+    evidence surfaces. Files themselves are private and served by Frappe from
+    /private/files/..., which checks permissions on every request.
   securitySchemes:
     cookieAuth:
       type: apiKey
@@ -457,6 +1020,71 @@ components:
       name: sid
       description: Frappe session cookie from /api/method/login
   schemas:
+    ApplicantDocument:
+      type: object
+      properties:
+        name: { type: string, example: GDB-DOC-2026-00002 }
+        applicant: { type: string, example: citizen@example.gy }
+        applicant_name: { type: string, nullable: true }
+        application:
+          type: string
+          nullable: true
+          description: Null for a personal document held against the person.
+        document_type: { type: string, example: Identity }
+        status: { type: string, enum: [Received, Accepted, Rejected, Replaced] }
+        request: { type: string, nullable: true }
+        file_url:
+          type: string
+          nullable: true
+          example: /private/files/national-id.pdf
+          description: Private. Frappe serves it only to someone who may read this row.
+        file_name: { type: string, nullable: true, example: national-id.pdf }
+        file_size: { type: integer, nullable: true, example: 592 }
+        uploaded_on: { type: string, nullable: true }
+        reviewed_by: { type: string, nullable: true }
+        reviewed_on: { type: string, nullable: true }
+        review_note: { type: string, nullable: true }
+        superseded_by: { type: string, nullable: true }
+        creation: { type: string }
+    InformationRequest:
+      type: object
+      properties:
+        name: { type: string, example: GDB-REQ-2026-00001 }
+        application: { type: string }
+        applicant: { type: string }
+        status: { type: string, enum: [Open, Satisfied, Withdrawn] }
+        document_type: { type: string, nullable: true }
+        item: { type: string, example: Six months of bank statements }
+        requested_by: { type: string, nullable: true }
+        requested_on: { type: string, nullable: true }
+        satisfied_by: { type: string, nullable: true, example: GDB-DOC-2026-00005 }
+        responded_on: { type: string, nullable: true }
+    CitizenProfile:
+      type: object
+      description: |
+        Two blocks, never merged. `verified_*` is asserted by the e-ID
+        directory at sign-in; the rest is declared by the applicant.
+      properties:
+        name: { type: string }
+        user: { type: string }
+        eid: { type: string, nullable: true }
+        full_name: { type: string, nullable: true }
+        updated_on: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        date_of_birth: { type: string, nullable: true }
+        occupation: { type: string, nullable: true }
+        region: { type: string, nullable: true }
+        village_or_town: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        next_of_kin: { type: string, nullable: true }
+        next_of_kin_phone: { type: string, nullable: true }
+        verified_full_name: { type: string, nullable: true }
+        verified_email: { type: string, nullable: true }
+        verified_phone: { type: string, nullable: true }
+        verified_birth_date: { type: string, nullable: true }
+        verified_address: { type: string, nullable: true }
+        identity_source: { type: string, nullable: true, example: e-ID directory }
+        verified_on: { type: string, nullable: true }
     LoanAccount:
       type: object
       properties:
@@ -518,12 +1146,25 @@ components:
         roles:
           type: array
           items: { type: string }
+        eid:
+          type: string
+          nullable: true
+          example: 592-1111-0001
+          description: The e-ID this login is bound to; null for an email/password session.
         is_underwriter: { type: boolean }
+        is_finance:
+          type: boolean
+          description: Money movement — release, payment file, collections, ledger views.
     LoanApplication:
       type: object
       properties:
         name: { type: string, example: ACC-LOAP-2026-00001 }
         applicant: { type: string, example: citizen@example.gy }
+        applicant_eid:
+          type: string
+          nullable: true
+          example: 592-1111-0001
+          description: How GDB staff identify an applicant. Null if they have never used an e-ID.
         applicant_name: { type: string, example: Demo Citizen }
         loan_amount: { type: number, example: 2500000 }
         purpose: { type: string }
@@ -532,7 +1173,10 @@ components:
         phone: { type: string, nullable: true }
         status:
           type: string
-          enum: [Submitted, Approved, Rejected]
+          enum: [Draft, Submitted, Approved, Rejected]
+          description: |
+            `Draft` is the applicant's own workspace (docstatus 0) — saved,
+            attachable, not before the Bank. Staff queues never show it.
         underwriter_remarks: { type: string, nullable: true }
         reviewed_by: { type: string, nullable: true }
         reviewed_on: { type: string, nullable: true, example: '2026-09-09 18:17:30.004591' }

@@ -8,8 +8,20 @@ import { formatGyd, formatDate } from '../utils';
  *  and, for a cluster facility, to every member of the cluster.
  *
  *  Every figure here comes from frappe/lending — the schedule rows it
- *  generated and the dues it reports. The portal computes nothing. */
-export function LoanAccount({ application }: { application: string }) {
+ *  generated and the dues it reports. The portal computes nothing.
+ *
+ *  `canPay` is false for GDB staff. They may read the account — an underwriter
+ *  reviewing a case needs to — but the payment box is the borrower's, and a
+ *  bank officer recording money that arrived uses Collections, which starts
+ *  from a Bank Transaction rather than from a form. The server refuses either
+ *  way (api._may_repay); this keeps the button from being there to press. */
+export function LoanAccount({
+  application,
+  canPay = true,
+}: {
+  application: string;
+  canPay?: boolean;
+}) {
   const [account, setAccount] = useState<LoanAccountType | null>(null);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -147,6 +159,14 @@ export function LoanAccount({ application }: { application: string }) {
         </button>
       )}
 
+      {!canPay && (
+        <p className="mt-5 border-t border-slate-200 pt-4 text-sm text-slate-500">
+          Payments are recorded by the borrower. Money received at the Bank is applied from
+          Collections, against the bank statement it arrived on.
+        </p>
+      )}
+
+      {canPay && (
       <form onSubmit={(e) => void pay(e)} className="mt-5 border-t border-slate-200 pt-4">
         <p className="mb-3 text-sm font-medium text-slate-700">Make a payment</p>
         {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -173,6 +193,7 @@ export function LoanAccount({ application }: { application: string }) {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

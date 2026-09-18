@@ -5,7 +5,11 @@ import { useAuth } from '../auth';
 import { Disbursement } from '../components/Disbursement';
 import { LoanAccount } from '../components/LoanAccount';
 import { OfferPanel } from '../components/OfferPanel';
+import { ApplicantProfile } from '../components/ApplicantProfile';
+import { ClusterMembers } from '../components/ClusterMembers';
 import { Conditions } from '../components/Conditions';
+import { DocumentShelf } from '../components/DocumentShelf';
+import { InformationRequests } from '../components/InformationRequests';
 import { IssueOffer } from '../components/IssueOffer';
 import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication } from '../types';
@@ -27,6 +31,9 @@ export function LoanDetail() {
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The server's list of expected documents not yet on file, handed up by the
+  // shelf. Only ever displayed — it gates nothing, on either side of the desk.
+  const [missing, setMissing] = useState<string[]>([]);
   // Bumped when the bank books or disburses, so the borrower-facing account
   // below remounts and refetches instead of showing a stale schedule.
   const [accountKey, setAccountKey] = useState(0);
@@ -58,6 +65,24 @@ export function LoanDetail() {
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
   const reviewable = loan.status === 'Submitted';
+  const isDraft = loan.status === 'Draft';
+  const mine = loan.applicant === user?.user;
+
+  const submitDraft = async () => {
+    if (!name) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setLoan(await call<LoanApplication>('gdb_bank.api.submit_application', { name }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit');
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Staff read the case; only the borrower pays it, and only finance releases
+  // it. Both rules are the server's — these flags decide what to draw.
+  const isStaff = Boolean(user?.is_underwriter || user?.is_finance);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -70,7 +95,17 @@ export function LoanDetail() {
       </div>
 
       <div className="rounded-xl bg-white p-6 shadow">
-        <Row label="Applicant" value={`${loan.applicant_name} (${loan.applicant})`} />
+        <Row
+          label="Applicant"
+          value={
+            <>
+              {loan.applicant_name}
+              <span className="ml-2 font-mono text-xs text-slate-500">
+                {loan.applicant_eid ?? 'no e-ID on file'}
+              </span>
+            </>
+          }
+        />
         <Row label="Loan amount" value={formatGyd(loan.loan_amount)} />
         <Row label="Term" value={`${loan.term_months} months`} />
         <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
@@ -81,6 +116,57 @@ export function LoanDetail() {
           <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
         </div>
       </div>
+
+      {/* Who the applicant is, asserted and declared side by side. Staff only:
+          the applicant has this on their own My Details page, where they can
+          edit the half that is theirs. */}
+      {isStaff && <ApplicantProfile user={loan.applicant} />}
+
+      {/* A cluster head applies for the group, so the group is part of the
+          case: who they are, and what each of them has filed. */}
+      {isStaff && loan.cluster && <ClusterMembers cluster={loan.cluster} />}
+
+      {/* The evidence the case is decided on, and anything the Bank has asked
+          for since. Both sides read the same shelf: the applicant uploads and
+          replaces, the underwriter accepts or rejects each item. */}
+      {name && (
+        <DocumentShelf
+          key={`docs-${accountKey}`}
+          application={name}
+          canUpload={!isStaff && mine}
+          onChange={setMissing}
+          title="Documents on this application"
+        />
+      )}
+
+      {/* Resume point for a draft. The shelf sits above it and tells the
+          applicant what GDB will want — it no longer holds the button down. */}
+      {isDraft && mine && (
+        <div className="mt-4 rounded-xl border border-gdb-gold/60 bg-white p-6 shadow">
+          <h2 className="mb-2 font-semibold">Not yet submitted</h2>
+          <p className="mb-3 text-sm text-slate-600">
+            {missing.length > 0
+              ? `You can submit now. GDB will ask for your ${missing.join(', ')} during review — attaching it above first usually means a faster decision.`
+              : 'Everything GDB expects is attached. Submit when you are ready — an underwriter reviews it next.'}
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void submitDraft()}
+            className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+          >
+            {busy ? 'Submitting…' : 'Submit application'}
+          </button>
+        </div>
+      )}
+
+      {name && loan.status !== 'Draft' && (
+        <InformationRequests
+          key={`req-${accountKey}`}
+          application={name}
+          onChange={() => setAccountKey((k) => k + 1)}
+        />
+      )}
 
       {/* Offer before money. An approval is a decision; the accepted Letter
           of Offer is the agreement, and booking waits on it. */}
@@ -106,11 +192,21 @@ export function LoanDetail() {
         />
       )}
 
-      {loan.status === 'Approved' && name && user?.is_underwriter && (
+      {/* Booking is the underwriter's, release is finance's — the panel shows
+          each officer only the half that is theirs. */}
+      {loan.status === 'Approved' && name && isStaff && (
         <Disbursement application={name} onChange={() => setAccountKey((k) => k + 1)} />
       )}
 
-      {loan.status === 'Approved' && name && <LoanAccount key={accountKey} application={name} />}
+      {/* The ledger panel is for the borrower and for finance. An underwriter
+          decides the case; what is drawn and repaid afterwards is not their
+          screen. Cluster members reach the head's facility here too — they are
+          not staff, so the same branch carries them.
+          DISPLAY ONLY: `api.loan_account` still answers any staff caller, so
+          this hides the panel rather than withholding the data. */}
+      {loan.status === 'Approved' && name && (!isStaff || user?.is_finance) && (
+        <LoanAccount key={accountKey} application={name} canPay={!isStaff} />
+      )}
 
       {(loan.underwriter_remarks || loan.reviewed_by) && (
         <div className="mt-4 rounded-xl bg-white p-6 shadow">

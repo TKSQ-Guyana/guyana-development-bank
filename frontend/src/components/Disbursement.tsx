@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { call } from '../api';
+import { useAuth } from '../auth';
 import type { LoanAccount as LoanAccountType } from '../types';
 import { formatGyd } from '../utils';
 
 /** Booking and disbursement — the bank's side of an approved application.
  *
- *  Underwriters only, and the server decides that independently of this
- *  component. Both actions are lending's own (`create_loan`, then a Loan
- *  Disbursement): the only figure this offers is what is still undrawn, and
- *  even that is a default lending is free to refuse. */
+ *  TWO OFFICERS, ONE PANEL. Booking belongs to the underwriter and release to
+ *  the finance officer, so each sees their own half and is told who owns the
+ *  other. The server decides both independently of this component, and refuses
+ *  release outright to the person who approved the case.
+ *
+ *  Both actions are lending's own (`create_loan`, then a Loan Disbursement):
+ *  the only figure this offers is what is still undrawn, and even that is a
+ *  default lending is free to refuse. */
 export function Disbursement({
   application,
   onChange,
@@ -17,6 +22,7 @@ export function Disbursement({
   application: string;
   onChange: () => void;
 }) {
+  const { user } = useAuth();
   const [account, setAccount] = useState<LoanAccountType | null>(null);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -55,8 +61,10 @@ export function Disbursement({
 
   const loan = account.loan;
   const drawable = account.disbursable ?? 0;
-  const disbursable =
+  const awaitingRelease =
     !!loan && drawable > 0 && (loan.status === 'Sanctioned' || loan.status === 'Partially Disbursed');
+  const mayBook = Boolean(user?.is_underwriter);
+  const mayRelease = Boolean(user?.is_finance);
 
   const disburse = (e: FormEvent) => {
     e.preventDefault();
@@ -81,7 +89,7 @@ export function Disbursement({
       )}
       {note && <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{note}</p>}
 
-      {!loan && (
+      {!loan && mayBook && (
         <>
           <p className="mb-3 text-sm text-slate-600">
             Approved, but no loan account exists yet. Booking creates the loan and its terms.
@@ -96,7 +104,21 @@ export function Disbursement({
         </>
       )}
 
-      {disbursable && (
+      {!loan && !mayBook && (
+        <p className="text-sm text-slate-600">
+          Approved, but no loan account exists yet. An underwriter books the loan before funds
+          can be released.
+        </p>
+      )}
+
+      {awaitingRelease && !mayRelease && (
+        <p className="text-sm text-slate-600">
+          {formatGyd(drawable)} is awaiting release. Funds are released by the finance officer,
+          who must be someone other than the officer who approved this application.
+        </p>
+      )}
+
+      {awaitingRelease && mayRelease && (
         <form onSubmit={disburse}>
           <p className="mb-3 text-sm text-slate-600">
             {formatGyd(drawable)} of {formatGyd(loan.loan_amount)} is available to disburse.
@@ -125,7 +147,7 @@ export function Disbursement({
         </form>
       )}
 
-      {loan && !disbursable && (
+      {loan && !awaitingRelease && (
         <p className="text-sm text-slate-600">
           {formatGyd(loan.disbursed_amount)} disbursed. Nothing further is awaiting release.
         </p>

@@ -95,6 +95,51 @@ def list_conditions(application: str):
 
 
 @frappe.whitelist()
+def add_condition(application: str, description: str, is_required=1):
+	"""Add a case-specific condition after the offer has gone out. Staff only.
+
+	The standard conditions are raised from the Letter of Offer when it is
+	accepted, and that is right for what the offer says. It is not enough for
+	what a case turns out to need: a valuation that has to be re-done, a lease
+	assignment nobody knew about until the site visit. Without this, an
+	underwriter who learned something after issue had two options — release
+	anyway, or reissue the whole offer.
+
+	A condition added here blocks release exactly like one raised from the
+	offer (api.disburse_loan reads `outstanding`, which does not care where a
+	condition came from), and the applicant sees it in the same checklist.
+	"""
+	staff = _require_underwriter()
+	description = (description or "").strip()
+	if not description:
+		frappe.throw(_("A condition needs wording."))
+
+	row = frappe.db.get_value("Loan Application", application, ["name", "status"], as_dict=True)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(application))
+
+	# Tie it to the agreement when there is one, so the checklist still reads as
+	# one list against one offer.
+	from gdb_bank.offers import accepted_offer
+
+	agreement = accepted_offer(application)
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "GDB Loan Condition",
+			"application": application,
+			"offer": agreement.name if agreement else None,
+			"description": description,
+			"status": OPEN,
+			"is_required": 1 if frappe.utils.cint(is_required) else 0,
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"condition {doc.name} added to {application} by {staff}")
+	return frappe.db.get_value("GDB Loan Condition", doc.name, CONDITION_FIELDS, as_dict=True)
+
+
+@frappe.whitelist()
 def verify_condition(name: str, status: str, note: str | None = None):
 	"""Staff mark a condition met or waived. Underwriter/officer only.
 

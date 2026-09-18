@@ -21,6 +21,16 @@ from gdb_bank.install import LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
 
+# Who may move money. Deliberately a different set from UNDERWRITER_ROLES: an
+# underwriter decides a loan and a finance officer pays it, and the two halves
+# of that sentence are enforced separately — role here, and "the releaser is not
+# the decider" in disburse_loan, which holds even for one person granted both.
+FINANCE_ROLES = {"Finance Officer", "System Manager"}
+
+# Every staff role the portal knows. Used where the question is "is this person
+# the applicant or the bank", not "may they do this particular thing".
+STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
@@ -45,6 +55,7 @@ LOAN_FIELDS = [
 	"gdb_reviewed_on",
 	"rate_of_interest",
 	"repayment_amount",
+	"docstatus",
 	"creation",
 	"modified",
 ]
@@ -78,6 +89,40 @@ def _require_underwriter() -> str:
 	return user
 
 
+def _is_finance(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & FINANCE_ROLES)
+
+
+def _require_finance() -> str:
+	user = _session_user()
+	if not _is_finance(user):
+		_logger().warning(f"denied finance endpoint to {user}")
+		frappe.throw(
+			_("Only the GDB finance officer may do this."), frappe.PermissionError
+		)
+	return user
+
+
+def _is_staff(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
+
+
+def _eids(users) -> dict:
+	"""e-ID for each of these users, in one query.
+
+	The e-ID is how GDB staff identify an applicant — an email address is a
+	mailbox, not an identity, and two people can share one. Fetched in a batch
+	because every list view needs it for every row.
+	"""
+	wanted = {u for u in users if u}
+	if not wanted:
+		return {}
+	rows = frappe.get_all(
+		"User", filters={"name": ["in", list(wanted)]}, fields=["name", "gdb_eid"]
+	)
+	return {r.name: r.gdb_eid for r in rows}
+
+
 @contextmanager
 def _as_system():
 	"""Run a bank-side write as Administrator, handing the session back intact.
@@ -105,12 +150,29 @@ def _as_system():
 		frappe.local.session.data = data
 
 
-def _portal_dict(row) -> dict:
-	"""Normalize a lending Loan Application row to the stable portal shape."""
+def _portal_dict(row, eids: dict | None = None) -> dict:
+	"""Normalize a lending Loan Application row to the stable portal shape.
+
+	`eids` is the batch from _eids() when this is one row of a list; a single
+	row looks its own up. Either way the applicant's e-ID travels with the
+	application, because that — not their mailbox — is who staff are looking at.
+	"""
 	get = row.get if isinstance(row, dict) else lambda f: row.get(f)
+	owner = get("gdb_owner")
+	if eids is None:
+		eids = _eids([owner])
+	# A draft is the applicant's own workspace: it exists so evidence can be
+	# attached before submission, and lending has no status for it (a fresh
+	# application is `Open` the moment it is submitted). docstatus is what
+	# distinguishes them, so the portal reads that rather than inventing a
+	# status field lending would not maintain.
+	status = "Draft" if cint(get("docstatus")) == 0 else STATUS_TO_PORTAL.get(
+		get("status"), get("status")
+	)
 	return {
 		"name": get("name"),
 		"applicant": get("gdb_owner"),
+		"applicant_eid": eids.get(owner),
 		"cluster": get("gdb_cluster"),
 		"business_stage": get("gdb_business_stage"),
 		"dcra_number": get("gdb_dcra_number"),
@@ -121,7 +183,7 @@ def _portal_dict(row) -> dict:
 		"term_months": get("repayment_periods"),
 		"monthly_income": get("gdb_monthly_income"),
 		"phone": get("applicant_phone_number"),
-		"status": STATUS_TO_PORTAL.get(get("status"), get("status")),
+		"status": status,
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),
 		"reviewed_on": get("gdb_reviewed_on"),
@@ -198,11 +260,85 @@ def whoami():
 		"eid": frappe.db.get_value("User", user, "gdb_eid"),
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
+		# Separate capability, separate flag. The SPA gates the money pages on
+		# this, and the server gates the endpoints behind them on the same role
+		# — neither trusts the other's answer.
+		"is_finance": _is_finance(user),
 	}
 
 
-@frappe.whitelist()
-def apply_loan(
+# Guyana. Applicants type their number the way they say it — 600 1234, or
+# 592-600-1234 — and lending's applicant_phone_number is a Phone field, which
+# Frappe refuses without a country code. Refusing the application over that
+# would be the form failing the applicant for answering an OPTIONAL question
+# correctly, and the message Frappe raises names a desk fieldname nobody on
+# this side of the counter has ever seen. So normalise here instead: the only
+# country GDB lends in is the one whose code we can supply.
+GUYANA_DIAL_CODE = "+592"
+
+
+def _normalised_phone(phone: str | None) -> str:
+	"""A phone in the E.164 shape Frappe's Phone field will accept, or "".
+
+	Never throws. A number this cannot make sense of is dropped rather than
+	held against the applicant — it is an optional field, and an underwriter
+	with no phone number is better off than an applicant who cannot apply.
+	"""
+	raw = (phone or "").strip()
+	if not raw:
+		return ""
+
+	plus = raw.startswith("+")
+	digits = "".join(c for c in raw if c.isdigit())
+	if not digits:
+		return ""
+	if plus:
+		return f"+{digits}"
+	# Typed with the country code but no plus — the commonest shape by far.
+	if digits.startswith("592"):
+		return f"+{digits}"
+	return f"{GUYANA_DIAL_CODE}{digits}"
+
+
+def _cluster_for(user: str, cluster: str | None) -> str:
+	"""Which cluster, if any, this application is filed against.
+
+	Belonging to a cluster is not the same as borrowing for it. This used to
+	read `cluster or _cluster_of(user)`, which made the tag a side effect of
+	membership: once a citizen joined a group, every loan they took — the
+	group's seed capital and their own roof repair alike — arrived on an
+	underwriter's desk as the group's, and the applicant was never asked.
+	So the choice is the caller's now, and the default is the applicant's own.
+
+	A cluster loan is a DIFFERENT PRODUCT, not a decoration on a personal one,
+	so it is never reached by accident. Filing against a group takes naming it:
+	omitting the argument means the applicant's own application, exactly as ""
+	does. That is a deliberate break with the older `apply_loan` behaviour,
+	where an omitted cluster meant "whatever group I am in" — a default that
+	tagged a member's roof-repair loan as the group's, and did it precisely for
+	the applicants least likely to notice.
+
+	Two rules hold whatever is passed, because this value decided nothing
+	before it and now decides whose case an underwriter is reading:
+	  - you may only file against a cluster you are an ACTIVE member of;
+	  - only the HEAD may borrow on the group's behalf.
+	"""
+	joined = _cluster_of(user)
+	if cluster is None:
+		return ""
+
+	cluster = (cluster or "").strip()
+	if not cluster:
+		return ""
+	if cluster != joined:
+		frappe.throw(
+			_("You are not a member of cluster {0}.").format(cluster), frappe.PermissionError
+		)
+	_require_head(user, cluster)
+	return cluster
+
+
+def _validated(
 	loan_amount,
 	purpose: str,
 	term_months,
@@ -212,9 +348,14 @@ def apply_loan(
 	business_stage: str | None = None,
 	dcra_number: str | None = None,
 	business_name: str | None = None,
-):
-	"""Create a lending Loan Application for the logged-in citizen."""
-	user = _session_user()
+	user: str | None = None,
+) -> dict:
+	"""Check what the applicant typed, and answer the fields to write.
+
+	Shared by the draft save and the one-shot apply, so that a draft cannot hold
+	anything a submitted application would have refused.
+	"""
+	user = user or _session_user()
 
 	loan_amount = flt(loan_amount)
 	term_months = cint(term_months)
@@ -225,6 +366,8 @@ def apply_loan(
 		frappe.throw(_("Term must be between 1 and 360 months."))
 	if not purpose:
 		frappe.throw(_("Purpose is required."))
+
+	cluster = _cluster_for(user, cluster)
 
 	# Existing vs new business is a real fork, not a label: an existing trading
 	# business is expected to name its DCRA registration, a start-up has none
@@ -247,37 +390,173 @@ def apply_loan(
 	if not product:
 		frappe.throw(_("Loan Product is not configured. Contact the administrator."))
 
-	doc = frappe.get_doc(
-		{
-			"doctype": "Loan Application",
-			"applicant_type": "Customer",
-			"applicant": _get_or_create_customer(user),
-			"applicant_name": frappe.utils.get_fullname(user),
-			"applicant_email_address": user,
-			"applicant_phone_number": (phone or "").strip(),
-			"company": frappe.db.get_value("Loan Product", product, "company"),
-			"posting_date": nowdate(),
-			"loan_product": product,
-			"loan_amount": loan_amount,
-			"is_term_loan": 1,
-			"repayment_method": "Repay Over Number of Periods",
-			"repayment_periods": term_months,
-			"status": "Open",
-			"gdb_owner": user,
-			"gdb_purpose": purpose,
-			"gdb_monthly_income": flt(monthly_income) if monthly_income else 0,
-			"gdb_cluster": cluster or _cluster_of(user),
-			"gdb_business_stage": business_stage,
-			"gdb_dcra_number": dcra_number,
-			"gdb_business_name": business_name,
-		}
+	return {
+		"applicant_type": "Customer",
+		"applicant": _get_or_create_customer(user),
+		"applicant_name": frappe.utils.get_fullname(user),
+		"applicant_email_address": user,
+		"applicant_phone_number": _normalised_phone(phone),
+		"company": frappe.db.get_value("Loan Product", product, "company"),
+		"posting_date": nowdate(),
+		"loan_product": product,
+		"loan_amount": loan_amount,
+		"is_term_loan": 1,
+		"repayment_method": "Repay Over Number of Periods",
+		"repayment_periods": term_months,
+		"status": "Open",
+		"gdb_owner": user,
+		"gdb_purpose": purpose,
+		"gdb_monthly_income": flt(monthly_income) if monthly_income else 0,
+		"gdb_cluster": cluster,
+		"gdb_business_stage": business_stage,
+		"gdb_dcra_number": dcra_number,
+		"gdb_business_name": business_name,
+	}
+
+
+def _own_draft(name: str, user: str):
+	"""A draft the caller owns, or a clear refusal."""
+	row = frappe.db.get_value(
+		"Loan Application", name, ["name", "gdb_owner", "docstatus"], as_dict=True
 	)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(name))
+	if row.gdb_owner != user:
+		frappe.throw(_("You may only edit your own application."), frappe.PermissionError)
+	if cint(row.docstatus) != 0:
+		frappe.throw(_("{0} has already been submitted to GDB.").format(name))
+	return row
+
+
+@frappe.whitelist()
+def save_application(
+	loan_amount,
+	purpose: str,
+	term_months,
+	monthly_income=None,
+	phone: str | None = None,
+	cluster: str | None = None,
+	business_stage: str | None = None,
+	dcra_number: str | None = None,
+	business_name: str | None = None,
+	name: str | None = None,
+):
+	"""Create or update the applicant own DRAFT application.
+
+	A draft exists so evidence can be attached before the application is made:
+	a document shelf needs something to hang off, and asking a citizen to
+	submit first and substantiate afterwards inverts the order the Bank needs
+	them in. It is the resume point too — a session that drops on a Region 9
+	phone connection loses nothing already saved.
+
+	Nothing here is before the Bank: all_loans excludes drafts, and only
+	submit_application moves one across.
+	"""
+	user = _session_user()
+	values = _validated(
+		loan_amount,
+		purpose,
+		term_months,
+		monthly_income=monthly_income,
+		phone=phone,
+		cluster=cluster,
+		business_stage=business_stage,
+		dcra_number=dcra_number,
+		business_name=business_name,
+		user=user,
+	)
+
+	if name:
+		_own_draft(name, user)
+		doc = frappe.get_doc("Loan Application", name)
+		doc.update(values)
+	else:
+		doc = frappe.get_doc(dict(doctype="Loan Application", **values))
 	doc.flags.ignore_permissions = True
-	doc.insert()
+	doc.save()
+	frappe.db.commit()
+	_logger().info(f"draft application {doc.name} saved by {user}")
+	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
+
+
+@frappe.whitelist()
+def submit_application(name: str):
+	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
+
+	Documents used to gate this call. They no longer do: an applicant on a
+	Region 9 phone connection who cannot scan a business plan today should
+	still be able to put their case in front of the Bank, and asking for the
+	paperwork is a conversation the underwriter can have — `request_information`
+	exists for exactly that. The expected-document list is still computed and
+	still shown on both sides of the desk, so nobody decides a thin file
+	without knowing it is thin.
+
+	What is outstanding at the moment of submission goes in the log, because a
+	case that arrived incomplete is a fact about the case and not just about
+	the screen it was typed on.
+	"""
+	user = _session_user()
+	_own_draft(name, user)
+
+	from gdb_bank.documents import missing_evidence
+
+	outstanding = missing_evidence(name)
+
+	doc = frappe.get_doc("Loan Application", name)
+	doc.flags.ignore_permissions = True
 	doc.submit()
 	frappe.db.commit()
-	_logger().info(f"loan application {doc.name} submitted by {user} for {loan_amount}")
-	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
+	_logger().info(
+		f"loan application {name} submitted by {user} for {doc.loan_amount}"
+		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")
+	)
+	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))
+
+
+@frappe.whitelist()
+def discard_application(name: str):
+	"""Abandon a draft. Only ever a draft — once submitted it is the Bank record
+	of what was asked for, and withdrawal is a decision rather than a delete."""
+	user = _session_user()
+	_own_draft(name, user)
+	frappe.delete_doc("Loan Application", name, ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"draft application {name} discarded by {user}")
+	return {"discarded": name}
+
+
+@frappe.whitelist()
+def apply_loan(
+	loan_amount,
+	purpose: str,
+	term_months,
+	monthly_income=None,
+	phone: str | None = None,
+	cluster: str | None = None,
+	business_stage: str | None = None,
+	dcra_number: str | None = None,
+	business_name: str | None = None,
+):
+	"""Save and submit in one call, for an applicant with evidence already filed.
+
+	Kept because it is the published contract (docs/openapi.yaml, the Postman
+	collection), and because a returning applicant whose identity documents are
+	already on their profile has nothing left to attach. It is the two steps
+	back to back, gate included: it cannot submit what save_application would
+	not have saved, or what submit_application would have refused.
+	"""
+	draft = save_application(
+		loan_amount,
+		purpose,
+		term_months,
+		monthly_income=monthly_income,
+		phone=phone,
+		cluster=cluster,
+		business_stage=business_stage,
+		dcra_number=dcra_number,
+		business_name=business_name,
+	)
+	return submit_application(draft["name"])
 
 
 def _is_shared_with(row, user: str) -> bool:
@@ -301,11 +580,14 @@ def my_loans():
 	owners = [user, head] if head and head != user else [user]
 	rows = frappe.get_all(
 		"Loan Application",
-		filters={"gdb_owner": ["in", owners]},
+		filters={"gdb_owner": ["in", owners], "docstatus": ["<", 2]},
 		fields=LOAN_FIELDS,
 		order_by="creation desc",
 	)
-	return [_portal_dict(r) for r in rows if r.gdb_owner == user or _is_shared_with(r, user)]
+	eids = _eids([r.gdb_owner for r in rows])
+	return [
+		_portal_dict(r, eids) for r in rows if r.gdb_owner == user or _is_shared_with(r, user)
+	]
 
 
 @frappe.whitelist()
@@ -314,7 +596,10 @@ def loan_detail(name: str):
 	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(name))
-	if row.gdb_owner != user and not _is_underwriter(user):
+	# Staff of either kind may read a case; only their own endpoints let them
+	# act on it. A draft, though, is nobody's but the applicant's — see
+	# all_loans.
+	if row.gdb_owner != user and not (_is_staff(user) and cint(row.docstatus) == 1):
 		if not _is_shared_with(row, user):
 			frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
 	return _portal_dict(row)
@@ -322,9 +607,21 @@ def loan_detail(name: str):
 
 @frappe.whitelist()
 def all_loans(status: str | None = None):
-	"""Underwriter queue: every citizen application, optionally by status."""
-	_require_underwriter()
-	filters = {}
+	"""The bank's queue: every citizen application, optionally by status.
+
+	Drafts are excluded and that is not a filter but a rule: an application the
+	applicant has not submitted is not before the Bank, and staff reading one
+	would be reading a half-finished statement as though it had been made.
+
+	Open to both staff roles — finance needs the same queue to see what is
+	approved and awaiting release — but reading a case and deciding it are
+	different acts, and only `review_loan` decides.
+	"""
+	user = _session_user()
+	if not _is_staff(user):
+		_logger().warning(f"denied staff queue to {user}")
+		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
+	filters = {"docstatus": 1}
 	if status:
 		filters["status"] = STATUS_FROM_PORTAL.get(status, status)
 	rows = frappe.get_all(
@@ -333,7 +630,8 @@ def all_loans(status: str | None = None):
 		fields=LOAN_FIELDS,
 		order_by="creation desc",
 	)
-	return [_portal_dict(r) for r in rows]
+	eids = _eids([r.gdb_owner for r in rows])
+	return [_portal_dict(r, eids) for r in rows]
 
 
 @frappe.whitelist()
@@ -417,8 +715,60 @@ def convert_lead(lead: str, cluster: str | None = None, purpose: str | None = No
 	_logger().info(f"lead {lead} -> application {doc.name} by {user}")
 	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
 def _cluster_of(user: str) -> str | None:
-	"""The cluster this user is on the roster of, if any."""
-	return frappe.db.get_value("GDB Cluster Member", {"member": user}, "parent")
+	"""The cluster this user has JOINED, if any.
+
+	Active only. An invitation is not membership: someone who has been asked
+	and not yet answered must not have the group's application appear in their
+	list, and must still be free to be invited elsewhere.
+	"""
+	return frappe.db.get_value(
+		"GDB Cluster Member", {"member": user, "member_status": "Active"}, "parent"
+	)
+
+
+def _invitation_of(user: str, eid: str | None = None):
+	"""An outstanding invitation for this person, by user or by bare e-ID.
+
+	The e-ID arm is what lets a head invite somebody who has never signed in:
+	the row exists against the e-ID alone until identity.py links it.
+	"""
+	rows = frappe.get_all(
+		"GDB Cluster Member",
+		filters={"member": user, "member_status": "Invited"},
+		fields=["name", "parent", "member_eid"],
+	)
+	if not rows and eid:
+		rows = frappe.get_all(
+			"GDB Cluster Member",
+			filters={"member_eid": eid, "member_status": "Invited"},
+			fields=["name", "parent", "member_eid"],
+		)
+	return rows[0] if rows else None
+
+
+def link_pending_invitations(user: str, eid: str) -> int:
+	"""Attach invitations raised against an e-ID to the User it turned out to be.
+
+	Called from identity.py on e-ID sign-in. Until this runs the row names an
+	e-ID and no user, which is exactly right — an invitation is issued to a
+	person, and the portal account is how they answer it, not what they are.
+	"""
+	rows = frappe.get_all(
+		"GDB Cluster Member",
+		filters={"member_eid": eid, "member": ["in", ["", None]]},
+		fields=["name", "parent"],
+	)
+	for row in rows:
+		frappe.db.set_value(
+			"GDB Cluster Member",
+			row.name,
+			{"member": user, "member_name": frappe.utils.get_fullname(user)},
+			update_modified=False,
+		)
+	if rows:
+		frappe.db.commit()
+		_logger().info(f"linked {len(rows)} cluster invitation(s) for {eid} -> {user}")
+	return len(rows)
 
 
 def _require_head(user: str, cluster: str) -> None:
@@ -473,11 +823,19 @@ def create_cluster(
 
 
 @frappe.whitelist()
-def invite_member(email: str, full_name: str, password: str | None = None):
-	"""The head adds a member, who gets their own portal login.
+def invite_member(eid: str, full_name: str | None = None):
+	"""The head INVITES somebody by e-ID. They join by accepting, not by being added.
 
-	Demo-grade: the password is returned once so the head can pass it on. With
-	e-ID this becomes an invitation the member accepts with their own identity.
+	This used to take an email address, mint a portal account and drop the
+	person straight onto the roster as Active — with a one-time password handed
+	back for the head to pass along. Two things were wrong with that. A person
+	was made a member of a group without ever agreeing to it, and their
+	credential travelled through somebody else's hands.
+
+	So: the head names an e-ID, which is who a person IS rather than a mailbox
+	they happen to hold; the row is written as Invited; and the invitation is
+	answered by that person, signed in as themselves. If they have never signed
+	in, the row waits against the bare e-ID until they do (link_pending_invitations).
 	"""
 	user = _session_user()
 	cluster = _cluster_of(user)
@@ -485,49 +843,121 @@ def invite_member(email: str, full_name: str, password: str | None = None):
 		frappe.throw(_("You are not in a cluster."))
 	_require_head(user, cluster)
 
-	from frappe.utils import validate_email_address
-	from frappe.utils.password import update_password
+	from gdb_bank.identity import normalize_eid
 
-	email = (email or "").strip().lower()
+	eid = normalize_eid(eid)
 	full_name = (full_name or "").strip()
-	validate_email_address(email, throw=True)
-	if not full_name:
-		frappe.throw(_("Member name is required."))
-	if _cluster_of(email):
-		frappe.throw(_("{0} already belongs to a cluster.").format(email))
 
-	created = False
-	if not frappe.db.exists("User", email):
-		member = frappe.get_doc(
-			{
-				"doctype": "User",
-				"email": email,
-				"first_name": full_name,
-				"user_type": "Website User",
-				"send_welcome_email": 0,
-				"enabled": 1,
-			}
-		).insert(ignore_permissions=True)
-		member.add_roles("Citizen")
-		created = True
-		password = password or f"Gdb-{frappe.generate_hash(length=8)}"
-		update_password(email, password)
+	invitee = frappe.db.get_value("User", {"gdb_eid": eid}, "name")
+	if invitee:
+		if invitee == user:
+			frappe.throw(_("You are already the head of this cluster."))
+		joined = _cluster_of(invitee)
+		if joined:
+			frappe.throw(_("That person already belongs to cluster {0}.").format(joined))
+		full_name = full_name or frappe.utils.get_fullname(invitee)
 
 	doc = frappe.get_doc("GDB Cluster", cluster)
+	for row in doc.get("members") or []:
+		if row.member_eid == eid or (invitee and row.member == invitee):
+			if row.member_status in ("Invited", "Active"):
+				frappe.throw(
+					_("{0} has already been invited to this cluster.").format(eid)
+				)
+			row.member_status = "Invited"
+			row.invited_on = nowdate()
+			row.responded_on = None
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return my_cluster()
+
 	doc.append(
 		"members",
 		{
-			"member": email,
-			"member_name": full_name,
-			"member_status": "Active",
+			"member": invitee,
+			"member_eid": eid,
+			"member_name": full_name or eid,
+			"member_status": "Invited",
 			"invited_on": nowdate(),
-			"joined_on": nowdate(),
 		},
 	)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
-	_logger().info(f"{user} added {email} to cluster {cluster}")
-	return {"email": email, "full_name": full_name, "password": password if created else None}
+	_logger().info(f"{user} invited {eid} to cluster {cluster} (user: {invitee or 'not yet'})")
+	return my_cluster()
+
+
+@frappe.whitelist()
+def my_invitations():
+	"""Clusters this person has been asked to join and has not yet answered."""
+	user = _session_user()
+	eid = frappe.db.get_value("User", user, "gdb_eid")
+	rows = frappe.get_all(
+		"GDB Cluster Member",
+		filters={"member": user, "member_status": "Invited"},
+		fields=["parent", "invited_on"],
+	)
+	if not rows and eid:
+		rows = frappe.get_all(
+			"GDB Cluster Member",
+			filters={"member_eid": eid, "member_status": "Invited"},
+			fields=["parent", "invited_on"],
+		)
+	out = []
+	for row in rows:
+		cluster = frappe.db.get_value(
+			"GDB Cluster", row.parent, ["name", "cluster_name", "region", "sector", "head"], as_dict=True
+		)
+		if not cluster:
+			continue
+		cluster["invited_on"] = row.invited_on
+		cluster["head_name"] = frappe.utils.get_fullname(cluster.head)
+		out.append(cluster)
+	return out
+
+
+@frappe.whitelist()
+def respond_to_invitation(cluster: str, accept=1):
+	"""Accept or decline. The invitee's own act, and nobody else's.
+
+	Accepting is also the moment the row stops being an e-ID and becomes a
+	member: `member` is stamped from the session, so a row can never be
+	activated for somebody other than the person answering it.
+	"""
+	user = _session_user()
+	accepting = bool(cint(accept))
+	eid = frappe.db.get_value("User", user, "gdb_eid")
+
+	doc = frappe.get_doc("GDB Cluster", cluster)
+	row = None
+	for member in doc.get("members") or []:
+		if member.member_status != "Invited":
+			continue
+		if member.member == user or (eid and member.member_eid == eid):
+			row = member
+			break
+	if not row:
+		frappe.throw(_("You have no outstanding invitation to {0}.").format(cluster))
+
+	if accepting:
+		joined = _cluster_of(user)
+		if joined:
+			frappe.throw(_("You already belong to cluster {0}.").format(joined))
+		row.member = user
+		row.member_name = frappe.utils.get_fullname(user)
+		row.member_eid = row.member_eid or eid
+		row.member_status = "Active"
+		row.joined_on = nowdate()
+	else:
+		row.member_status = "Declined"
+	row.responded_on = nowdate()
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(
+		f"{user} {'accepted' if accepting else 'declined'} the invitation to {cluster}"
+	)
+	return my_cluster() if accepting else {"declined": cluster}
 
 
 @frappe.whitelist()
@@ -568,8 +998,12 @@ def cluster_view(cluster: str):
 	user = _session_user()
 	doc = frappe.get_doc("GDB Cluster", cluster)
 	roster = [m.as_dict() for m in doc.get("members") or []]
+	# Invited members are on this list too: somebody deciding whether to accept
+	# has to be able to see the plan they would be joining. What they do NOT
+	# see is any other member's own case — that filter is below and applies to
+	# every non-staff reader alike.
 	members = {m.get("member") for m in roster if m.get("member")}
-	if not (_is_underwriter(user) or user in members):
+	if not (_is_staff(user) or user in members):
 		frappe.throw(_("You are not a member of this cluster."), frappe.PermissionError)
 
 	cases = []
@@ -580,7 +1014,7 @@ def cluster_view(cluster: str):
 		order_by="creation asc",
 	):
 		shared = row.gdb_owner == doc.head
-		if shared or row.gdb_owner == user or _is_underwriter(user):
+		if shared or row.gdb_owner == user or _is_staff(user):
 			cases.append(dict(_portal_dict(row), shared=shared, private=False))
 		else:
 			cases.append(
@@ -592,6 +1026,20 @@ def cluster_view(cluster: str):
 					"private": True,
 				}
 			)
+
+	# Staff reading a cluster case need to know who the other members are, so
+	# the roster carries each member's own details for them. Members see each
+	# other's names and e-IDs and nothing else — the plan is shared, the people
+	# are not each other's business.
+	staff = _is_staff(user)
+	profiles = {}
+	if staff:
+		for row in frappe.get_all(
+			"GDB Citizen Profile",
+			filters={"user": ["in", [m.get("member") for m in roster if m.get("member")] or [""]]},
+			fields=["user", "phone", "region", "village_or_town", "occupation", "verified_phone"],
+		):
+			profiles[row.user] = row
 
 	return {
 		"name": doc.name,
@@ -605,10 +1053,14 @@ def cluster_view(cluster: str):
 		"members": [
 			{
 				"member": m.get("member"),
+				"member_eid": m.get("member_eid"),
 				"member_name": m.get("member_name"),
 				"member_status": m.get("member_status"),
 				"is_head": bool(m.get("is_head")),
 				"is_you": m.get("member") == user,
+				"invited_on": m.get("invited_on"),
+				"joined_on": m.get("joined_on"),
+				"profile": profiles.get(m.get("member")) if staff else None,
 			}
 			for m in roster
 		],
@@ -641,7 +1093,7 @@ def _readable_application(name: str, user: str):
 	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(name))
-	if row.gdb_owner != user and not _is_underwriter(user) and not _is_shared_with(row, user):
+	if row.gdb_owner != user and not _is_staff(user) and not _is_shared_with(row, user):
 		frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
 	return row
 
@@ -702,7 +1154,7 @@ def loan_account(application: str):
 	# portal roles do not hold, and it takes a row lock (for_update), so it is
 	# computed only for the underwriter who is about to act on it.
 	disbursable = None
-	if _is_underwriter(user):
+	if _is_staff(user):
 		from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
 			get_disbursal_amount,
 		)
@@ -762,15 +1214,45 @@ def repayment_plan(loan_name: str, amount) -> dict:
 	}
 
 
+def _may_repay(application: str, user: str):
+	"""The borrower side of a facility: who may pay it FROM THE PORTAL.
+
+	Reading a case and paying it are not the same right, and _readable_application
+	answers the first. Staff pass that check — they must, to review and to
+	release — and for a while that meant an underwriter could post a repayment
+	against a citizen's loan from the borrower's own payment box. Money the Bank
+	never received would have appeared on the ledger as the borrower's payment.
+
+	So this is a separate question with a narrower answer: the applicant, or a
+	member of the cluster whose head raised the facility. Bank-side receipts have
+	their own door — collections.apply_receipt, which starts from a Bank
+	Transaction, i.e. from money that actually arrived.
+	"""
+	row = frappe.db.get_value("Loan Application", application, LOAN_FIELDS, as_dict=True)
+	if not row:
+		frappe.throw(_("Loan Application {0} not found.").format(application))
+	if row.gdb_owner == user or _is_shared_with(row, user):
+		return row
+	if _is_staff(user):
+		_logger().warning(f"denied staff repayment on {application} to {user}")
+		frappe.throw(
+			_("GDB staff cannot record a payment on a borrower's behalf here. Apply the "
+			  "receipt from Collections instead."),
+			frappe.PermissionError,
+		)
+	frappe.throw(_("You may only pay your own loan."), frappe.PermissionError)
+
+
 @frappe.whitelist()
 def make_repayment(application: str, amount):
 	"""Record a repayment against the loan booked from this application.
 
 	Any member of the cluster may pay the group's facility — the ledger records
-	who made the payment, not only whose facility it is.
+	who made the payment, not only whose facility it is. GDB staff may not: see
+	_may_repay.
 	"""
 	user = _session_user()
-	_readable_application(application, user)
+	_may_repay(application, user)
 
 	amount = flt(amount)
 	if amount <= 0:
@@ -896,14 +1378,41 @@ def book_loan(application: str):
 
 @frappe.whitelist()
 def disburse_loan(application: str, amount=None):
-	"""Disburse a booked loan. Underwriter only.
+	"""Release funds on a booked loan. FINANCE OFFICER ONLY, and never the
+	person who approved it.
+
+	TWO GATES, because one would not hold. The role gate says money movement
+	belongs to finance, not to the officer who assessed the credit. The
+	four-eyes gate below says that even a person holding both roles — which
+	happens in a small bank, and which nothing stops an administrator from
+	granting — cannot be both the decider and the releaser on the SAME case.
+	Without the second gate the first is a naming convention: R-131 was proven
+	end to end on this stack, one login carrying an application from decision
+	to G$99,000,000 disbursed.
 
 	Omit `amount` to disburse everything lending says is still drawable. Both
 	the default and the ceiling are lending's: get_disbursal_amount decides what
 	is available, validate_disbursal_amount rules on whatever is asked for, so
 	neither number is computed here.
 	"""
-	user = _require_underwriter()
+	user = _require_finance()
+
+	decision = frappe.db.get_value(
+		"Loan Application", application, ["gdb_reviewed_by", "gdb_owner"], as_dict=True
+	)
+	if decision and decision.gdb_reviewed_by == user:
+		_logger().warning(f"four-eyes: {user} approved {application} and tried to release it")
+		frappe.throw(
+			_("You approved this application, so you cannot release its funds. "
+			  "Another officer must disburse it."),
+			frappe.PermissionError,
+		)
+	# The same principle one step further out: an officer must not pay
+	# themselves, whatever roles they hold.
+	if decision and decision.gdb_owner == user:
+		frappe.throw(
+			_("You cannot release funds on your own application."), frappe.PermissionError
+		)
 
 	loan = _booked_loan(application)
 	if not loan:

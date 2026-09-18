@@ -196,9 +196,17 @@ def password_login(eid: str, password: str) -> dict:
 
 		info = _userinfo(settings, token)
 		if settings["population"] == STAFF:
-			return _establish(eid, _resolve_staff_user(eid, info), created=False, realm=settings["realm"])
+			return _establish(
+				eid,
+				_resolve_staff_user(eid, info),
+				created=False,
+				realm=settings["realm"],
+				claims=info,
+			)
 		user, created = _resolve_user(eid, info)
-		return _establish(eid, user, created=created, realm=settings["realm"])
+		return _establish(
+			eid, user, created=created, realm=settings["realm"], claims=info
+		)
 
 	if not asked_someone:
 		frappe.throw(_("Could not reach the sign-in service. Please try again."))
@@ -208,7 +216,7 @@ def password_login(eid: str, password: str) -> dict:
 	frappe.throw(_("Incorrect e-ID or password."), frappe.AuthenticationError)
 
 
-def _establish(eid: str, user: str, *, created: bool, realm: str) -> dict:
+def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict | None = None) -> dict:
 	"""Mint the Frappe session and describe who just signed in."""
 	# The kill switch that works even when Keycloak still authenticates:
 	# disabling the Frappe User ends portal access immediately, with no
@@ -220,13 +228,29 @@ def _establish(eid: str, user: str, *, created: bool, realm: str) -> dict:
 	frappe.db.commit()
 	_logger().info(f"eid login [{realm}]: {eid} -> {user}{' (provisioned)' if created else ''}")
 
-	from gdb_bank.api import _is_underwriter
+	# TWO THINGS THE E-ID MAKES POSSIBLE, both done here because this is the one
+	# moment the portal holds a directory assertion about this person.
+	#
+	# The claims are recorded as the verified half of their profile — kept
+	# apart from what they themselves declare, never merged (gdb_bank/profiles).
+	#
+	# And any cluster invitation raised against this e-ID before they had an
+	# account is attached to the User it turns out to be. A head can therefore
+	# invite somebody who has never signed in, which is the ordinary case in a
+	# programme reaching people who are not online yet.
+	from gdb_bank.api import _is_finance, _is_underwriter, link_pending_invitations
+	from gdb_bank.profiles import record_identity_claims
+
+	if claims:
+		record_identity_claims(user, eid, claims)
+	link_pending_invitations(user, eid)
 
 	return {
 		"user": user,
 		"full_name": frappe.utils.get_fullname(user),
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
+		"is_finance": _is_finance(user),
 		"provisioned": created,
 		"realm": realm,
 	}

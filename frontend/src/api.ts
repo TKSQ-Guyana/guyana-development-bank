@@ -64,6 +64,53 @@ export const logout = () => call<unknown>('logout');
 export const eidLogin = (eid: string, pwd: string) =>
   call<unknown>('gdb_bank.identity.password_login', { eid, password: pwd });
 
+/** Upload one file through Frappe's OWN endpoint, attached to a document.
+ *
+ *  Not a gdb_bank endpoint on purpose. `File.has_permission` delegates a
+ *  private file's access to the document it hangs off, so attaching here is
+ *  what makes an applicant's PDF readable by that applicant and by GDB staff
+ *  and by nobody else — the framework decides, and there is no second copy of
+ *  that rule in the portal to drift out of step.
+ *
+ *  Content-Type is deliberately unset: the browser has to write the multipart
+ *  boundary itself, and naming the type by hand breaks the upload.
+ */
+export async function uploadFile(
+  file: File,
+  opts: { doctype: string; docname: string },
+): Promise<{ file_url: string; file_name: string }> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  form.append('doctype', opts.doctype);
+  form.append('docname', opts.docname);
+  form.append('is_private', '1');
+
+  const res = await fetch('/api/method/upload_file', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+    body: form,
+  });
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    // A body too large for the proxy never reaches Frappe, so there is no
+    // _server_messages to read — the reply is the proxy's own HTML. Say what
+    // happened rather than surfacing "Upload failed (413)".
+    const fallback =
+      res.status === 413
+        ? 'That file is too large to upload. Please attach a smaller PDF.'
+        : `Upload failed (${res.status})`;
+    throw new ApiError(extractErrorMessage(data, fallback), res.status);
+  }
+  const message = (data as { message?: { file_url?: string; file_name?: string } })?.message ?? {};
+  return { file_url: message.file_url ?? '', file_name: message.file_name ?? file.name };
+}
+
 export interface ReportColumn {
   label: string;
   fieldname: string;

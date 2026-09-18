@@ -20,6 +20,22 @@
     {
       "key": "loanName",
       "value": "ACC-LOAP-2026-00001"
+    },
+    {
+      "key": "documentName",
+      "value": "GDB-DOC-2026-00001"
+    },
+    {
+      "key": "requestName",
+      "value": "GDB-REQ-2026-00001"
+    },
+    {
+      "key": "memberEid",
+      "value": "592-3333-0003"
+    },
+    {
+      "key": "clusterName",
+      "value": ""
     }
   ],
   "item": [
@@ -57,6 +73,41 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"usr\": \"underwriter@gdb.gov.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — finance officer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"finance@gdb.gov.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+            },
+            "description": "The persona that MOVES MONEY. Disbursement, the payment file and collections answer to this login and refuse the underwriter."
+          }
+        },
+        {
+          "name": "Login — e-ID (finance officer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-5555-0005\",\n  \"password\": \"{{eidPassword}}\"\n}"
             }
           }
         },
@@ -207,6 +258,59 @@
       "name": "Citizen",
       "item": [
         {
+          "name": "Save draft application",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.save_application",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loan_amount\": 450000,\n  \"purpose\": \"Expand the poultry pens\",\n  \"term_months\": 18,\n  \"monthly_income\": 90000,\n  \"phone\": \"+592-600-1234\",\n  \"business_stage\": \"New\",\n  \"business_name\": \"Kaieteur Poultry\"\n}"
+            },
+            "description": "A draft is not before the Bank. Copy the returned `name` into the loanName variable, attach documents, then submit."
+          }
+        },
+        {
+          "name": "Submit application (refused while evidence is missing)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.submit_application",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\"\n}"
+            },
+            "description": "Names the missing document types rather than simply refusing."
+          }
+        },
+        {
+          "name": "Discard draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.discard_application",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\"\n}"
+            }
+          }
+        },
+        {
           "name": "Apply for a loan",
           "request": {
             "method": "POST",
@@ -220,7 +324,8 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"loan_amount\": 2500000,\n  \"purpose\": \"Working capital for agro-processing business\",\n  \"term_months\": 36,\n  \"monthly_income\": 450000,\n  \"phone\": \"+592-600-1234\"\n}"
-            }
+            },
+            "description": "Save and submit in one call. Documents are optional at submission, so this succeeds with an empty shelf — use the two-phase flow above when the applicant wants to attach evidence first."
           }
         },
         {
@@ -368,7 +473,7 @@
           }
         },
         {
-          "name": "Disburse loan (generates the schedule)",
+          "name": "Disburse loan — REFUSED for an underwriter",
           "request": {
             "method": "POST",
             "header": [
@@ -382,10 +487,427 @@
               "mode": "raw",
               "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
             },
-            "description": "Submits a lending Loan Disbursement. Omit amount to disburse the full undrawn balance; lending validates the figure. This is what generates the repayment schedule."
+            "description": "Money movement is the finance officer's. Signed in as the underwriter this answers \"Only the GDB finance officer may do this.\" Sign in as finance@gdb.gov.gy and repeat it to see the release.\n\nA second gate sits behind the role: disburse_loan also refuses whoever approved the case, so one account holding both roles still cannot decide and pay the same application."
+          }
+        },
+        {
+          "name": "Add a condition precedent (after the offer went out)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.conditions.add_condition",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\",\n  \"description\": \"Site visit to the pens completed.\"\n}"
+            },
+            "description": "Blocks release exactly like a condition from the Letter of Offer."
+          }
+        },
+        {
+          "name": "Record a repayment — REFUSED for staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.make_repayment",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\",\n  \"amount\": 25000\n}"
+            },
+            "description": "The payment box is the borrower's. Bank-side receipts go through collections.apply_receipt, which starts from a Bank Transaction — money that actually arrived."
           }
         }
       ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "1. New shelf row",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.new_document",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_type\": \"Identity\"\n}"
+            },
+            "description": "Omit `application` for a personal document; it follows the person across applications. Copy the returned `name` into documentName."
+          }
+        },
+        {
+          "name": "2. Upload the PDF (Frappe's own endpoint, multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/method/upload_file",
+            "description": "NOT a gdb_bank endpoint. Attaching to the shelf row is what makes the private file readable by the applicant and by staff and by nobody else — File.has_permission delegates to the attached doc.\n\nLeave Content-Type unset: Postman writes the multipart boundary. Pick a PDF for the `file` field (10 MB max).",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "doctype",
+                  "value": "GDB Applicant Document",
+                  "type": "text"
+                },
+                {
+                  "key": "docname",
+                  "value": "{{documentName}}",
+                  "type": "text"
+                },
+                {
+                  "key": "is_private",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Confirm the document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.confirm_document",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{documentName}}\"\n}"
+            },
+            "description": "Stamps the row, retires the previous document of the same type, and closes the information request it answers."
+          }
+        },
+        {
+          "name": "The shelf (documents + what is still missing)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.list_documents",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "A cluster member's own shelf (staff only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.list_documents",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicant\": \"asha.persaud@example.gy\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete a document (drafts only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.delete_document",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{documentName}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Review a document — reject with a reason (underwriter)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.review_document",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{documentName}}\",\n  \"status\": \"Rejected\",\n  \"note\": \"Only three months are shown.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Request information (underwriter)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.request_information",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\",\n  \"item\": \"Six months of bank statements\",\n  \"document_type\": \"Bank Statement\"\n}"
+            },
+            "description": "An itemised ask both sides can see. The applicant answers by uploading with `request` set, and it closes itself."
+          }
+        },
+        {
+          "name": "Answer a request (applicant) — step 1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.new_document",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_type\": \"Bank Statement\",\n  \"application\": \"{{loanName}}\",\n  \"request\": \"{{requestName}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Withdraw a request (underwriter)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.withdraw_request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{requestName}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "What has been asked for on this case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.documents.list_requests",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            }
+          }
+        }
+      ],
+      "description": "Evidence. Adding one takes three calls and the middle one is the framework's own upload_file — see the request descriptions."
+    },
+    {
+      "name": "Profile & cluster",
+      "item": [
+        {
+          "name": "My details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.profiles.my_profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Save my details (declared half only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.profiles.save_profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+592-677-4411\",\n  \"occupation\": \"Poultry farmer\",\n  \"region\": \"Region 4 \\u2014 Demerara-Mahaica\",\n  \"village_or_town\": \"Mahaica\",\n  \"next_of_kin\": \"R. Persaud\",\n  \"next_of_kin_phone\": \"+592-677-4412\"\n}"
+            },
+            "description": "The verified_* block is the e-ID directory's and cannot be written here."
+          }
+        },
+        {
+          "name": "One applicant's details (staff)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.profiles.profile_of",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"citizen@example.gy\"\n}"
+            },
+            "description": "Both blocks: what the directory asserted and what the applicant declared, never merged."
+          }
+        },
+        {
+          "name": "Invite a member by e-ID (cluster head)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.invite_member",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"{{memberEid}}\",\n  \"full_name\": \"Asha Persaud\"\n}"
+            },
+            "description": "An e-ID with no portal account yet is a valid invitee: the row waits against the bare e-ID and links on their first e-ID sign-in."
+          }
+        },
+        {
+          "name": "My invitations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.my_invitations",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Accept an invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.respond_to_invitation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cluster\": \"{{clusterName}}\",\n  \"accept\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Decline an invitation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.respond_to_invitation",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cluster\": \"{{clusterName}}\",\n  \"accept\": 0\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Finance",
+      "item": [
+        {
+          "name": "Disburse loan (finance officer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.disburse_loan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
+            },
+            "description": "Refused if you approved this application, whatever roles you hold. Omit `amount` to draw everything lending says is available."
+          }
+        },
+        {
+          "name": "Unreconciled receipts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.collections.unreconciled_receipts",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        }
+      ],
+      "description": "Money movement. Sign in as finance@gdb.gov.gy first — these refuse the underwriter."
     }
   ]
 }

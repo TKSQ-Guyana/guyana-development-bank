@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from gdb_bank.api import _as_system, _logger, _require_underwriter, repayment_plan
+from gdb_bank.api import _as_system, _logger, _require_finance, repayment_plan
 
 OPEN_LOAN_STATUSES = ("Disbursed", "Partially Disbursed", "Active")
 
@@ -59,7 +59,7 @@ def unreconciled_receipts(bank_account: str | None = None, limit: int = 50):
 	so the cash is already recognised — what is missing is which loan it
 	belongs to.
 	"""
-	_require_underwriter()
+	_require_finance()
 	filters = {
 		"docstatus": 1,
 		"deposit": [">", 0],
@@ -91,7 +91,7 @@ def suggest_loans(bank_transaction: str, limit: int = 8):
 	party matches. Never applied automatically — a receipt put against the
 	wrong loan is far worse than one that waits for a human.
 	"""
-	_require_underwriter()
+	_require_finance()
 	bt = frappe.db.get_value(
 		"Bank Transaction", bank_transaction, RECEIPT_FIELDS, as_dict=True
 	)
@@ -180,7 +180,7 @@ def apply_receipt(bank_transaction: str, loan: str, amount=None):
 	receipt is the source of truth for the money; this only decides which loan
 	it belongs to.
 	"""
-	staff = _require_underwriter()
+	staff = _require_finance()
 
 	bt = frappe.get_doc("Bank Transaction", bank_transaction)
 	if flt(bt.unallocated_amount) <= 0:

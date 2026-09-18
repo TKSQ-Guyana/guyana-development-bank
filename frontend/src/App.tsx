@@ -9,6 +9,7 @@ import { Finance } from './pages/Finance';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { MyLoans } from './pages/MyLoans';
+import { Profile } from './pages/Profile';
 import { Review } from './pages/Review';
 import { Signup } from './pages/Signup';
 
@@ -30,6 +31,14 @@ function RequireUnderwriter({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Money movement is the finance officer's, not the underwriter's. Mirrored
+ *  server-side in api._require_finance — this only decides what to render. */
+function RequireFinance({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_finance) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 export function App() {
   return (
     <AuthProvider>
@@ -47,6 +56,7 @@ export function App() {
             <Route index element={<MyLoans />} />
             <Route path="/apply" element={<Apply />} />
             <Route path="/cluster" element={<Cluster />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/loans/:name" element={<LoanDetail />} />
             <Route
               path="/review"
@@ -59,17 +69,17 @@ export function App() {
             <Route
               path="/finance"
               element={
-                <RequireUnderwriter>
+                <RequireFinance>
                   <Finance />
-                </RequireUnderwriter>
+                </RequireFinance>
               }
             />
             <Route
               path="/disbursements"
               element={
-                <RequireUnderwriter>
+                <RequireFinance>
                   <Disbursements />
-                </RequireUnderwriter>
+                </RequireFinance>
               }
             />
           </Route>

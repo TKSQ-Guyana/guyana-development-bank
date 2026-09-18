@@ -104,6 +104,134 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "592-5555-0005",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "finance@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Finance Officer",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-6666-0006",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "rani.singh@example.gy",
+      "firstName": "Rani",
+      "lastName": "Singh",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-7777-0007",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "devon.baksh@example.gy",
+      "firstName": "Devon",
+      "lastName": "Baksh",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-8888-0008",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "marcia.khan@example.gy",
+      "firstName": "Marcia",
+      "lastName": "Khan",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-1010-0010",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "anita.ramkissoon@example.gy",
+      "firstName": "Anita",
+      "lastName": "Ramkissoon",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-1122-0011",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "trevor.adams@example.gy",
+      "firstName": "Trevor",
+      "lastName": "Adams",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-1133-0012",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "shanta.narine@example.gy",
+      "firstName": "Shanta",
+      "lastName": "Narine",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "592-1144-0013",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "kwesi.bourne@example.gy",
+      "firstName": "Kwesi",
+      "lastName": "Bourne",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

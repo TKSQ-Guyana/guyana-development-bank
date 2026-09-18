@@ -10,7 +10,7 @@ Admin console: <http://localhost:8086> (`admin` / `admin`).
 
 ## Seeded e-ID accounts
 
-All three use password **`ChangeMe@123`** (the portal's own demo users keep
+All of them use password **`ChangeMe@123`** (the portal's own demo users keep
 `ADMIN_PASSWORD`, default `admin` — two different credential stores, two
 different passwords, deliberately).
 
@@ -19,6 +19,7 @@ different passwords, deliberately).
 | `592-1111-0001` | `citizen@example.gy` | **Links** to the Frappe user the stack already seeds — no duplicate account |
 | `592-2222-0002` | `underwriter@gdb.gov.gy` | Links to the underwriter and keeps its **Frappe** roles — Keycloak grants none |
 | `592-3333-0003` | `asha.persaud@example.gy` | **Provisions** a new Website User with the `Citizen` role |
+| `592-5555-0005` | `finance@gdb.gov.gy` | Links to the finance officer — the persona who releases funds, which the underwriter cannot |
 
 ## Four settings that are load-bearing
 

@@ -53,6 +53,7 @@ export function Review() {
               <tr>
                 <th className="px-4 py-3">Application</th>
                 <th className="px-4 py-3">Applicant</th>
+                <th className="px-4 py-3">e-ID</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Term</th>
                 <th className="px-4 py-3">Submitted</th>
@@ -68,6 +69,9 @@ export function Review() {
                     </Link>
                   </td>
                   <td className="px-4 py-3">{loan.applicant_name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                    {loan.applicant_eid ?? '—'}
+                  </td>
                   <td className="px-4 py-3">{formatGyd(loan.loan_amount)}</td>
                   <td className="px-4 py-3">{loan.term_months} mo</td>
                   <td className="px-4 py-3">{formatDate(loan.creation)}</td>

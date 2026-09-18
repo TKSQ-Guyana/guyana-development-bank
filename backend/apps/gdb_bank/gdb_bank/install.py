@@ -2,9 +2,16 @@ import os
 
 import frappe
 
-# (role_name, desk_access) — Citizen is a website-user role (no desk), the
-# underwriter is a system role so GDB staff can also use the ERPNext desk.
-ROLES = (("Citizen", 0), ("Loan Underwriter", 1))
+# (role_name, desk_access) — Citizen is a website-user role (no desk); the two
+# staff roles are system roles so GDB staff can also use the ERPNext desk.
+#
+# THE SPLIT IS THE POINT. An underwriter decides; a finance officer moves money.
+# One account held both until now, and the consequence was demonstrable: a
+# single login approved, offered, verified every condition, booked and disbursed
+# G$99,000,000 with no second pair of eyes (R-127, R-131). The role boundary
+# below is half the fix — api.disburse_loan carries the other half, because a
+# person granted both roles would otherwise walk straight back through the gap.
+ROLES = (("Citizen", 0), ("Loan Underwriter", 1), ("Finance Officer", 1))
 
 # The banks a citizen may nominate for a payout. Seeded, because the portal's
 # payout destination is a Link to Bank and an empty list is an approved loan
@@ -316,10 +323,10 @@ def ensure_banks():
 # Reading the books, and nothing more. Deliberately NOT ERPNext's stock
 # `Accounts User` role, which the Finance page's own error text suggests: that
 # role also creates and submits Journal Entries, Payment Entries and invoices,
-# and an underwriter who can post entries can move money on the books. The SOW
-# asks for separation of duties, so an underwriter gets read and the `report`
-# permission query_report.run demands — every other permission is set to 0
-# explicitly rather than left to whatever add_permission defaults to.
+# and a portal role that can post entries can move money on the books. So the
+# finance officer gets read and the `report` permission query_report.run
+# demands — every other permission is set to 0 explicitly rather than left to
+# whatever add_permission defaults to.
 ACCOUNTS_READ_DOCTYPES = ("Company", "Fiscal Year", "Account", "GL Entry")
 
 # The four statements the portal's Finance page renders. Each is a standard
@@ -332,16 +339,35 @@ ACCOUNTS_REPORTS = (
 	"Profit and Loss Statement",
 )
 
-ACCOUNTS_READER_ROLE = "Loan Underwriter"
+# The books belong to finance. This used to read "Loan Underwriter", and the
+# grants that name made are revoked on migrate — see REVOKED_MONEY_ROLES.
+ACCOUNTS_READER_ROLE = "Finance Officer"
+
+# Roles that USED to hold the money-movement surfaces and must not any more.
+# Listed rather than merely dropped from the grant lists, because a permission
+# already written to a site is not undone by ceasing to ask for it.
+REVOKED_MONEY_ROLES = ("Loan Underwriter",)
+
+
+def _revoke(doctype: str, role: str) -> None:
+	"""Take a role's Custom DocPerm rows off a doctype, if it holds any."""
+	rows = frappe.get_all("Custom DocPerm", filters={"parent": doctype, "role": role}, pluck="name")
+	for name in rows:
+		frappe.delete_doc("Custom DocPerm", name, ignore_permissions=True, force=True)
+	if rows:
+		frappe.clear_cache(doctype=doctype)
+		print(f"revoked {role} on {doctype}")
 
 
 def ensure_accounts_read():
-	"""Let an underwriter read the ledger without being able to post to it."""
+	"""Let a finance officer read the ledger without being able to post to it."""
 	from frappe.permissions import add_permission, update_permission_property
 
 	for doctype in ACCOUNTS_READ_DOCTYPES:
 		if not frappe.db.exists("DocType", doctype):
 			continue
+		for role in REVOKED_MONEY_ROLES:
+			_revoke(doctype, role)
 		if not frappe.db.exists(
 			"Custom DocPerm", {"parent": doctype, "role": ACCOUNTS_READER_ROLE}
 		):
@@ -372,7 +398,10 @@ def ensure_accounts_read():
 		standard = frappe.get_all(
 			"Has Role", filters={"parent": report, "parenttype": "Report"}, pluck="role"
 		)
-		wanted = sorted(set(standard) | {ACCOUNTS_READER_ROLE})
+		# Rebuilt from the report's OWN roles each time, so a role this app
+		# granted and has since moved on from (the underwriter, before the
+		# finance split) disappears rather than accumulating.
+		wanted = sorted((set(standard) | {ACCOUNTS_READER_ROLE}) - set(REVOKED_MONEY_ROLES))
 
 		existing = frappe.db.get_value("Custom Role", {"report": report})
 		doc = (
@@ -400,8 +429,8 @@ def ensure_accounts_read():
 #
 # These rows carry citizens' account numbers, so the role list is deliberate
 # and short: the accounting roles that already see bank details, plus the
-# portal's own underwriter, who is the only staff role the SPA has and whose
-# Disbursements page this is. Nothing wider.
+# portal's finance officer, whose Disbursements page this is. Nothing wider —
+# and notably not the underwriter, who decides the loan and never pays it.
 PAYMENT_FILE_REPORT = "GDB Disbursement Payment File"
 
 PAYMENT_FILE_REF_DOCTYPE = "Loan Disbursement"
@@ -433,19 +462,24 @@ def ensure_payment_file_report():
 	A query report is guarded twice and the portal needs to clear both:
 	`Report.is_permitted` reads the roles on the report itself, and then
 	`query_report.run` demands the `report` permission on its ref_doctype. The
-	underwriter held neither by right — the ref_doctype check passed only by way
+	portal's staff role held neither by right — the ref_doctype check passed only by way
 	of lending's `Loan Manager`, which the demo user happens to carry and a real
 	underwriter would not, so that grant is made here on the role the portal
-	actually uses rather than left to a coincidence of the seed data.
+	actually uses rather than left to a coincidence of the seed data. That role
+	is now the finance officer; the underwriter's old grant is revoked below.
 
-	Read and report only. An underwriter must be able to pull the file, never to
-	post a disbursement — the same separation `ensure_accounts_read` keeps over
+	Read and report only. A finance officer must be able to pull the file and to
+	release funds through `api.disburse_loan`, never to post a Loan Disbursement
+	by hand in the desk — the same separation `ensure_accounts_read` keeps over
 	the ledger.
 	"""
 	from frappe.permissions import add_permission, update_permission_property
 
 	if not frappe.db.exists("DocType", PAYMENT_FILE_REF_DOCTYPE):
 		return
+
+	for role in REVOKED_MONEY_ROLES:
+		_revoke(PAYMENT_FILE_REF_DOCTYPE, role)
 
 	if not frappe.db.exists("Report", PAYMENT_FILE_REPORT):
 		frappe.get_doc(
@@ -462,7 +496,9 @@ def ensure_payment_file_report():
 
 	# Roles are a union, so a grant somebody made in the desk survives a migrate.
 	report = frappe.get_doc("Report", PAYMENT_FILE_REPORT)
-	wanted = sorted({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES))
+	wanted = sorted(
+		({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES)) - set(REVOKED_MONEY_ROLES)
+	)
 	if sorted({r.role for r in report.roles}) != wanted:
 		report.roles = []
 		for role in wanted:
@@ -713,8 +749,13 @@ def make_demo_users():
 		print("GDB_DEMO_PASSWORD/ADMIN_PASSWORD not set — skipping demo users")
 		return
 
+	# Three personas, because two could not demonstrate the control: the
+	# underwriter decides and the finance officer releases, and neither can do
+	# the other's half (api._require_finance, and the four-eyes check in
+	# api.disburse_loan).
 	demo_users = (
 		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
+		("finance@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
 		("citizen@example.gy", "Demo Citizen", "Website User", "Citizen"),
 	)
 	from frappe.utils.password import update_password

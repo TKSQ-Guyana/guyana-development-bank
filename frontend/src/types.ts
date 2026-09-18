@@ -1,8 +1,13 @@
-export type LoanStatus = 'Submitted' | 'Approved' | 'Rejected';
+/** `Draft` is the applicant's own workspace — saved, evidence attached, not yet
+ *  before the Bank. Staff queues never show it. */
+export type LoanStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 
 export interface LoanApplication {
   name: string;
   applicant: string;
+  /** The applicant's national e-ID. This, not the mailbox in `applicant`, is
+   *  how GDB staff identify a person — so every staff-facing view shows it. */
+  applicant_eid: string | null;
   applicant_name: string;
   loan_amount: number;
   purpose: string;
@@ -18,12 +23,118 @@ export interface LoanApplication {
   modified: string;
 }
 
+/** One piece of evidence on the shelf. The file itself is private and is
+ *  reached through `file_url`, which Frappe serves only to someone allowed to
+ *  read this row. */
+export interface ApplicantDocument {
+  name: string;
+  applicant: string;
+  applicant_name: string | null;
+  /** Null for a personal document (identity, proof of address) held against
+   *  the person rather than against one case. */
+  application: string | null;
+  document_type: string;
+  status: 'Received' | 'Accepted' | 'Rejected' | 'Replaced';
+  request: string | null;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  uploaded_on: string | null;
+  reviewed_by: string | null;
+  reviewed_on: string | null;
+  review_note: string | null;
+  superseded_by: string | null;
+  creation: string;
+}
+
+export interface DocumentSettings {
+  types: string[];
+  personal_types: string[];
+  accepts: string;
+  max_bytes: number;
+}
+
+export interface DocumentShelf {
+  documents: ApplicantDocument[];
+  /** Required document types not yet on file. Empty means submittable — the
+   *  server says so, the form never works it out. */
+  missing: string[];
+  settings: DocumentSettings;
+}
+
+/** Something the Bank has asked this applicant for, itemised so both sides can
+ *  say exactly what the case is waiting on. */
+export interface InformationRequest {
+  name: string;
+  application: string;
+  applicant: string;
+  status: 'Open' | 'Satisfied' | 'Withdrawn';
+  document_type: string | null;
+  item: string;
+  requested_by: string | null;
+  requested_on: string | null;
+  satisfied_by: string | null;
+  responded_on: string | null;
+}
+
+export interface MemberProfileSummary {
+  user: string;
+  phone: string | null;
+  region: string | null;
+  village_or_town: string | null;
+  occupation: string | null;
+  verified_phone: string | null;
+}
+
 export interface ClusterMember {
+  /** Null while an invitation is outstanding against an e-ID that has not
+   *  signed in yet — the invitation names a person, not an account. */
   member: string | null;
+  member_eid: string | null;
   member_name: string;
-  member_status: string;
+  member_status: 'Invited' | 'Active' | 'Declined' | 'Exited';
   is_head: boolean;
   is_you: boolean;
+  invited_on: string | null;
+  joined_on: string | null;
+  /** Staff only. Members never see each other's details. */
+  profile: MemberProfileSummary | null;
+}
+
+/** A cluster this person has been asked to join and has not yet answered. */
+export interface ClusterInvitation {
+  name: string;
+  cluster_name: string;
+  region: string | null;
+  sector: string | null;
+  head: string;
+  head_name: string;
+  invited_on: string | null;
+}
+
+/** The applicant's own details, in two blocks that are never merged: what the
+ *  e-ID directory asserted, and what they declared themselves. */
+export interface CitizenProfile {
+  name: string;
+  user: string;
+  eid: string | null;
+  full_name: string | null;
+  updated_on: string | null;
+  phone: string | null;
+  date_of_birth: string | null;
+  occupation: string | null;
+  region: string | null;
+  village_or_town: string | null;
+  address: string | null;
+  next_of_kin: string | null;
+  next_of_kin_phone: string | null;
+  verified_full_name: string | null;
+  verified_email: string | null;
+  verified_phone: string | null;
+  verified_birth_date: string | null;
+  verified_address: string | null;
+  identity_source: string | null;
+  verified_on: string | null;
 }
 
 export interface ClusterCase {
@@ -49,12 +160,6 @@ export interface Cluster {
   viewer: string;
   members: ClusterMember[];
   applications: ClusterCase[];
-}
-
-export interface InviteResult {
-  email: string;
-  full_name: string;
-  password: string | null;
 }
 
 export interface ScheduleRow {
@@ -121,6 +226,10 @@ export interface Whoami {
   eid: string | null;
   roles: string[];
   is_underwriter: boolean;
+  /** Money movement: release, the payment file, collections, the ledger views.
+   *  Deliberately separate from `is_underwriter` — the officer who decides a
+   *  loan is not the officer who pays it. */
+  is_finance: boolean;
 }
 
 /** A Letter of Offer. Once accepted, this is the executed loan agreement —

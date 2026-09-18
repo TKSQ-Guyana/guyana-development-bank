@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { DocumentShelf } from '../components/DocumentShelf';
 import type { BankAccountRecord, Cluster, DcraRecord, LoanApplication } from '../types';
 
 const inputClass =
@@ -17,6 +18,10 @@ export function Apply() {
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
   const [cluster, setCluster] = useState<Cluster | null>(null);
+  // Whose loan this is. Defaults to the applicant's own: a head who wants the
+  // group's name on it says so, rather than discovering afterwards that
+  // joining a cluster quietly reassigned every loan they take.
+  const [forCluster, setForCluster] = useState(false);
   // Where GDB pays out. Captured here because the applicant is the only one
   // who knows it, and a disbursement has nowhere to go without it.
   const [banks, setBanks] = useState<string[]>([]);
@@ -172,28 +177,77 @@ export function Apply() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The application is saved as a DRAFT first, because evidence has to hang off
+  // something and because the Bank should never receive an application it will
+  // immediately have to ask questions about. Saving is idempotent: the same
+  // draft is updated as the applicant keeps editing, so this is also the
+  // resume point after a dropped connection.
+  const [draft, setDraft] = useState<LoanApplication | null>(null);
+  // What the SERVER says is still outstanding. Never worked out here, and it
+  // no longer blocks anything — documents are optional at submission, so this
+  // only changes what the applicant is told before they press the button.
+  const [missing, setMissing] = useState<string[]>([]);
+
+  const saveDraft = async (): Promise<LoanApplication> => {
+    // Nothing is picked yet. The server would refuse this too, but it answers
+    // "Choose a bank from the list" — which names a control this screen does
+    // not show when the switch has already found the applicant's accounts.
+    // Ask for the click that is actually on the page.
+    if (!bank || !accountNo) {
+      throw new Error(
+        (myAccounts?.length ?? 0) > 0 && !manualAccount
+          ? 'Choose which account GDB should pay into.'
+          : 'Tell us where GDB should pay you: choose your bank and enter your account number.',
+      );
+    }
+    // Save the payout destination first: if this fails the applicant should
+    // fix it and retry, not end up with a loan nobody can pay.
+    await call('gdb_bank.api.save_bank_details', {
+      bank,
+      bank_account_no: accountNo,
+      branch_code: branchCode,
+    });
+    const saved = await call<LoanApplication>('gdb_bank.api.save_application', {
+      loan_amount: Number(amount),
+      purpose,
+      term_months: Number(term),
+      monthly_income: income ? Number(income) : 0,
+      phone,
+      business_stage: stage,
+      dcra_number: dcra,
+      business_name: businessName,
+      // Always explicit. An empty string is the answer "this one is mine" —
+      // omitting the field means "whatever cluster I belong to", which is the
+      // behaviour this screen is fixing.
+      cluster: forCluster && cluster ? cluster.name : '',
+      name: draft?.name,
+    });
+    setDraft(saved);
+    return saved;
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      // Save the payout destination first: if this fails the applicant should
-      // fix it and retry, not end up with a loan nobody can pay.
-      await call('gdb_bank.api.save_bank_details', {
-        bank,
-        bank_account_no: accountNo,
-        branch_code: branchCode,
-      });
-      const loan = await call<LoanApplication>('gdb_bank.api.apply_loan', {
-        loan_amount: Number(amount),
-        purpose,
-        term_months: Number(term),
-        monthly_income: income ? Number(income) : 0,
-        phone,
-        business_stage: stage,
-        dcra_number: dcra,
-        business_name: businessName,
+      await saveDraft();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save your application');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFinalSubmit = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      // Re-save first, so edits made while attaching documents are not lost
+      // between the draft and the submission.
+      const saved = await saveDraft();
+      const loan = await call<LoanApplication>('gdb_bank.api.submit_application', {
+        name: saved.name,
       });
       navigate(`/loans/${loan.name}`);
     } catch (err) {
@@ -207,14 +261,51 @@ export function Apply() {
     <div className="mx-auto max-w-xl">
       <h1 className="mb-1 text-2xl font-bold">Apply for a Loan</h1>
       <p className="mb-6 text-sm text-slate-500">
-        Your application goes straight to a GDB underwriter for review.
+        Save your application, attach the documents GDB needs, then submit it for review.
       </p>
-      {cluster && (
+      {/* Belonging to a cluster is not the same as borrowing for it. The head
+          is asked which this is, because an underwriter reading the case has
+          no other way to tell — and because the answer decides whose members'
+          documents and whose roster sit beside it. A member who is not the
+          head is not asked: the server would refuse them anyway. */}
+      {cluster && cluster.is_head && (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+          <p className="mb-1 text-sm font-medium text-slate-700">Who is this loan for?</p>
+          <p className="mb-3 text-xs text-slate-500">
+            You are the head of <strong>{cluster.name}</strong>, so you can borrow for yourself or
+            for the group.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setForCluster(false)}
+              className={`rounded-lg border p-3 text-left ${
+                forCluster
+                  ? 'border-slate-300 hover:bg-slate-50'
+                  : 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
+              }`}
+            >
+              <span className="block text-sm font-semibold text-slate-800">Myself</span>
+              <span className="block text-xs text-slate-500">My own application</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setForCluster(true)}
+              className={`rounded-lg border p-3 text-left ${
+                forCluster
+                  ? 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
+                  : 'border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <span className="block text-sm font-semibold text-slate-800">{cluster.name}</span>
+              <span className="block text-xs text-slate-500">On behalf of the group</span>
+            </button>
+          </div>
+        </div>
+      )}
+      {cluster && !cluster.is_head && (
         <p className="mb-6 rounded-md bg-gdb-gold/20 px-3 py-2 text-sm text-gdb-green-dark">
-          This application will be linked to your cluster <strong>{cluster.name}</strong>
-          {cluster.is_head
-            ? ' — as head, you are applying on behalf of the group.'
-            : ' — it stays your own application.'}
+          You are a member of <strong>{cluster.name}</strong> — this stays your own application.
         </p>
       )}
       {/* Who this application will be filed under. Read-only on purpose: the
@@ -279,7 +370,16 @@ export function Apply() {
           </label>
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-slate-700">Phone (optional)</span>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClass} />
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="600 1234"
+              className={inputClass}
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Guyana number. The +592 is added for you.
+            </span>
           </label>
         </div>
         <label className="block">
@@ -665,9 +765,45 @@ export function Apply() {
           disabled={busy}
           className="w-full rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
         >
-          {busy ? 'Submitting…' : 'Submit application'}
+          {busy ? 'Saving…' : draft ? 'Save changes' : 'Save and attach documents'}
         </button>
+        {!draft && (
+          <p className="text-center text-xs text-slate-500">
+            Saving does not send anything to GDB. You can attach your documents next, or
+            submit now and send them when GDB asks.
+          </p>
+        )}
       </form>
+
+      {draft && (
+        <>
+          <DocumentShelf application={draft.name} canUpload onChange={setMissing} />
+
+          <div className="mt-4 rounded-xl border border-gdb-gold/60 bg-white p-6 shadow">
+            <h2 className="mb-2 font-semibold">Submit to GDB</h2>
+            {missing.length > 0 ? (
+              <p className="mb-3 text-sm text-slate-600">
+                You can submit now. GDB will ask for your{' '}
+                <strong>{missing.join(', ')}</strong> during review — attaching it above first
+                usually means a faster decision.
+              </p>
+            ) : (
+              <p className="mb-3 text-sm text-slate-600">
+                Everything GDB expects is attached. Once submitted, an underwriter reviews the
+                application and may ask you for more.
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onFinalSubmit()}
+              className="w-full rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+            >
+              {busy ? 'Submitting…' : 'Submit application'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

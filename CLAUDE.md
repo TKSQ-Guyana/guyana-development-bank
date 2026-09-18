@@ -22,12 +22,38 @@ underwriter review queue. The official name everywhere is
   then runs gunicorn (loopback :8000) + worker + scheduler behind the image's
   own nginx on **:8080**, which also serves the ERPNext desk UI.
 - Loans are the **official frappe/lending app's Loan Application** doctype
-  (`ACC-LOAP-…`), pinned at v16.5.0 in `backend/Dockerfile`. gdb_bank has NO
-  doctype of its own — portal-only facts ride gdb_* Custom Fields
-  (install.CUSTOM_FIELDS) and `gdb_bank/api.py` maps the stable portal
-  contract (purpose/term_months/status Submitted|Approved|Rejected) onto it;
-  lending's `Open` = portal `Submitted`. Status changes happen ONLY in
+  (`ACC-LOAP-…`), pinned at v16.5.0 in `backend/Dockerfile`. Portal-only facts
+  ride gdb_* Custom Fields (install.CUSTOM_FIELDS) and `gdb_bank/api.py` maps
+  the stable portal contract (purpose/term_months/status
+  Draft|Submitted|Approved|Rejected) onto it; lending's `Open` = portal
+  `Submitted`, and portal `Draft` is `docstatus 0` — lending has no status for
+  an application nobody has made yet. Status changes happen ONLY in
   `review_loan` via `db_set` (docs are submitted; status is permlevel 1).
+- gdb_bank owns **six doctypes** of its own, all for things lending does not
+  model: `GDB Cluster` + `GDB Cluster Member`, `GDB Loan Offer`,
+  `GDB Loan Condition`, `GDB Applicant Document`, `GDB Information Request`
+  and `GDB Citizen Profile`.
+- **Evidence** (`gdb_bank/documents.py`): an application is decided on typed
+  PDFs. The shelf row is created FIRST (`new_document`), the file then goes
+  through **Frappe's own** `POST /api/method/upload_file` against that row, and
+  `confirm_document` stamps it. That order is load-bearing:
+  `File.has_permission` delegates a private file's access to the doc it is
+  attached to, so the row is what makes the PDF readable by the applicant and
+  by staff and by nobody else. Format and size are enforced in a
+  `File.before_insert` hook, so they hold for any caller. Personal documents
+  (Identity, Proof of Address) carry no `application` and follow the person.
+  nginx and vite both proxy `/private/files/` — without that the SPA cannot
+  open an upload.
+- **Applying is two phases.** `save_application` writes a draft the applicant
+  attaches to and can resume; `submit_application` puts it before the Bank.
+  **Documents are OPTIONAL at submission** — nothing on the shelf gates the
+  call. `documents.required_types` (Identity always, plus Financials for an
+  existing business or Business Plan for a new one) is now advisory: it drives
+  the shelf prompt and the `missing` array, and what is still outstanding is
+  written to the submit log line so a thin file is visible as a fact, not just
+  on a screen. Chasing paperwork is the underwriter's job via
+  `request_information`. `apply_loan` is still the published one-shot
+  contract — the two steps back to back.
 - Seeded lending masters (`install.ensure_lending_defaults`): Loan Product
   "GDB Standard Loan" (GDB-STD, 8% term loan) + "GDB Standard Offset Order"
   demand offset order wired into the Company. Loan accounting stays DISABLED
@@ -45,7 +71,11 @@ underwriter review queue. The official name everywhere is
     `identity.py` and `frontend/src/eid.ts`. Tokens are used once and dropped;
     Keycloak logout does NOT kill `sid`.
     First sign-in **links** the e-ID to an existing User with the same email,
-    or **provisions** a Website User with `Citizen`. **Roles never come from
+    or **provisions** a Website User with `Citizen`. It also records the
+    Keycloak claims as the *verified* half of `GDB Citizen Profile`
+    (`profiles.record_identity_claims`) — kept apart from what the applicant
+    declares, never merged, because where the two disagree is exactly the case
+    a human should look at. **Roles never come from
     Keycloak** — staff access stays a manual Frappe grant. Disabling the
     Frappe User is the kill switch and works even while Keycloak still
     authenticates. Rate-limited 8/min per e-ID (Frappe's own
@@ -58,10 +88,38 @@ underwriter review queue. The official name everywhere is
     the person typing it is the person it names. An e-ID is an identifier, not
     a secret. Real proofing is the My Guyana broker in
     `docs/architecture/identity-and-auth.md`, which supersedes this path.
-- Roles: `Citizen` (website user; sees own applications only) and
-  `Loan Underwriter` (+ System Manager) — enforcement is server-side in
-  `api.py`, mirrored in the SPA (`is_underwriter` from `whoami`). The demo
-  underwriter also holds lending's `Loan Manager` for desk visibility.
+- **Roles — three, and the split between the two staff ones is a control.**
+  `Citizen` (website user; own applications only), `Loan Underwriter` (decides:
+  review, offer, conditions, booking, document review) and `Finance Officer`
+  (moves money: disbursement, payment file, collections, the ledger views).
+  Enforcement is server-side in `api.py` (`_require_underwriter`,
+  `_require_finance`), mirrored in the SPA (`is_underwriter` / `is_finance`
+  from `whoami`). `disburse_loan` carries a SECOND gate on top of the role —
+  it refuses the officer who approved the case and the officer who owns it —
+  because one account can hold both roles and R-131 was proven end to end on
+  this stack: a single login carried an application from decision to
+  G$99,000,000 disbursed. `install.REVOKED_MONEY_ROLES` takes the money
+  surfaces back off the underwriter on migrate, since a permission already
+  written to a site is not undone by ceasing to ask for it.
+- `make_repayment` is the BORROWER's (or a cluster member's). Staff are
+  refused: bank-side receipts go through `collections.apply_receipt`, which
+  starts from a Bank Transaction — i.e. from money that actually arrived.
+- Staff identify an applicant by **e-ID, never by mailbox** — `_portal_dict`
+  carries `applicant_eid`, and the review queue, the case header and the
+  cluster roster all show it.
+- **Clusters**: the head INVITES an e-ID (`invite_member`), and the invitee
+  accepts (`respond_to_invitation`) signed in as themselves. An e-ID with no
+  portal account yet is a valid invitee — the row waits against the bare e-ID
+  and `identity.link_pending_invitations` attaches it on their first e-ID
+  sign-in. `_cluster_of` counts Active rows only. Each member holds their own
+  `GDB Citizen Profile` and their own documents; members never see each
+  other's, staff see both blocks of everyone's.
+- **A cluster loan is a different product, never a side effect of membership.**
+  `_cluster_for` files against a group ONLY when the caller names it: both `""`
+  and an omitted `cluster` mean the applicant's own application. Naming one
+  still requires Active membership AND being the head, so a plain member's loan
+  can never become the group's — not through the SPA, not through `apply_loan`,
+  not through a client that forgets the field.
 - ERPNext does not run on Postgres. MariaDB 11.8 + one Redis are part of
   every environment.
 
@@ -69,8 +127,10 @@ underwriter review queue. The official name everywhere is
 
 `docker compose up -d --build` → mariadb, redis, backend (first boot takes
 minutes: new-site + erpnext + lending + gdb_bank + wizard + seeds; watch
-`logs -f backend`; seeds demo users `citizen@example.gy` /
-`underwriter@gdb.gov.gy`, password = `ADMIN_PASSWORD`, default `admin`),
+`logs -f backend`; seeds demo users `citizen@example.gy`,
+`underwriter@gdb.gov.gy` and `finance@gdb.gov.gy`, password =
+`ADMIN_PASSWORD`, default `admin` — seeding runs on EVERY boot, not only at
+site creation, or a persona added later never appears on an existing site),
 keycloak :8086, frontend nginx :3000; desk at :8080. Frontend dev loop:
 `npm run dev` in `frontend/` → vite :5173 proxying `/api` to :8080. After
 backend app changes: `docker compose up -d --build backend` (restart runs
@@ -80,7 +140,8 @@ migrate + seeds again). `localhost` cookies are shared across ports 3000/8080
 **Keycloak :8086** (admin/admin, realm `gdb-citizen`, auto-imported from
 `keycloak/gdb-realm.json`). e-ID accounts, password `ChangeMe@123`:
 `592-1111-0001` (links to the seeded citizen), `592-2222-0002` (links to the
-underwriter), `592-3333-0003` (provisions a new citizen). **8086, not 8085** —
+underwriter), `592-5555-0005` (links to the finance officer), `592-3333-0003`
+(provisions a new citizen). **8086, not 8085** —
 the sibling MPS-Guyana stack holds 8085 and both run on this machine.
 Keycloak imports a realm ONLY if it does not already exist, so editing the
 realm JSON needs `docker compose rm -sf keycloak && docker volume rm

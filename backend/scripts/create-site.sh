@@ -36,11 +36,17 @@ if [ ! -d "sites/$SITE" ]; then
     --install-app lending \
     --install-app gdb_bank \
     --set-default
-  bench --site "$SITE" execute gdb_bank.install.make_demo_users
 else
   echo "Site $SITE exists — migrating ..."
   bench --site "$SITE" migrate
 fi
+
+# Demo personas, on every boot rather than only at site creation. It is
+# idempotent (each user is created only if absent), and running it only on a
+# fresh site meant a persona added later — the finance officer, say — never
+# appeared on an existing one, so the role split could not be demonstrated
+# without rebuilding the database.
+bench --site "$SITE" execute gdb_bank.install.make_demo_users
 
 # The React portal is a separate origin proxied through nginx; the classic
 # frappe CSRF token is not available to it, so disable CSRF for this API-only

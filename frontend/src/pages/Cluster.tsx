@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { call } from '../api';
+import { EidBoxes } from '../components/EidBoxes';
 import { StatusBadge } from '../components/StatusBadge';
-import type { Cluster as ClusterType, InviteResult } from '../types';
+import { isCompleteEid, EMPTY_EID } from '../eid';
+import type { Cluster as ClusterType, ClusterInvitation } from '../types';
 import { formatGyd } from '../utils';
 
 const inputClass =
@@ -27,7 +29,13 @@ export function Cluster() {
 
   if (error) return <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>;
   if (cluster === undefined) return <p className="text-slate-500">Loading your cluster…</p>;
-  if (cluster === null) return <StartCluster onCreated={setCluster} />;
+  if (cluster === null)
+    return (
+      <div className="space-y-6">
+        <Invitations onJoined={() => void load()} />
+        <StartCluster onCreated={setCluster} />
+      </div>
+    );
 
   return (
     <div className="space-y-6">
@@ -191,28 +199,101 @@ function Plan({
   );
 }
 
+/** Invitations waiting for an answer.
+ *
+ *  A head asks; the person joins by accepting, signed in as themselves. Nobody
+ *  is put into a group they never agreed to be in, and no credential of theirs
+ *  travels through somebody else's hands to get them there.
+ */
+function Invitations({ onJoined }: { onJoined: () => void }) {
+  const [invites, setInvites] = useState<ClusterInvitation[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () =>
+    call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
+      .then(setInvites)
+      .catch(() => setInvites([]));
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const respond = async (cluster: string, accept: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await call('gdb_bank.api.respond_to_invitation', { cluster, accept: accept ? 1 : 0 });
+      await load();
+      if (accept) onJoined();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not answer the invitation');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (invites.length === 0) return null;
+
+  return (
+    <section className={`${card} border border-gdb-gold/60`}>
+      <h2 className="mb-3 text-lg font-semibold">You have been invited to a cluster</h2>
+      {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      <ul className="space-y-3">
+        {invites.map((inv) => (
+          <li key={inv.name} className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-slate-800">{inv.cluster_name || inv.name}</p>
+              <p className="text-sm text-slate-500">
+                {[inv.region, inv.sector].filter(Boolean).join(' · ')}
+                {inv.head_name ? ` · invited by ${inv.head_name}` : ''}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void respond(inv.name, true)}
+                className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+              >
+                Accept
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void respond(inv.name, false)}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Decline
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () => void }) {
-  const [email, setEmail] = useState('');
+  const [eid, setEid] = useState(EMPTY_EID);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [invited, setInvited] = useState<InviteResult | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
 
   const invite = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setSent(null);
     try {
-      const result = await call<InviteResult>('gdb_bank.api.invite_member', {
-        email,
-        full_name: name,
-      });
-      setInvited(result);
-      setEmail('');
+      await call('gdb_bank.api.invite_member', { eid, full_name: name });
+      setSent(eid);
+      setEid(EMPTY_EID);
       setName('');
       onInvited();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add the member');
+      setError(err instanceof Error ? err.message : 'Could not send the invitation');
     } finally {
       setBusy(false);
     }
@@ -232,7 +313,11 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
                 </span>
               )}
               {m.is_you && <span className="ml-2 text-xs text-slate-400">you</span>}
-              {m.member && <span className="ml-2 text-xs text-slate-400">{m.member}</span>}
+              {/* The e-ID, not the mailbox: it is who the member is, and it is
+                  what the head typed to invite them. */}
+              <span className="ml-2 font-mono text-xs text-slate-400">
+                {m.member_eid ?? 'no e-ID'}
+              </span>
             </span>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               {m.member_status}
@@ -243,42 +328,35 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
 
       {cluster.is_head && (
         <form onSubmit={(e) => void invite(e)} className="border-t border-slate-200 pt-4">
-          <p className="mb-3 text-sm font-medium text-slate-700">Add a member</p>
+          <p className="mb-1 text-sm font-medium text-slate-700">Invite a member</p>
+          <p className="mb-3 text-xs text-slate-500">
+            By e-ID. They join by accepting the invitation themselves — if they have never used
+            the portal, it is waiting for them the first time they sign in.
+          </p>
           {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          {invited && (
+          {sent && (
             <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-              {invited.full_name} added.
-              {invited.password && (
-                <>
-                  {' '}
-                  They sign in at this portal with <strong>{invited.email}</strong> and the one-time
-                  password <strong>{invited.password}</strong>.
-                </>
-              )}
+              Invitation sent to <span className="font-mono">{sent}</span>. They appear as
+              Invited until they accept.
             </p>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input
-              placeholder="Full name"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={inputClass}
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={inputClass}
-            />
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-slate-500">Member e-ID</label>
+              <EidBoxes value={eid} onChange={setEid} disabled={busy} />
+              <input
+                placeholder="Their name (optional, until they sign in)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={`${inputClass} mt-3`}
+              />
+            </div>
             <button
               type="submit"
-              disabled={busy}
-              className="rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+              disabled={busy || !isCompleteEid(eid)}
+              className="h-10 self-end rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
             >
-              {busy ? 'Adding…' : 'Add member'}
+              {busy ? 'Sending…' : 'Send invitation'}
             </button>
           </div>
         </form>

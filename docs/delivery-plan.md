@@ -308,27 +308,6 @@ at the API boundary.
 person — `CLAUDE.md` records this, and R-080 says the platform performs no
 identity verification of its own. Confirm the My Guyana broker contract before
 this step can close.
-
-## Step 12 — CA AI services · R-186–R-202 (Phase 2)
-
-Not started, and out of Phase 1 per `plan.md`. Governing rules first: no AI
-component records, makes or influences a credit decision without a named human
-approving it; every AI failure or unavailability routes to a named person;
-inference runs inside the agreed data residency boundary; every summary cites its
-evidence. Then AI-1 information and navigation (answers from configuration, never
-memorized content), AI-2 underwriting assistant (never pre-populating or
-defaulting the decision field), AI-3 financial and document analysis (evidence
-quality ranked; unextractable figures flagged, not estimated), AI-4 business
-planning guidance (never asserting improved approval odds).
-
-## Step 13 — End-to-end integration testing and release gates
-
-Full persona walkthrough: register → apply → evidence → verify → assess → decide
-→ offer → accept → conditions → disburse → repay → statement → close, across all
-nine personas. Plus the standing release gates already identified for this build:
-an automated test suite with a CI gate, the GL and accounting decision, identity
-assurance, and four-eyes on decisions.
-
 ---
 
 ## Progress

@@ -6,11 +6,13 @@
  "engine": "InnoDB",
  "field_order": [
   "member",
+  "member_eid",
   "member_name",
   "member_status",
   "is_head",
   "invited_on",
-  "joined_on"
+  "joined_on",
+  "responded_on"
  ],
  "fields": [
   {
@@ -19,6 +21,13 @@
    "in_list_view": 1,
    "label": "Member",
    "options": "User"
+  },
+  {
+   "description": "The national e-ID the head invited. Present even when `member` is not: an invitation can be issued to somebody who has never signed in, and links to their User on first e-ID sign-in.",
+   "fieldname": "member_eid",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member e-ID"
   },
   {
    "fieldname": "member_name",
@@ -33,7 +42,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Invited\nActive\nExited"
+   "options": "Invited\nActive\nDeclined\nExited"
   },
   {
    "default": "0",
@@ -51,6 +60,11 @@
    "fieldname": "joined_on",
    "fieldtype": "Date",
    "label": "Joined On"
+  },
+  {
+   "fieldname": "responded_on",
+   "fieldtype": "Date",
+   "label": "Responded On"
   }
  ],
  "index_web_pages_for_search": 1,

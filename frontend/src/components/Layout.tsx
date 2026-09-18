@@ -40,12 +40,15 @@ export function Layout() {
             <NavLink to="/cluster" className={navLinkClass}>
               My Cluster
             </NavLink>
-            {user?.is_underwriter && (
+            <NavLink to="/profile" className={navLinkClass}>
+              My Details
+            </NavLink>
+            {user?.is_finance && (
               <NavLink to="/finance" className={navLinkClass}>
                 Finance
               </NavLink>
             )}
-            {user?.is_underwriter && (
+            {user?.is_finance && (
               <NavLink to="/disbursements" className={navLinkClass}>
                 Disbursements
               </NavLink>
@@ -67,6 +70,12 @@ export function Layout() {
                 Underwriter
               </span>
             )}
+            {user?.is_finance && (
+              <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-semibold text-sky-800">
+                Finance
+              </span>
+            )}
+            {user?.eid && <span className="ml-2 font-mono text-xs text-slate-400">{user.eid}</span>}
           </span>
           <button onClick={() => void onLogout()} className="font-medium text-gdb-green hover:underline">
             Log out
