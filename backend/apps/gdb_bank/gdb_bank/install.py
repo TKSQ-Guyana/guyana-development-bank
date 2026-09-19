@@ -91,6 +91,96 @@ LOAN_ACCOUNT_SPECS = (
 # Portal fields the lending Loan Application doesn't carry natively. The
 # gdb_owner link is how my_loans scopes an application to the citizen login;
 # review fields are allow_on_submit because underwriters act on submitted docs.
+# Sections B-H of the application: the business narrative an underwriter
+# actually decides a development loan on. The programme spec asks for business
+# identity, description, market, operations, team, and then EITHER evidenced
+# financials (an existing trading business) OR projections (a start-up) — never
+# both, because asking a start-up for accounts it cannot have is a form nobody
+# can complete honestly.
+#
+# Held as a table rather than 31 hand-written dicts: they are all the same
+# shape, and the table is the part worth reading. `insert_after` chains them in
+# order so the desk form reads in the same order as the portal wizard.
+#
+# (fieldname, label, fieldtype[, options]) — options only for a Select.
+APPLICATION_SECTIONS = (
+	# B — how the applicant is applying, and business identity.
+	# Legal structure is asked AFTER existing-vs-new, because whether a business
+	# already trades is what decides which questions the rest of the form may
+	# ask; how it is owned is the next question, not the first one.
+	(
+		"gdb_legal_structure",
+		"Legal Structure",
+		"Select",
+		"\nSole Trader\nPartnership\nCluster-supported",
+	),
+	# The partners' e-IDs, when the structure is a partnership. Recorded as
+	# declared: naming somebody is not the same as that person agreeing, and a
+	# co-applicant who must consent does so through their own sign-in, never
+	# through this form.
+	("gdb_co_applicants", "Co-applicant e-IDs (Declared)", "Small Text"),
+	# B — business identity
+	("gdb_sector", "Sector", "Data"),
+	("gdb_sub_sector", "Sub-sector", "Data"),
+	# C — business or venture description
+	("gdb_products_services", "Products / Services", "Small Text"),
+	("gdb_use_of_funds", "Expected Use of Funds", "Small Text"),
+	("gdb_challenges", "Current Challenges", "Small Text"),
+	("gdb_employment_impact", "Employment / Development Impact", "Small Text"),
+	# D — market and customers
+	("gdb_customer_segments", "Customer Segments", "Small Text"),
+	("gdb_target_market", "Target Market", "Small Text"),
+	("gdb_customer_need", "Customer Need / Problem", "Small Text"),
+	("gdb_competitors", "Competitors / Alternatives", "Small Text"),
+	("gdb_pricing_approach", "Pricing Approach", "Small Text"),
+	# E — operations
+	("gdb_operating_location", "Operating Location", "Data"),
+	("gdb_production_process", "Production / Service Process", "Small Text"),
+	("gdb_equipment_required", "Equipment and Assets", "Small Text"),
+	("gdb_suppliers", "Suppliers", "Small Text"),
+	("gdb_permits_required", "Permits / Operating Requirements", "Small Text"),
+	# F — team and capability
+	("gdb_key_people", "Owners and Key People", "Small Text"),
+	("gdb_relevant_experience", "Relevant Experience", "Small Text"),
+	("gdb_staff_count", "Number of Staff", "Int"),
+	("gdb_skills_gaps", "Skills Gaps", "Small Text"),
+	# G — existing-business financials. Declared by the applicant; evidence on
+	# the shelf is what an underwriter ranks above these.
+	("gdb_annual_revenue", "Annual Revenue (Declared)", "Currency"),
+	("gdb_cost_of_sales", "Cost of Sales (Declared)", "Currency"),
+	("gdb_operating_expenses", "Operating Expenses (Declared)", "Currency"),
+	("gdb_existing_obligations", "Existing Loan Obligations", "Currency"),
+	("gdb_cash_position", "Current Cash Position", "Currency"),
+	# H — new-venture projections. Forecasts, and labelled as forecasts
+	# everywhere they are shown.
+	("gdb_expected_sales_volume", "Expected Sales Volume", "Small Text"),
+	("gdb_projected_revenue", "Projected Annual Revenue", "Currency"),
+	("gdb_projected_costs", "Projected Annual Costs", "Currency"),
+	("gdb_initial_costs", "Initial Start-up Costs", "Currency"),
+	("gdb_expected_cash_position", "Expected Monthly Cash Position", "Currency"),
+	("gdb_assumptions", "Assumptions Behind Projections", "Small Text"),
+)
+
+
+def _section_custom_fields() -> list:
+	"""APPLICATION_SECTIONS as Custom Field dicts, chained in order."""
+	fields = []
+	previous = "gdb_business_name"
+	for row in APPLICATION_SECTIONS:
+		fieldname, label, fieldtype = row[0], row[1], row[2]
+		field = {
+			"fieldname": fieldname,
+			"label": label,
+			"fieldtype": fieldtype,
+			"insert_after": previous,
+		}
+		if len(row) > 3:
+			field["options"] = row[3]
+		fields.append(field)
+		previous = fieldname
+	return fields
+
+
 CUSTOM_FIELDS = {
 	"Loan Application": [
 		{
@@ -148,6 +238,7 @@ CUSTOM_FIELDS = {
 			"fieldtype": "Data",
 			"insert_after": "gdb_dcra_number",
 		},
+		*_section_custom_fields(),
 		{
 			"fieldname": "gdb_remarks",
 			"label": "Underwriter Remarks",

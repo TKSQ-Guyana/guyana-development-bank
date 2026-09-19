@@ -176,7 +176,7 @@ export function InformationRequests({
                     type="button"
                     disabled={busy}
                     onClick={() => void withdraw(r.name)}
-                    className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                   >
                     Withdraw
                   </button>
@@ -195,7 +195,7 @@ export function InformationRequests({
                       if (file) void answer(r, file);
                       e.target.value = '';
                     }}
-                    className="mt-1 block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-gdb-green file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-gdb-green-dark"
+                    className="mt-1 block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-brand-dark"
                   />
                 </label>
               )}
@@ -214,7 +214,7 @@ export function InformationRequests({
                 value={item}
                 onChange={(e) => setItem(e.target.value)}
                 placeholder="e.g. Audited financials for 2025"
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
               />
             </label>
             <label className="text-sm">
@@ -222,7 +222,7 @@ export function InformationRequests({
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
               >
                 <option value="">Any</option>
                 {types.map((t) => (
@@ -235,7 +235,7 @@ export function InformationRequests({
             <button
               type="submit"
               disabled={busy || !item.trim()}
-              className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
             >
               Request
             </button>

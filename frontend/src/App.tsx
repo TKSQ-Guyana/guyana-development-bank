@@ -1,8 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
-import { Layout } from './components/Layout';
+import { ApplicantLayout } from './components/ApplicantLayout';
 import { FinanceLayout } from './components/FinanceLayout';
+import { Applications } from './pages/Applications';
 import { Apply } from './pages/Apply';
 import { Cluster } from './pages/Cluster';
 import { Disbursements } from './pages/Disbursements';
@@ -10,10 +11,13 @@ import { Reconciliation } from './pages/Finance/Reconciliation';
 import { Portfolio } from './pages/Finance/Portfolio';
 import { Ledger } from './pages/Finance/Ledger';
 import { RuleProposals } from './pages/Finance/RuleProposals';
+import { Dashboard } from './pages/Dashboard';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
-import { MyLoans } from './pages/MyLoans';
+import { Payments } from './pages/Payments';
 import { Profile } from './pages/Profile';
+import { Statements } from './pages/Statements';
+import { Training } from './pages/Training';
 import { Review } from './pages/Review';
 import { Signup } from './pages/Signup';
 
@@ -62,12 +66,19 @@ export function App() {
           <Route
             element={
               <RequireAuth>
-                <Layout />
+                <ApplicantLayout />
               </RequireAuth>
             }
           >
-            <Route index element={<MyLoans />} />
-            <Route path="/apply" element={<Apply />} />
+            <Route index element={<Dashboard />} />
+            {/* The applications hub and the form behind it. `/apply` is the
+                list because that is what the sidebar points at; starting a new
+                one is a deliberate step from there. */}
+            <Route path="/apply" element={<Applications />} />
+            <Route path="/apply/new" element={<Apply />} />
+            <Route path="/payments" element={<Payments />} />
+            <Route path="/statements" element={<Statements />} />
+            <Route path="/training" element={<Training />} />
             <Route path="/cluster" element={<Cluster />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/loans/:name" element={<LoanDetail />} />

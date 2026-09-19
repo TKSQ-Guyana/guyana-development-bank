@@ -1,81 +1,208 @@
-import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { DocumentShelf } from '../components/DocumentShelf';
+import { EidBoxes } from '../components/EidBoxes';
+import { Card } from '../components/ui/Card';
+import { ArrowRightIcon, CheckIcon } from '../components/ui/icons';
+import {
+  ChoiceCard,
+  MoneyField,
+  Notice,
+  Section,
+  SelectField,
+  TextAreaField,
+  TextField,
+} from '../components/apply/fields';
+import { EMPTY_EID, isCompleteEid } from '../eid';
 import type { BankAccountRecord, Cluster, DcraRecord, LoanApplication } from '../types';
+import { formatGyd } from '../utils';
 
-const inputClass =
-  'w-full rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green';
+/** The guided application.
+ *
+ *  Deliberately a wizard, not one long form. The first answers change what the
+ *  rest of the application may ask: an existing trading business is asked for
+ *  its financials, a start-up for the plan it intends to trade on, and a
+ *  cluster head is asked whose loan this is before anything is asked about the
+ *  loan itself. A single scrolling form cannot express that, and it also cannot
+ *  be resumed honestly on a Region 9 phone connection.
+ *
+ *  Section letters match the programme specification, so an applicant on the
+ *  phone to GDB and the officer reading the case are naming the same thing.
+ */
+
+// TODO: these belong in active configuration, not in the bundle — the
+// specification is explicit that policy values must not be hard-coded in the
+// frontend. There is no sector endpoint yet, so this list is the stand-in and
+// the one place to change when there is.
+const SECTORS = [
+  'Agriculture',
+  'Agro-processing',
+  'Fishing and aquaculture',
+  'Forestry',
+  'Mining and quarrying',
+  'Manufacturing',
+  'Construction',
+  'Retail and wholesale trade',
+  'Transport and logistics',
+  'Tourism and hospitality',
+  'Information technology',
+  'Creative industries',
+  'Education and training',
+  'Health services',
+  'Professional services',
+  'Other — value creation',
+];
+
+/** How the applicant is applying. Asked AFTER existing-vs-new: whether the
+ *  business already trades decides which questions the form may ask at all,
+ *  and how it is owned is the next question rather than the first one. */
+type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported';
+
+type StepId = 'route' | 'business' | 'market' | 'operations' | 'finances' | 'funding' | 'evidence';
+
+const STEPS: { id: StepId; title: string; blurb: string }[] = [
+  { id: 'route', title: 'How you are applying', blurb: 'Who the loan is for, and what kind of business it is' },
+  { id: 'business', title: 'Your business', blurb: 'Identity, and what the business does' },
+  { id: 'market', title: 'Market and customers', blurb: 'Who buys from you, and who else they could buy from' },
+  { id: 'operations', title: 'Operations and team', blurb: 'How the work gets done, and who does it' },
+  { id: 'finances', title: 'Financial information', blurb: 'What the business earns, or expects to' },
+  { id: 'funding', title: 'Funding request', blurb: 'How much, for how long, and where GDB pays it' },
+  { id: 'evidence', title: 'Documents and submit', blurb: 'Attach your evidence and send the application' },
+];
+
+type Sections = Record<string, string>;
+
+/** Everything the wizard holds, so it can be restored after a dropped
+ *  connection. Kept on the device until there is enough to open a server
+ *  draft — the server will not accept an application with no amount, term or
+ *  purpose, and writing placeholder figures to get past that would put numbers
+ *  in the Bank's record that nobody typed. */
+interface Saved {
+  stage: '' | 'Existing' | 'New';
+  structure: Structure;
+  coApplicants: string[];
+  amount: string;
+  term: string;
+  income: string;
+  phone: string;
+  purpose: string;
+  dcra: string;
+  businessName: string;
+  sections: Sections;
+  step: StepId;
+  draftName?: string;
+}
 
 export function Apply() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const storageKey = `gdb.apply.${user?.user ?? 'anon'}`;
+
+  const [step, setStep] = useState<StepId>('route');
+  const [stage, setStage] = useState<'' | 'Existing' | 'New'>('');
+  const [structure, setStructure] = useState<Structure>('');
+  // Named partners, as declared. Naming somebody is not the same as that
+  // person agreeing — a co-applicant consents through their own sign-in.
+  const [coApplicants, setCoApplicants] = useState<string[]>([EMPTY_EID]);
   const [amount, setAmount] = useState('');
   const [term, setTerm] = useState('12');
   const [income, setIncome] = useState('');
   const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [dcra, setDcra] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [sections, setSections] = useState<Sections>({});
+
   const [cluster, setCluster] = useState<Cluster | null>(null);
-  // Whose loan this is. Defaults to the applicant's own: a head who wants the
-  // group's name on it says so, rather than discovering afterwards that
-  // joining a cluster quietly reassigned every loan they take.
-  const [forCluster, setForCluster] = useState(false);
-  // Where GDB pays out. Captured here because the applicant is the only one
-  // who knows it, and a disbursement has nowhere to go without it.
   const [banks, setBanks] = useState<string[]>([]);
   const [bank, setBank] = useState('');
   const [accountNo, setAccountNo] = useState('');
   const [branchCode, setBranchCode] = useState('');
-  // Accounts the payment switch says are this applicant's. They pick from
-  // these rather than typing a number — which is also why they cannot
-  // nominate somebody else's account, and why a transposed digit is not a
-  // way to lose a disbursement.
   const [myAccounts, setMyAccounts] = useState<BankAccountRecord[] | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [manualAccount, setManualAccount] = useState(false);
   const [accountNote, setAccountNote] = useState<string | null>(null);
-  // The result of checking a typed account. Advisory: it is shown and
-  // recorded, and it never blocks the application.
   const [accountCheck, setAccountCheck] = useState<BankAccountRecord | null>(null);
   const [checking, setChecking] = useState(false);
-  // Existing trading business or a start-up — asked first, because it decides
-  // what the rest of this section can even ask for.
-  const [stage, setStage] = useState<'' | 'Existing' | 'New'>('');
-  // DCRA: the registered business behind the application.
-  const [dcra, setDcra] = useState('');
-  const [businessName, setBusinessName] = useState('');
   const [dcraNote, setDcraNote] = useState<string | null>(null);
   const [dcraRecord, setDcraRecord] = useState<DcraRecord | null>(null);
-  // Businesses DCRA says are this applicant's. They pick from these rather
-  // than typing a number — which is also why they cannot claim someone else's.
   const [myBusinesses, setMyBusinesses] = useState<DcraRecord[] | null>(null);
   const [manualEntry, setManualEntry] = useState(false);
   const [looking, setLooking] = useState(false);
 
+  const [draft, setDraft] = useState<LoanApplication | null>(null);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [restored, setRestored] = useState(false);
+
+  // Filing against the group is a consequence of the structure chosen, not a
+  // separate switch that could disagree with it.
+  const forCluster = structure === 'Cluster-supported';
+  const validCoApplicants = coApplicants.filter(isCompleteEid);
+
+  const set = (key: string) => (v: string) => setSections((s) => ({ ...s, [key]: v }));
+  const val = (key: string) => sections[key] ?? '';
+
+  // --- resume -------------------------------------------------------------
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const s = JSON.parse(raw) as Saved;
+      setStage(s.stage ?? '');
+      setStructure(s.structure ?? '');
+      setCoApplicants(s.coApplicants?.length ? s.coApplicants : [EMPTY_EID]);
+      setAmount(s.amount ?? '');
+      setTerm(s.term ?? '12');
+      setIncome(s.income ?? '');
+      setPhone(s.phone ?? '');
+      setPurpose(s.purpose ?? '');
+      setDcra(s.dcra ?? '');
+      setBusinessName(s.businessName ?? '');
+      setSections(s.sections ?? {});
+      setStep(s.step ?? 'route');
+      setRestored(true);
+    } catch {
+      /* a browser that refuses storage is not a reason to block an application */
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    const payload: Saved = {
+      stage,
+      structure,
+      coApplicants,
+      amount,
+      term,
+      income,
+      phone,
+      purpose,
+      dcra,
+      businessName,
+      sections,
+      step,
+      draftName: draft?.name,
+    };
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      /* private window, quota, blocked storage — never fatal */
+    }
+  }, [stage, structure, coApplicants, amount, term, income, phone, purpose, dcra, businessName, sections, step, draft, storageKey]);
+
+  // --- reference data -----------------------------------------------------
   useEffect(() => {
     call<Cluster | null>('gdb_bank.api.my_cluster')
       .then((c) => {
         setCluster(c);
-        if (c?.loan_purpose) setPurpose(c.loan_purpose);
+        if (c?.loan_purpose) setPurpose((p) => p || c.loan_purpose || '');
       })
       .catch(() => setCluster(null));
-  }, []);
-
-  useEffect(() => {
     call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
     void loadMyAccounts();
-
-    call<{ dcra_number: string; business_name: string } | null>('gdb_bank.api.my_business')
-      .then((b) => {
-        if (!b) return;
-        // Remember the stage, not the business: the register is asked afresh
-        // each time so a struck-off or transferred registration is caught.
-        setStage('Existing');
-        void loadMyBusinesses();
-      })
-      .catch(() => undefined);
   }, []);
 
   const selectAccount = (a: BankAccountRecord) => {
@@ -88,8 +215,7 @@ export function Apply() {
 
   // Ask the switch which accounts this applicant holds. One selects itself;
   // several offer a choice; none falls back to typing, because a switch that
-  // cannot answer must not stop an application — the account the applicant
-  // then types is checked instead, and the result recorded either way.
+  // cannot answer must not stop an application.
   const loadMyAccounts = async () => {
     setAccountsLoading(true);
     try {
@@ -98,9 +224,6 @@ export function Apply() {
       if (found?.length === 1) selectAccount(found[0]);
       if (!found?.length) {
         setManualAccount(true);
-        // The account they nominated last time, if there is one. Only ever a
-        // fallback: an account the switch confirms is better evidence than an
-        // account GDB merely stored once.
         await call<{ bank: string; bank_account_no: string; branch_code: string } | null>(
           'gdb_bank.api.my_bank_details',
         )
@@ -126,8 +249,6 @@ export function Apply() {
     }
   };
 
-  // Check a typed account. Never blocks: what it does is make sure nobody
-  // downstream has to guess whether the destination was ever checked.
   const checkTypedAccount = async () => {
     if (!bank || !accountNo) return;
     setChecking(true);
@@ -150,12 +271,9 @@ export function Apply() {
     setDcra(b.registration_number);
     setBusinessName(b.business_name ?? '');
     setDcraNote(null);
+    if (b.region) setSections((s) => ({ ...s, operating_location: s.operating_location || b.region! }));
   };
 
-  // Load the applicant's own registrations the moment they say the business
-  // already exists. One hit selects itself; several offer a choice; none falls
-  // back to typing, because a registry that cannot answer must not stop an
-  // application.
   const loadMyBusinesses = async () => {
     setLooking(true);
     try {
@@ -175,24 +293,11 @@ export function Apply() {
     }
   };
 
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // The application is saved as a DRAFT first, because evidence has to hang off
-  // something and because the Bank should never receive an application it will
-  // immediately have to ask questions about. Saving is idempotent: the same
-  // draft is updated as the applicant keeps editing, so this is also the
-  // resume point after a dropped connection.
-  const [draft, setDraft] = useState<LoanApplication | null>(null);
-  // What the SERVER says is still outstanding. Never worked out here, and it
-  // no longer blocks anything — documents are optional at submission, so this
-  // only changes what the applicant is told before they press the button.
-  const [missing, setMissing] = useState<string[]>([]);
-
+  // --- saving -------------------------------------------------------------
+  /** Open or update the server draft. Only possible once the funding request
+   *  is answered — the server refuses an application with no amount, term or
+   *  purpose, and it is right to. */
   const saveDraft = async (): Promise<LoanApplication> => {
-    // Nothing is picked yet. The server would refuse this too, but it answers
-    // "Choose a bank from the list" — which names a control this screen does
-    // not show when the switch has already found the applicant's accounts.
-    // Ask for the click that is actually on the page.
     if (!bank || !accountNo) {
       throw new Error(
         (myAccounts?.length ?? 0) > 0 && !manualAccount
@@ -200,8 +305,8 @@ export function Apply() {
           : 'Tell us where GDB should pay you: choose your bank and enter your account number.',
       );
     }
-    // Save the payout destination first: if this fails the applicant should
-    // fix it and retry, not end up with a loan nobody can pay.
+    // The payout destination first: if this fails the applicant should fix it
+    // and retry, not end up with a loan nobody can pay.
     await call('gdb_bank.api.save_bank_details', {
       bank,
       bank_account_no: accountNo,
@@ -217,26 +322,89 @@ export function Apply() {
       dcra_number: dcra,
       business_name: businessName,
       // Always explicit. An empty string is the answer "this one is mine" —
-      // omitting the field means "whatever cluster I belong to", which is the
-      // behaviour this screen is fixing.
+      // omitting the field would mean "whatever cluster I belong to", which is
+      // exactly the silent reassignment this screen exists to prevent.
       cluster: forCluster && cluster ? cluster.name : '',
+      sections: {
+        ...sections,
+        legal_structure: structure,
+        // Only complete e-IDs travel. A half-typed one is not a partner.
+        co_applicants: structure === 'Partnership' ? validCoApplicants.join(', ') : '',
+      },
       name: draft?.name,
     });
     setDraft(saved);
     return saved;
   };
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const index = STEPS.findIndex((s) => s.id === step);
+  const current = STEPS[index];
+  const isLast = index === STEPS.length - 1;
+
+  /** What this step still needs before it can be left. Returns null when the
+   *  step is complete. Presentation only — the server re-checks everything. */
+  const blocker = useMemo((): string | null => {
+    if (step === 'route') {
+      if (!stage) return 'Tell us whether this is an existing business or a new venture.';
+      if (!structure) return 'Tell us how you are applying.';
+      if (structure === 'Partnership' && validCoApplicants.length === 0) {
+        return "Give at least one partner's e-ID, or apply as a sole trader.";
+      }
+    }
+    if (step === 'business') {
+      if (!businessName.trim()) return 'Give the name of the business.';
+      if (stage === 'Existing' && !dcra.trim()) return 'Give the DCRA registration number.';
+      if (!val('products_services').trim()) return 'Describe what the business sells or does.';
+    }
+    if (step === 'funding') {
+      if (!amount || Number(amount) <= 0) return 'Enter how much you are asking for.';
+      if (!term || Number(term) < 1 || Number(term) > 360) return 'Enter a term between 1 and 360 months.';
+      if (!purpose.trim()) return 'Say what the money is for.';
+      if (!bank || !accountNo) return 'Tell us where GDB should pay you.';
+    }
+    return null;
+  }, [
+    step,
+    stage,
+    structure,
+    validCoApplicants.length,
+    businessName,
+    dcra,
+    sections,
+    amount,
+    term,
+    purpose,
+    bank,
+    accountNo,
+  ]);
+
+  const goNext = async () => {
+    if (blocker) {
+      setError(blocker);
+      return;
+    }
     setError(null);
-    setBusy(true);
-    try {
-      await saveDraft();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save your application');
-    } finally {
+    // From the funding step onward there is enough to hold a server draft, and
+    // from then on every move forward writes one.
+    if (step === 'funding') {
+      setBusy(true);
+      try {
+        await saveDraft();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save your application');
+        setBusy(false);
+        return;
+      }
       setBusy(false);
     }
+    setStep(STEPS[Math.min(index + 1, STEPS.length - 1)].id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const goBack = () => {
+    setError(null);
+    setStep(STEPS[Math.max(index - 1, 0)].id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const onFinalSubmit = async () => {
@@ -249,6 +417,11 @@ export function Apply() {
       const loan = await call<LoanApplication>('gdb_bank.api.submit_application', {
         name: saved.name,
       });
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        /* nothing to clean up */
+      }
       navigate(`/loans/${loan.name}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit application');
@@ -258,552 +431,938 @@ export function Apply() {
   };
 
   return (
-    <div className="mx-auto max-w-xl">
-      <h1 className="mb-1 text-2xl font-bold">Apply for a Loan</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        Save your application, attach the documents GDB needs, then submit it for review.
-      </p>
-      {/* Belonging to a cluster is not the same as borrowing for it. The head
-          is asked which this is, because an underwriter reading the case has
-          no other way to tell — and because the answer decides whose members'
-          documents and whose roster sit beside it. A member who is not the
-          head is not asked: the server would refuse them anyway. */}
-      {cluster && cluster.is_head && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
-          <p className="mb-1 text-sm font-medium text-slate-700">Who is this loan for?</p>
-          <p className="mb-3 text-xs text-slate-500">
-            You are the head of <strong>{cluster.name}</strong>, so you can borrow for yourself or
-            for the group.
-          </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => setForCluster(false)}
-              className={`rounded-lg border p-3 text-left ${
-                forCluster
-                  ? 'border-slate-300 hover:bg-slate-50'
-                  : 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
-              }`}
-            >
-              <span className="block text-sm font-semibold text-slate-800">Myself</span>
-              <span className="block text-xs text-slate-500">My own application</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setForCluster(true)}
-              className={`rounded-lg border p-3 text-left ${
-                forCluster
-                  ? 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
-                  : 'border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              <span className="block text-sm font-semibold text-slate-800">{cluster.name}</span>
-              <span className="block text-xs text-slate-500">On behalf of the group</span>
-            </button>
-          </div>
-        </div>
-      )}
-      {cluster && !cluster.is_head && (
-        <p className="mb-6 rounded-md bg-gdb-gold/20 px-3 py-2 text-sm text-gdb-green-dark">
-          You are a member of <strong>{cluster.name}</strong> — this stays your own application.
+    <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
+      {/* Step rail. Every step is visible from the start, because an applicant
+          deciding whether to begin needs to see what the whole thing asks. */}
+      <nav className="hidden lg:block">
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Your application
         </p>
-      )}
-      {/* Who this application will be filed under. Read-only on purpose: the
-          name comes from the identity they signed in with, not from typing. */}
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-500">Applying as</p>
-        <p className="mt-1 text-lg font-semibold text-slate-800">{user?.full_name ?? '—'}</p>
-        <p className="text-sm text-slate-500">
-          {user?.eid ? (
-            <>
-              e-ID <span className="font-mono">{user.eid}</span>
-            </>
-          ) : (
-            user?.user
-          )}
-        </p>
-      </div>
-
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4 rounded-xl bg-white p-6 shadow">
-        {error && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Loan amount (GYD)</span>
-            <input
-              type="number"
-              required
-              min={1}
-              step="1"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Term (months)</span>
-            <input
-              type="number"
-              required
-              min={1}
-              max={360}
-              value={term}
-              onChange={(e) => setTerm(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">
-              Monthly income (GYD, optional)
-            </span>
-            <input
-              type="number"
-              min={0}
-              step="1"
-              value={income}
-              onChange={(e) => setIncome(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700">Phone (optional)</span>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="600 1234"
-              className={inputClass}
-            />
-            <span className="mt-1 block text-xs text-slate-500">
-              Guyana number. The +592 is added for you.
-            </span>
-          </label>
-        </div>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700">Purpose of the loan</span>
-          <textarea
-            required
-            rows={4}
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            placeholder="e.g. Working capital for my agro-processing business"
-            className={inputClass}
-          />
-        </label>
-
-        <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
-          <legend className="px-1 text-sm font-semibold text-slate-700">
-            Your registered business
-          </legend>
-          <p className="mb-3 text-xs text-slate-500">
-            Is this loan for a business you already run, or one you are starting?
-          </p>
-
-          <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(
-              [
-                ['Existing', 'Existing business', 'Already registered with DCRA'],
-                ['New', 'New business', 'Not registered yet'],
-              ] as const
-            ).map(([value, title, hint]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setStage(value);
-                  setDcraNote(null);
-                  setDcraRecord(null);
-                  setManualEntry(false);
-                  if (value === 'Existing') void loadMyBusinesses();
-                  // A start-up has no registration, so never carry one across
-                  // the switch and submit a number that belongs elsewhere.
-                  if (value === 'New') setDcra('');
-                }}
-                className={`rounded-lg border p-3 text-left ${
-                  stage === value
-                    ? 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
-                    : 'border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <span className="block text-sm font-semibold text-slate-800">{title}</span>
-                <span className="block text-xs text-slate-500">{hint}</span>
-              </button>
-            ))}
-          </div>
-
-          {stage === 'Existing' && (
-            <>
-              {looking && (
-                <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>
-              )}
-
-              {/* More than one registration in their name — they choose which
-                  this loan is for. No typing, so no claiming another person's. */}
-              {!manualEntry && (myBusinesses?.length ?? 0) > 1 && (
-                <div className="mb-3 space-y-2">
-                  <p className="text-sm font-medium text-slate-700">
-                    DCRA has {myBusinesses?.length} businesses registered to you. Which is this
-                    loan for?
-                  </p>
-                  {myBusinesses?.map((b) => (
-                    <button
-                      key={b.registration_number}
-                      type="button"
-                      onClick={() => selectBusiness(b)}
-                      className={`w-full rounded-lg border p-3 text-left ${
-                        dcra === b.registration_number
-                          ? 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
-                          : 'border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="block text-sm font-semibold text-slate-800">
-                        {b.business_name}
-                      </span>
-                      <span className="block font-mono text-xs text-slate-500">
-                        {b.registration_number} · {b.status}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* The registry could not help, so the number is typed after all
-                  — and GDB verifies it rather than the form. */}
-              {manualEntry && (
-                <label className="mb-3 block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">
-                    DCRA registration no.
-                  </span>
-                  <input
-                    required
-                    value={dcra}
-                    onChange={(e) => setDcra(e.target.value.toUpperCase())}
-                    placeholder="e.g. BN-2024-004512"
-                    className={inputClass}
-                  />
-                </label>
-              )}
-
-              {/* The register answered — show what it holds, read-only. The
-                  applicant supplies the number; DCRA supplies everything else. */}
-              {dcraRecord?.business_name && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-800">{dcraRecord.business_name}</p>
-                      <p className="font-mono text-xs text-slate-500">
-                        {dcraRecord.registration_number}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        dcraRecord.status === 'Active'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {dcraRecord.status}
-                    </span>
-                  </div>
-                  <dl className="space-y-1 text-xs text-slate-600">
-                    {dcraRecord.business_type && (
-                      <div>
-                        <dt className="inline text-slate-500">Type: </dt>
-                        <dd className="inline">{dcraRecord.business_type}</dd>
-                      </div>
-                    )}
-                    {dcraRecord.registered_on && (
-                      <div>
-                        <dt className="inline text-slate-500">Registered: </dt>
-                        <dd className="inline">{dcraRecord.registered_on}</dd>
-                      </div>
-                    )}
-                    {dcraRecord.region && (
-                      <div>
-                        <dt className="inline text-slate-500">Region: </dt>
-                        <dd className="inline">{dcraRecord.region}</dd>
-                      </div>
-                    )}
-                    {dcraRecord.proprietors?.length ? (
-                      <div>
-                        <dt className="inline text-slate-500">Proprietors: </dt>
-                        <dd className="inline">{dcraRecord.proprietors.join(', ')}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                  <p className="mt-2 text-xs text-slate-400">
-                    {dcraRecord.source === 'dcra'
-                      ? 'From the DCRA register.'
-                      : dcraRecord.source === 'gdb_history'
-                        ? 'From your earlier GDB application — GDB will verify it against DCRA.'
-                        : 'Sandbox register — for testing only.'}
-                  </p>
-                  {dcraRecord.status && dcraRecord.status !== 'Active' && (
-                    <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
-                      This registration is not active. GDB may ask you to restore it before funds
-                      are released.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Manual path only: the register could not answer. */}
-              {manualEntry && !dcraRecord?.business_name && (
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">
-                    Registered business name
-                  </span>
-                  <input
-                    required
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    placeholder="As it appears on the certificate"
-                    className={inputClass}
-                  />
-                </label>
-              )}
-              {dcraNote && <p className="mt-2 text-xs text-amber-700">{dcraNote}</p>}
-            </>
-          )}
-
-          {stage === 'New' && (
-            <>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">
-                  Proposed business name
-                </span>
-                <input
-                  required
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="What you intend to trade as"
-                  className={inputClass}
-                />
-              </label>
-              <p className="mt-2 rounded-md bg-gdb-gold/20 px-3 py-2 text-xs text-gdb-green-dark">
-                No DCRA number is needed to apply. You will need to register the business with
-                the Deeds and Commercial Registries Authority before funds can be released.
-              </p>
-            </>
-          )}
-        </fieldset>
-
-        <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
-          <legend className="px-1 text-sm font-semibold text-slate-700">
-            Where should we pay you?
-          </legend>
-          <p className="mb-3 text-xs text-slate-500">
-            If your loan is approved, GDB transfers the funds to this account. It must be in your
-            own name.
-          </p>
-
-          {accountsLoading && (
-            <p className="text-sm text-slate-500">Finding accounts registered in your name…</p>
-          )}
-
-          {/* Picked, never typed. The applicant can only choose an account the
-              switch says is theirs, so a misdirected payout is not something
-              this form can express. */}
-          {!manualAccount && (myAccounts?.length ?? 0) > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">
-                {myAccounts?.length === 1
-                  ? 'This account is registered in your name.'
-                  : `You hold ${myAccounts?.length} accounts. Which should GDB pay into?`}
-              </p>
-              {myAccounts?.map((a) => {
-                const payable = a.status === 'Active';
-                return (
-                  <button
-                    key={`${a.bank}-${a.account_number}`}
-                    type="button"
-                    disabled={!payable}
-                    onClick={() => selectAccount(a)}
-                    className={`w-full rounded-lg border p-3 text-left ${
-                      accountNo === a.account_number
-                        ? 'border-gdb-green bg-gdb-green/5 ring-1 ring-gdb-green'
-                        : payable
-                          ? 'border-slate-300 hover:bg-slate-50'
-                          : 'border-slate-200 bg-slate-50 opacity-60'
-                    }`}
-                  >
-                    <span className="block text-sm font-semibold text-slate-800">{a.bank}</span>
-                    <span className="block font-mono text-xs text-slate-500">
-                      ••••{a.account_number.slice(-4)}
-                      {a.account_type ? ` · ${a.account_type}` : ''}
-                    </span>
-                    <span className="block text-xs text-slate-500">{a.account_name}</span>
-                    {/* A real account in the right name that still cannot
-                        receive funds. The applicant needs to know why it is
-                        greyed out, not just that it is. */}
-                    {!payable && (
-                      <span className="mt-1 block text-xs font-medium text-amber-700">
-                        {a.status} — your bank cannot receive a payment into this account.
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-              <p className="text-xs text-slate-500">
-                {myAccounts?.[0]?.source === 'bank_registry'
-                  ? 'From your bank. GDB confirms it again before paying out.'
-                  : 'Test data — GDB confirms the account with your bank before paying out.'}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setManualAccount(true);
-                  setAccountNote(null);
-                }}
-                className="text-xs font-medium text-gdb-green underline"
-              >
-                Pay into a different account
-              </button>
-            </div>
-          )}
-
-          {manualAccount && (
-            <>
-              <label className="mb-3 block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Bank</span>
-                <select
-                  required
-                  value={bank}
-                  onChange={(e) => {
-                    setBank(e.target.value);
-                    setAccountCheck(null);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="">Select your bank…</option>
-                  {banks.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="mb-3 block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">
-                  Account number
-                </span>
-                <input
-                  required
-                  inputMode="numeric"
-                  pattern="[0-9]+"
-                  value={accountNo}
-                  onChange={(e) => {
-                    setAccountNo(e.target.value);
-                    setAccountCheck(null);
-                  }}
-                  onBlur={() => void checkTypedAccount()}
-                  placeholder="Digits only, as printed on your statement"
-                  className={inputClass}
-                />
-              </label>
-              <label className="mb-3 block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">
-                  Branch code <span className="font-normal text-slate-400">(optional)</span>
-                </span>
-                <input
-                  value={branchCode}
-                  onChange={(e) => setBranchCode(e.target.value)}
-                  placeholder="e.g. DEM-GT-04"
-                  className={inputClass}
-                />
-              </label>
-
-              {checking && <p className="text-xs text-slate-500">Checking with the bank…</p>}
-
-              {/* Three outcomes, never two. "We could not check" is said out
-                  loud rather than shown as a pass — and none of them stops the
-                  application, because a name the bank holds differently is an
-                  underwriter's call, not a dead end on a form. */}
-              {accountCheck && !checking && (
-                <p
-                  className={`text-xs ${
-                    accountCheck.result === 'Verified' ? 'text-green-700' : 'text-amber-700'
-                  }`}
-                >
-                  {accountCheck.result === 'Verified' &&
-                    `Confirmed — held by ${accountCheck.account_name}.`}
-                  {accountCheck.result === 'Name Mismatch' &&
-                    'Your bank holds this account in a different name. You can still apply; GDB will check it before paying out.'}
-                  {accountCheck.result === 'Inactive Account' &&
-                    `This account is ${accountCheck.status?.toLowerCase()} and cannot receive a payment. Nominate another one.`}
-                  {accountCheck.result === 'Not Found' &&
-                    'Your bank has no account with this number. Check the digits against your statement.'}
-                  {accountCheck.result === 'Unavailable' &&
-                    'We could not reach your bank to check this. You can still apply; GDB will verify it before paying out.'}
-                </p>
-              )}
-
-              {accountNote && <p className="mt-2 text-xs text-amber-700">{accountNote}</p>}
-
-              {(myAccounts?.length ?? 0) > 0 && (
+        <ol className="space-y-1">
+          {STEPS.map((s, i) => {
+            const done = i < index;
+            const active = i === index;
+            return (
+              <li key={s.id}>
                 <button
                   type="button"
                   onClick={() => {
-                    setManualAccount(false);
-                    setAccountCheck(null);
-                    setAccountNote(null);
+                    // Backwards only. Skipping ahead past an unanswered branch
+                    // would ask Section G questions of a business that has not
+                    // said whether it exists yet.
+                    if (i <= index) {
+                      setError(null);
+                      setStep(s.id);
+                    }
                   }}
-                  className="mt-2 text-xs font-medium text-gdb-green underline"
+                  disabled={i > index}
+                  className={`flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                    active ? 'bg-white shadow-sm' : i < index ? 'hover:bg-white/60' : 'cursor-default'
+                  }`}
                 >
-                  Back to my registered accounts
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-[10px] font-bold ${
+                      done
+                        ? 'bg-brand text-white'
+                        : active
+                          ? 'bg-brand text-white ring-4 ring-brand/15'
+                          : 'border-2 border-slate-200 bg-white text-slate-300'
+                    }`}
+                  >
+                    {done ? <CheckIcon className="h-3 w-3" /> : i + 1}
+                  </span>
+                  <span
+                    className={`text-xs leading-tight ${
+                      active ? 'font-bold text-slate-900' : done ? 'text-slate-600' : 'text-slate-400'
+                    }`}
+                  >
+                    {s.title}
+                  </span>
                 </button>
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="mt-6 rounded-xl bg-white/70 p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Applying as</p>
+          <p className="mt-1 text-sm font-bold text-slate-800">{user?.full_name ?? '—'}</p>
+          <p className="font-mono text-[11px] text-slate-400">{user?.eid ?? user?.user}</p>
+        </div>
+      </nav>
+
+      <div className="min-w-0">
+        <header className="mb-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
+            Step {index + 1} of {STEPS.length}
+          </p>
+          <h2 className="mt-1 text-2xl font-bold text-slate-900">{current.title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{current.blurb}</p>
+          {/* Mobile progress, since the rail is desktop-only. */}
+          <div className="mt-4 flex gap-1 lg:hidden">
+            {STEPS.map((s, i) => (
+              <span
+                key={s.id}
+                className={`h-1 flex-1 rounded-full ${i <= index ? 'bg-brand' : 'bg-slate-200'}`}
+              />
+            ))}
+          </div>
+        </header>
+
+        {restored && step === 'route' && (
+          <div className="mb-4">
+            <Notice tone="info">
+              We restored what you had already typed on this device. Nothing has been sent to GDB
+              yet.
+            </Notice>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
+            {error}
+          </div>
+        )}
+
+        <Card className="space-y-6">
+          {/* ---------------------------------------------------- STEP: ROUTE */}
+          {step === 'route' && (
+            <>
+              <Section
+                letter="1"
+                title="Is this an existing business or a new venture?"
+                blurb="Asked first because it decides what the rest of the application may ask you for. A trading business is asked what it has earned; a new venture what it expects to."
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ChoiceCard
+                    title="Existing business"
+                    body="Already trading, and registered with DCRA."
+                    note="You will be asked for revenue, costs and current obligations, and for financial records as evidence."
+                    selected={stage === 'Existing'}
+                    onSelect={() => {
+                      setStage('Existing');
+                      setDcraNote(null);
+                      setDcraRecord(null);
+                      setManualEntry(false);
+                      void loadMyBusinesses();
+                    }}
+                  />
+                  <ChoiceCard
+                    title="New venture"
+                    body="Starting out, not registered yet."
+                    note="You will be asked for projections instead of accounts, and for a business plan as evidence."
+                    selected={stage === 'New'}
+                    onSelect={() => {
+                      setStage('New');
+                      setDcra('');
+                      setDcraRecord(null);
+                      setDcraNote(null);
+                    }}
+                  />
+                </div>
+              </Section>
+
+              {/* Only once the stage is answered. Asking how a business is
+                  owned before knowing whether it exists puts the two questions
+                  in the wrong order. */}
+              {stage && (
+                <Section
+                  letter="2"
+                  title="How are you applying?"
+                  blurb="This decides who is responsible for repaying, and whose records GDB will need."
+                >
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <ChoiceCard
+                      title="Sole trader"
+                      body="You are applying alone, in your own name."
+                      note="You alone repay it. Only your documents are needed."
+                      selected={structure === 'Sole Trader'}
+                      onSelect={() => setStructure('Sole Trader')}
+                    />
+                    <ChoiceCard
+                      title="Partnership"
+                      body="You and one or more partners."
+                      note="Each partner is named on the application. GDB may ask every partner for their own documents."
+                      selected={structure === 'Partnership'}
+                      onSelect={() => setStructure('Partnership')}
+                    />
+                    <ChoiceCard
+                      title="Cluster-supported"
+                      body={
+                        cluster?.is_head
+                          ? `On behalf of ${cluster.name}.`
+                          : cluster
+                            ? `Only the head of ${cluster.name} can do this.`
+                            : 'You are not a member of a cluster.'
+                      }
+                      note={
+                        cluster?.is_head
+                          ? "The group's roster and every member's records become part of the case, and every member can see it."
+                          : undefined
+                      }
+                      disabled={!cluster?.is_head}
+                      selected={structure === 'Cluster-supported'}
+                      onSelect={() => setStructure('Cluster-supported')}
+                    />
+                  </div>
+
+                  {/* Partners are named by e-ID, never by mailbox — the e-ID is
+                      how GDB identifies a person everywhere else in the bank. */}
+                  {structure === 'Partnership' && (
+                    <div className="rounded-2xl bg-slate-50/80 p-4">
+                      <p className="text-sm font-bold text-slate-800">Your partners</p>
+                      <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
+                        Name each partner by their national e-ID. Naming somebody here records what
+                        you have declared &mdash; it does not sign them up. GDB contacts each partner
+                        separately, and they confirm through their own sign-in.
+                      </p>
+                      <div className="space-y-2">
+                        {coApplicants.map((eid, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <EidBoxes
+                              value={eid}
+                              onChange={(next) =>
+                                setCoApplicants((list) => list.map((v, j) => (j === i ? next : v)))
+                              }
+                            />
+                            {coApplicants.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCoApplicants((list) => list.filter((_, j) => j !== i))
+                                }
+                                className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-400 hover:bg-slate-100 hover:text-rose-600"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCoApplicants((list) => [...list, EMPTY_EID])}
+                        className="mt-3 text-xs font-semibold text-brand underline"
+                      >
+                        Add another partner
+                      </button>
+                    </div>
+                  )}
+
+                  {structure === 'Cluster-supported' && cluster?.is_head && (
+                    <Notice tone="info">
+                      This application will be filed against <strong>{cluster.name}</strong>. Every
+                      active member can see it.
+                    </Notice>
+                  )}
+
+                  {!cluster && (
+                    <Notice tone="info">
+                      Applying with a cluster? Create or join one under <strong>My cluster</strong>{' '}
+                      first, then come back &mdash; only a cluster head can apply for a group.
+                    </Notice>
+                  )}
+                </Section>
               )}
+
+              <Section
+                letter="A"
+                title="About you"
+                blurb="Taken from the identity you signed in with. GDB does not let this be typed."
+              >
+                <div className="rounded-xl bg-slate-50/80 p-4">
+                  <p className="text-base font-bold text-slate-900">{user?.full_name ?? '—'}</p>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    {user?.eid ? (
+                      <>
+                        e-ID <span className="font-mono">{user.eid}</span> &middot; verified
+                      </>
+                    ) : (
+                      user?.user
+                    )}
+                  </p>
+                </div>
+              </Section>
             </>
           )}
-        </fieldset>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
-        >
-          {busy ? 'Saving…' : draft ? 'Save changes' : 'Save and attach documents'}
-        </button>
-        {!draft && (
-          <p className="text-center text-xs text-slate-500">
-            Saving does not send anything to GDB. You can attach your documents next, or
-            submit now and send them when GDB asks.
-          </p>
-        )}
-      </form>
+          {/* ------------------------------------------------- STEP: BUSINESS */}
+          {step === 'business' && (
+            <>
+              <Section
+                letter="B"
+                title="Business identity"
+                blurb={
+                  stage === 'Existing'
+                    ? 'Confirmed against the Deeds and Commercial Registries Authority. What the register holds cannot be edited here.'
+                    : 'What you intend to trade as.'
+                }
+              >
+                {stage === 'Existing' && (
+                  <>
+                    {looking && <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>}
 
-      {draft && (
-        <>
-          <DocumentShelf application={draft.name} canUpload onChange={setMissing} />
+                    {!manualEntry && (myBusinesses?.length ?? 0) > 1 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-slate-700">
+                          DCRA has {myBusinesses?.length} businesses registered to you. Which is this
+                          loan for?
+                        </p>
+                        {myBusinesses?.map((b) => (
+                          <ChoiceCard
+                            key={b.registration_number}
+                            title={b.business_name ?? b.registration_number}
+                            body={`${b.registration_number} · ${b.status ?? 'status unknown'}`}
+                            selected={dcra === b.registration_number}
+                            onSelect={() => selectBusiness(b)}
+                          />
+                        ))}
+                      </div>
+                    )}
 
-          <div className="mt-4 rounded-xl border border-gdb-gold/60 bg-white p-6 shadow">
-            <h2 className="mb-2 font-semibold">Submit to GDB</h2>
-            {missing.length > 0 ? (
-              <p className="mb-3 text-sm text-slate-600">
-                You can submit now. GDB will ask for your{' '}
-                <strong>{missing.join(', ')}</strong> during review — attaching it above first
-                usually means a faster decision.
-              </p>
-            ) : (
-              <p className="mb-3 text-sm text-slate-600">
-                Everything GDB expects is attached. Once submitted, an underwriter reviews the
-                application and may ask you for more.
-              </p>
-            )}
+                    {manualEntry && (
+                      <TextField
+                        label="DCRA registration number"
+                        required
+                        value={dcra}
+                        onChange={(v) => setDcra(v.toUpperCase())}
+                        placeholder="e.g. BN-2024-004512"
+                      />
+                    )}
+
+                    {dcraRecord?.business_name && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-900">{dcraRecord.business_name}</p>
+                            <p className="font-mono text-xs text-slate-500">
+                              {dcraRecord.registration_number}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              dcraRecord.status === 'Active'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-rose-50 text-rose-700'
+                            }`}
+                          >
+                            {dcraRecord.status}
+                          </span>
+                        </div>
+                        <dl className="space-y-1 text-xs text-slate-600">
+                          {dcraRecord.business_type && (
+                            <div>
+                              <dt className="inline text-slate-400">Structure: </dt>
+                              <dd className="inline font-medium">{dcraRecord.business_type}</dd>
+                            </div>
+                          )}
+                          {dcraRecord.registered_on && (
+                            <div>
+                              <dt className="inline text-slate-400">Registered: </dt>
+                              <dd className="inline font-medium">{dcraRecord.registered_on}</dd>
+                            </div>
+                          )}
+                          {dcraRecord.region && (
+                            <div>
+                              <dt className="inline text-slate-400">Region: </dt>
+                              <dd className="inline font-medium">{dcraRecord.region}</dd>
+                            </div>
+                          )}
+                          {dcraRecord.proprietors?.length ? (
+                            <div>
+                              <dt className="inline text-slate-400">Proprietors: </dt>
+                              <dd className="inline font-medium">{dcraRecord.proprietors.join(', ')}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                        <p className="mt-2 text-[11px] text-slate-400">
+                          {dcraRecord.source === 'dcra'
+                            ? 'Confirmed by the DCRA register.'
+                            : dcraRecord.source === 'gdb_history'
+                              ? 'From your earlier GDB application — GDB will verify it against DCRA.'
+                              : 'Sandbox register — for testing only.'}
+                        </p>
+                        {dcraRecord.status && dcraRecord.status !== 'Active' && (
+                          <div className="mt-2">
+                            <Notice tone="warn">
+                              This registration is not active. GDB may ask you to restore it before
+                              funds are released.
+                            </Notice>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {manualEntry && !dcraRecord?.business_name && (
+                      <TextField
+                        label="Registered business name"
+                        required
+                        value={businessName}
+                        onChange={setBusinessName}
+                        placeholder="As it appears on the certificate"
+                      />
+                    )}
+                    {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
+                  </>
+                )}
+
+                {stage === 'New' && (
+                  <>
+                    <TextField
+                      label="Proposed business name"
+                      required
+                      value={businessName}
+                      onChange={setBusinessName}
+                      placeholder="What you intend to trade as"
+                    />
+                    <Notice tone="info">
+                      No DCRA number is needed to apply. You will need to register the business with
+                      the Deeds and Commercial Registries Authority before funds can be released.
+                    </Notice>
+                  </>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SelectField
+                    label="Sector"
+                    required
+                    value={val('sector')}
+                    onChange={set('sector')}
+                    options={SECTORS}
+                    placeholder="Choose a sector…"
+                  />
+                  <TextField
+                    label="Sub-sector"
+                    value={val('sub_sector')}
+                    onChange={set('sub_sector')}
+                    placeholder="e.g. Poultry, or cassava flour"
+                  />
+                </div>
+              </Section>
+
+              <Section
+                letter="C"
+                title="What the business does"
+                blurb="Describe it as you would to somebody who has never seen it."
+              >
+                <TextAreaField
+                  label="Products or services"
+                  required
+                  value={val('products_services')}
+                  onChange={set('products_services')}
+                  placeholder="What you sell, make or provide."
+                />
+                <TextAreaField
+                  label="Expected use of funds"
+                  value={val('use_of_funds')}
+                  onChange={set('use_of_funds')}
+                  placeholder="What you will spend this loan on, item by item if you can."
+                  hint="An underwriter reads this beside the amount you ask for."
+                />
+                <TextAreaField
+                  label="Current challenges"
+                  value={val('challenges')}
+                  onChange={set('challenges')}
+                  placeholder="What is holding the business back today."
+                />
+                <TextAreaField
+                  label="Employment or development impact"
+                  value={val('employment_impact')}
+                  onChange={set('employment_impact')}
+                  placeholder="Jobs you expect to create or sustain, or other benefit to your community."
+                />
+              </Section>
+            </>
+          )}
+
+          {/* --------------------------------------------------- STEP: MARKET */}
+          {step === 'market' && (
+            <Section
+              letter="D"
+              title="Market and customers"
+              blurb="Who buys from you, why they buy, and who else they could buy from."
+            >
+              <TextAreaField
+                label="Customer segments"
+                value={val('customer_segments')}
+                onChange={set('customer_segments')}
+                placeholder="The kinds of customer you sell to."
+              />
+              <TextAreaField
+                label="Target market"
+                value={val('target_market')}
+                onChange={set('target_market')}
+                placeholder="Where they are — a region, a town, a trade."
+              />
+              <TextAreaField
+                label="Customer need or problem"
+                value={val('customer_need')}
+                onChange={set('customer_need')}
+                placeholder="What your customers cannot do without you."
+              />
+              <TextAreaField
+                label="Competitors or alternatives"
+                value={val('competitors')}
+                onChange={set('competitors')}
+                placeholder="Who else does this, or what customers do instead."
+              />
+              <TextAreaField
+                label="Pricing approach"
+                value={val('pricing_approach')}
+                onChange={set('pricing_approach')}
+                placeholder="How you set your prices, and how they compare."
+              />
+            </Section>
+          )}
+
+          {/* ----------------------------------------------- STEP: OPERATIONS */}
+          {step === 'operations' && (
+            <>
+              <Section letter="E" title="Operations" blurb="How the work actually gets done.">
+                <TextField
+                  label="Operating location"
+                  value={val('operating_location')}
+                  onChange={set('operating_location')}
+                  placeholder="Region, town or village"
+                />
+                <TextAreaField
+                  label="Production or service process"
+                  value={val('production_process')}
+                  onChange={set('production_process')}
+                  placeholder="From input to finished sale."
+                />
+                <TextAreaField
+                  label="Equipment and assets"
+                  value={val('equipment_required')}
+                  onChange={set('equipment_required')}
+                  placeholder="What you already have, and what this loan would add."
+                />
+                <TextAreaField
+                  label="Suppliers"
+                  value={val('suppliers')}
+                  onChange={set('suppliers')}
+                  placeholder="Who you buy from, and how reliable they are."
+                />
+                <TextAreaField
+                  label="Permits or operating requirements"
+                  value={val('permits_required')}
+                  onChange={set('permits_required')}
+                  placeholder="Any licence, permit or inspection your trade needs."
+                  hint="If a permit is outstanding, say so — GDB would rather know now than at disbursement."
+                />
+              </Section>
+
+              <Section letter="F" title="Team and capability" blurb="Who runs it, and what they can do.">
+                <TextAreaField
+                  label="Owners and key people"
+                  value={val('key_people')}
+                  onChange={set('key_people')}
+                  placeholder="Names and what each is responsible for."
+                />
+                <TextAreaField
+                  label="Relevant experience"
+                  value={val('relevant_experience')}
+                  onChange={set('relevant_experience')}
+                  placeholder="What you have done before that makes this work."
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <TextField
+                    label="Number of staff"
+                    value={val('staff_count')}
+                    onChange={set('staff_count')}
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="0"
+                  />
+                </div>
+                <TextAreaField
+                  label="Skills gaps"
+                  value={val('skills_gaps')}
+                  onChange={set('skills_gaps')}
+                  placeholder="What the business does not yet know how to do."
+                  hint="Saying this plainly is not held against you — it is what the training programme is for."
+                />
+              </Section>
+            </>
+          )}
+
+          {/* ------------------------------------------------- STEP: FINANCES */}
+          {step === 'finances' && stage === 'Existing' && (
+            <Section
+              letter="G"
+              title="Your business finances"
+              blurb="What the business has actually earned and spent. Give your best figures — GDB ranks your bank statements and records above anything declared here, so attach them at the evidence step."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <MoneyField
+                  label="Annual revenue"
+                  tag="Declared"
+                  value={val('annual_revenue')}
+                  onChange={set('annual_revenue')}
+                />
+                <MoneyField
+                  label="Cost of sales"
+                  tag="Declared"
+                  value={val('cost_of_sales')}
+                  onChange={set('cost_of_sales')}
+                />
+                <MoneyField
+                  label="Operating expenses"
+                  tag="Declared"
+                  value={val('operating_expenses')}
+                  onChange={set('operating_expenses')}
+                />
+                <MoneyField
+                  label="Existing loan obligations"
+                  tag="Declared"
+                  value={val('existing_obligations')}
+                  onChange={set('existing_obligations')}
+                  hint="What you already repay each year to any lender."
+                />
+                <MoneyField
+                  label="Current cash position"
+                  tag="Declared"
+                  value={val('cash_position')}
+                  onChange={set('cash_position')}
+                />
+              </div>
+              <Notice tone="info">
+                These are the figures you are declaring. Where your documents show something
+                different, the documents are what GDB uses.
+              </Notice>
+            </Section>
+          )}
+
+          {step === 'finances' && stage === 'New' && (
+            <Section
+              letter="H"
+              title="Your projections"
+              blurb="What you expect the venture to do. These are forecasts, and GDB reads them as forecasts — not as filed results."
+            >
+              <TextAreaField
+                label="Expected sales volume"
+                value={val('expected_sales_volume')}
+                onChange={set('expected_sales_volume')}
+                placeholder="How much you expect to sell, and over what period."
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <MoneyField
+                  label="Projected annual revenue"
+                  tag="Forecast"
+                  value={val('projected_revenue')}
+                  onChange={set('projected_revenue')}
+                />
+                <MoneyField
+                  label="Projected annual costs"
+                  tag="Forecast"
+                  value={val('projected_costs')}
+                  onChange={set('projected_costs')}
+                />
+                <MoneyField
+                  label="Initial start-up costs"
+                  tag="Forecast"
+                  value={val('initial_costs')}
+                  onChange={set('initial_costs')}
+                />
+                <MoneyField
+                  label="Expected monthly cash position"
+                  tag="Forecast"
+                  value={val('expected_cash_position')}
+                  onChange={set('expected_cash_position')}
+                />
+              </div>
+              <TextAreaField
+                label="Assumptions behind these projections"
+                value={val('assumptions')}
+                onChange={set('assumptions')}
+                placeholder="What has to be true for these numbers to hold — prices, harvests, demand, supply."
+                hint="An underwriter assesses the assumptions as much as the figures."
+              />
+            </Section>
+          )}
+
+          {step === 'finances' && !stage && (
+            <Notice tone="warn">
+              Go back to the first step and say whether this is an existing business or a new
+              venture — that decides which financial questions apply to you.
+            </Notice>
+          )}
+
+          {/* -------------------------------------------------- STEP: FUNDING */}
+          {step === 'funding' && (
+            <>
+              <Section letter="I" title="What you are asking for" blurb="GDB lends at zero interest. You repay only what you borrow.">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MoneyField
+                    label="Amount requested"
+                    required
+                    value={amount}
+                    onChange={setAmount}
+                  />
+                  <TextField
+                    label="Term (months)"
+                    required
+                    type="number"
+                    inputMode="numeric"
+                    value={term}
+                    onChange={setTerm}
+                    hint={
+                      amount && Number(term) > 0
+                        ? `About ${formatGyd(Number(amount) / Number(term))} a month, before GDB sets the final schedule.`
+                        : 'Between 1 and 360 months.'
+                    }
+                  />
+                </div>
+                <TextAreaField
+                  label="Purpose of the loan"
+                  required
+                  value={purpose}
+                  onChange={setPurpose}
+                  placeholder="e.g. Working capital for my agro-processing business"
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MoneyField
+                    label="Monthly income"
+                    value={income}
+                    onChange={setIncome}
+                    hint="Your own income, if you want GDB to take it into account."
+                  />
+                  <TextField
+                    label="Phone"
+                    type="tel"
+                    inputMode="tel"
+                    value={phone}
+                    onChange={setPhone}
+                    placeholder="600 1234"
+                    hint="Guyana number. The +592 is added for you."
+                  />
+                </div>
+              </Section>
+
+              <Section
+                letter="J"
+                title="Where GDB should pay you"
+                blurb="If your loan is approved, funds go to this account. It must be in your own name."
+              >
+                {accountsLoading && (
+                  <p className="text-sm text-slate-500">Finding accounts registered in your name…</p>
+                )}
+
+                {!manualAccount && (myAccounts?.length ?? 0) > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-slate-700">
+                      {myAccounts?.length === 1
+                        ? 'This account is registered in your name.'
+                        : `You hold ${myAccounts?.length} accounts. Which should GDB pay into?`}
+                    </p>
+                    {myAccounts?.map((a) => {
+                      const payable = a.status === 'Active';
+                      return (
+                        <ChoiceCard
+                          key={`${a.bank}-${a.account_number}`}
+                          title={a.bank}
+                          body={`••••${a.account_number.slice(-4)}${a.account_type ? ` · ${a.account_type}` : ''} · ${a.account_name ?? ''}`}
+                          note={
+                            payable
+                              ? undefined
+                              : `${a.status} — your bank cannot receive a payment into this account.`
+                          }
+                          disabled={!payable}
+                          selected={accountNo === a.account_number}
+                          onSelect={() => selectAccount(a)}
+                        />
+                      );
+                    })}
+                    <p className="text-xs text-slate-500">
+                      {myAccounts?.[0]?.source === 'bank_registry'
+                        ? 'From your bank. GDB confirms it again before paying out.'
+                        : 'Test data — GDB confirms the account with your bank before paying out.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualAccount(true);
+                        setAccountNote(null);
+                      }}
+                      className="text-xs font-semibold text-brand underline"
+                    >
+                      Pay into a different account
+                    </button>
+                  </div>
+                )}
+
+                {manualAccount && (
+                  <>
+                    <SelectField
+                      label="Bank"
+                      required
+                      value={bank}
+                      onChange={(v) => {
+                        setBank(v);
+                        setAccountCheck(null);
+                      }}
+                      options={banks}
+                      placeholder="Select your bank…"
+                    />
+                    <div onBlur={() => void checkTypedAccount()}>
+                      <TextField
+                        label="Account number"
+                        required
+                        inputMode="numeric"
+                        value={accountNo}
+                        onChange={(v) => {
+                          setAccountNo(v);
+                          setAccountCheck(null);
+                        }}
+                        placeholder="Digits only, as printed on your statement"
+                      />
+                    </div>
+                    <TextField
+                      label="Branch code"
+                      value={branchCode}
+                      onChange={setBranchCode}
+                      placeholder="e.g. DEM-GT-04"
+                    />
+
+                    {checking && <p className="text-xs text-slate-500">Checking with the bank…</p>}
+
+                    {/* Three outcomes, never two. "We could not check" is said
+                        out loud rather than shown as a pass — and none of them
+                        stops the application. */}
+                    {accountCheck && !checking && (
+                      <Notice tone={accountCheck.result === 'Verified' ? 'good' : 'warn'}>
+                        {accountCheck.result === 'Verified' &&
+                          `Confirmed — held by ${accountCheck.account_name}.`}
+                        {accountCheck.result === 'Name Mismatch' &&
+                          'Your bank holds this account in a different name. You can still apply; GDB will check it before paying out.'}
+                        {accountCheck.result === 'Inactive Account' &&
+                          `This account is ${accountCheck.status?.toLowerCase()} and cannot receive a payment. Nominate another one.`}
+                        {accountCheck.result === 'Not Found' &&
+                          'Your bank has no account with this number. Check the digits against your statement.'}
+                        {accountCheck.result === 'Unavailable' &&
+                          'We could not reach your bank to check this. You can still apply; GDB will verify it before paying out.'}
+                      </Notice>
+                    )}
+
+                    {accountNote && <Notice tone="warn">{accountNote}</Notice>}
+
+                    {(myAccounts?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualAccount(false);
+                          setAccountCheck(null);
+                          setAccountNote(null);
+                        }}
+                        className="text-xs font-semibold text-brand underline"
+                      >
+                        Back to my registered accounts
+                      </button>
+                    )}
+                  </>
+                )}
+              </Section>
+            </>
+          )}
+
+          {/* ------------------------------------------------- STEP: EVIDENCE */}
+          {step === 'evidence' && (
+            <>
+              <Section
+                letter="K"
+                title="Check your application"
+                blurb="This is what GDB will see. Go back to any step to change it."
+              >
+                <dl className="divide-y divide-slate-100 text-sm">
+                  {[
+                    ['Applying as', structure || '—'],
+                    [
+                      'Filed against',
+                      forCluster && cluster ? cluster.name : 'Your own application',
+                    ],
+                    ...(structure === 'Partnership'
+                      ? [['Partners', validCoApplicants.join(', ') || '—'] as [string, string]]
+                      : []),
+                    ['Business', `${businessName || '—'}${dcra ? ` · ${dcra}` : ''}`],
+                    ['Kind', stage === 'Existing' ? 'Existing business' : stage === 'New' ? 'New venture' : '—'],
+                    ['Sector', val('sector') || '—'],
+                    ['Amount requested', amount ? formatGyd(Number(amount)) : '—'],
+                    ['Term', `${term} months`],
+                    ['Interest', '0% — interest free'],
+                    ['Paid into', bank ? `${bank} ••••${accountNo.slice(-4)}` : '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex justify-between gap-4 py-2.5">
+                      <dt className="text-slate-500">{label}</dt>
+                      <dd className="text-right font-semibold text-slate-800">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Section>
+
+              {draft && (
+                <Section
+                  letter="L"
+                  title="Your documents"
+                  blurb="Attach what you have. You can also submit now and send the rest when GDB asks."
+                >
+                  <DocumentShelf application={draft.name} canUpload onChange={setMissing} />
+                </Section>
+              )}
+
+              <div className="rounded-2xl bg-slate-50/80 p-5">
+                <p className="text-sm font-bold text-slate-900">Submit to GDB</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                  {missing.length > 0 ? (
+                    <>
+                      You can submit now. GDB will ask for your <strong>{missing.join(', ')}</strong>{' '}
+                      during review — attaching it first usually means a faster decision.
+                    </>
+                  ) : (
+                    'Everything GDB expects is attached. An underwriter reviews your application next and may come back to you with questions.'
+                  )}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onFinalSubmit()}
+                  className="mt-4 w-full rounded-full bg-brand px-5 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                >
+                  {busy ? 'Submitting…' : 'Submit my application'}
+                </button>
+                <p className="mt-2 text-center text-xs text-slate-400">
+                  By submitting you confirm the information is true to the best of your knowledge.
+                </p>
+              </div>
+            </>
+          )}
+        </Card>
+
+        {/* Sticky actions: one blocker, one primary next action. */}
+        {!isLast && (
+          <div className="sticky bottom-0 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white/85 px-4 py-3 backdrop-blur">
             <button
               type="button"
-              disabled={busy}
-              onClick={() => void onFinalSubmit()}
-              className="w-full rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+              onClick={goBack}
+              disabled={index === 0}
+              className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 disabled:opacity-40"
             >
-              {busy ? 'Submitting…' : 'Submit application'}
+              Back
+            </button>
+            <span className="order-last w-full text-xs text-slate-400 sm:order-none sm:w-auto">
+              {draft ? 'Saved to GDB as a draft' : 'Saved on this device — not sent to GDB yet'}
+            </span>
+            <button
+              type="button"
+              onClick={() => void goNext()}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+            >
+              {busy ? 'Saving…' : step === 'funding' ? 'Save and continue' : 'Continue'}
+              <ArrowRightIcon className="h-4 w-4" />
             </button>
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 }

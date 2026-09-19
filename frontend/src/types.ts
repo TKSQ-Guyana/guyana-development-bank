@@ -2,6 +2,18 @@
  *  before the Bank. Staff queues never show it. */
 export type LoanStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 
+/** Where the case is on the journey the applicant actually walks. Derived
+ *  SERVER-SIDE in api._stage_for, because everything past the credit decision
+ *  lives in other records — the offer, the conditions, the booked loan — and a
+ *  client that reassembled the ladder itself would be a second opinion about
+ *  what stage somebody's loan is at. Render it; never compute it. */
+export type LoanStage = 'Draft' | 'Review' | 'Approved' | 'Signing' | 'Disbursed' | 'Rejected';
+
+/** The five-step ladder, in order, as the applicant's tracker draws it.
+ *  `Rejected` is deliberately absent: a declined case leaves the ladder rather
+ *  than sitting at a step on it. */
+export const LOAN_STAGES: LoanStage[] = ['Draft', 'Review', 'Approved', 'Signing', 'Disbursed'];
+
 export interface LoanApplication {
   name: string;
   applicant: string;
@@ -15,6 +27,33 @@ export interface LoanApplication {
   monthly_income: number;
   phone: string | null;
   status: LoanStatus;
+  /** 'Existing' or 'New' — which half of Sections G/H applies, and which
+   *  evidence documents.required_types expects. */
+  business_stage: string | null;
+  /** The journey stage and the customer-safe sentence that goes with it, both
+   *  from the server. `stage_label` is what the applicant reads — never a raw
+   *  status value. */
+  stage: LoanStage;
+  stage_label: string;
+  /** Set once a Letter of Offer exists on this case. */
+  offer_status: 'Draft' | 'Issued' | 'Accepted' | 'Declined' | 'Expired' | 'Withdrawn' | null;
+  /** Required conditions precedent still Outstanding. Funds cannot be released
+   *  while this is above zero — the server enforces that, this only shows it. */
+  conditions_outstanding: number;
+  /** The booked lending Loan, once the case has one. */
+  loan: string | null;
+  disbursed_amount: number;
+  rate_of_interest: number | null;
+  monthly_repayment: number | null;
+  /** Sections B-H of the application — the business narrative, keyed without
+   *  the gdb_ prefix the doctype uses. Whitelisted server-side against
+   *  install.APPLICATION_SECTIONS, so an unknown key is dropped, never
+   *  written. */
+  sections: Record<string, string | number | null>;
+  /** Expected document types not yet on file, for a queue row. Batched
+   *  server-side (see api._evidence_missing_map) — present only from
+   *  all_loans; the case page reads the live shelf via DocumentShelf instead. */
+  evidence_missing?: string[];
   cluster: string | null;
   underwriter_remarks: string | null;
   reviewed_by: string | null;

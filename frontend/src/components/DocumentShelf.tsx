@@ -236,7 +236,7 @@ export function DocumentShelf({
                       href={d.file_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-medium text-gdb-green hover:underline"
+                      className="font-medium text-brand hover:underline"
                     >
                       {d.file_name}
                     </a>
@@ -256,7 +256,7 @@ export function DocumentShelf({
                     type="button"
                     disabled={busy}
                     onClick={() => void remove(d.name)}
-                    className="rounded-md border border-slate-300 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-xl border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -294,7 +294,7 @@ export function DocumentShelf({
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
             >
               {shelf.settings.types.map((t) => (
                 <option key={t} value={t}>
@@ -314,7 +314,7 @@ export function DocumentShelf({
                 const file = e.target.files?.[0];
                 if (file) void add(file);
               }}
-              className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-gdb-green file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-gdb-green-dark"
+              className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-dark"
             />
           </label>
           {busy && <span className="pb-2 text-sm text-slate-500">Uploading…</span>}

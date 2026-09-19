@@ -74,7 +74,7 @@ export function IssueOffer({
             min={1}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
         <label className="text-sm">
@@ -85,7 +85,7 @@ export function IssueOffer({
             max={360}
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
         <label className="text-sm">
@@ -95,7 +95,7 @@ export function IssueOffer({
             min={1}
             value={validDays}
             onChange={(e) => setValidDays(e.target.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-2"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
       </div>
@@ -109,7 +109,7 @@ export function IssueOffer({
           value={conditions}
           onChange={(e) => setConditions(e.target.value)}
           placeholder="e.g. Quotation for the equipment being financed."
-          className="w-full rounded-md border border-slate-300 px-3 py-2"
+          className="w-full rounded-xl border border-slate-200 px-3 py-2"
         />
       </label>
 
@@ -117,7 +117,7 @@ export function IssueOffer({
         type="button"
         disabled={busy}
         onClick={() => void issue()}
-        className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+        className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
       >
         {busy ? 'Issuing…' : 'Issue offer'}
       </button>

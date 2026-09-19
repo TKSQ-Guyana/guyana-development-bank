@@ -64,7 +64,11 @@ export function Disbursement({
   const awaitingRelease =
     !!loan && drawable > 0 && (loan.status === 'Sanctioned' || loan.status === 'Partially Disbursed');
   const mayBook = Boolean(user?.is_underwriter);
-  const mayRelease = Boolean(user?.is_finance);
+  // Release authority is is_disbursement, split out from is_finance (books
+  // only) — see api.DISBURSEMENT_ROLES. A pure Finance Officer should read
+  // this exactly like the underwriter does: told who releases, not offered
+  // the form.
+  const mayRelease = Boolean(user?.is_disbursement);
 
   const disburse = (e: FormEvent) => {
     e.preventDefault();
@@ -97,7 +101,7 @@ export function Disbursement({
           <button
             disabled={busy}
             onClick={() => void run('gdb_bank.api.book_loan', {}, 'Loan booked.')}
-            className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
           >
             Book loan
           </button>
@@ -133,13 +137,13 @@ export function Disbursement({
                 step="any"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-48 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+                className="w-48 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
               />
             </label>
             <button
               type="submit"
               disabled={busy}
-              className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
             >
               Disburse
             </button>

@@ -121,7 +121,7 @@ export function RuleProposals() {
             <select
               value={form.rule_type}
               onChange={(e) => setForm({ ...form, rule_type: e.target.value as LendingRuleType })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
             >
               {RULE_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -136,7 +136,7 @@ export function RuleProposals() {
               type="date"
               value={form.effective_date}
               onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
           <label className="text-sm">
@@ -145,7 +145,7 @@ export function RuleProposals() {
               value={form.current_value}
               onChange={(e) => setForm({ ...form, current_value: e.target.value })}
               placeholder="e.g. G$3,000,000"
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
           <label className="text-sm">
@@ -154,7 +154,7 @@ export function RuleProposals() {
               value={form.proposed_value}
               onChange={(e) => setForm({ ...form, proposed_value: e.target.value })}
               placeholder="e.g. G$3,500,000"
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
           <label className="text-sm sm:col-span-2">
@@ -163,7 +163,7 @@ export function RuleProposals() {
               rows={3}
               value={form.justification}
               onChange={(e) => setForm({ ...form, justification: e.target.value })}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
         </div>
@@ -230,7 +230,7 @@ export function RuleProposals() {
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}
                         placeholder="Why is this being turned down?"
-                        className="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        className="w-full rounded-xl border border-slate-200 px-2 py-1 text-sm"
                       />
                       <Button variant="danger" disabled={busy || !reason.trim()} onClick={() => void reject(p.name)}>
                         Confirm rejection

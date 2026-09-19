@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { call, getList } from '../api';
 import { PaymentFile } from '../components/PaymentFile';
+import { Badge } from '../components/ui/Badge';
+import { Card, CardLabel } from '../components/ui/Card';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
 import type { LoanApplication, LoanRow } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
@@ -84,20 +87,21 @@ export function Disbursements() {
   return (
     <div>
       <h1 className="mb-1 text-2xl font-bold">Disbursement Queue</h1>
-      <p className="mb-6 text-sm text-slate-500">Money going out to borrowers, booked and released.</p>
+      <p className="mb-1 text-sm text-slate-500">Money going out to borrowers, booked and released.</p>
+      <p className="mb-6 text-xs text-slate-400">
+        Four-eyes rule: the officer who approved a case, and the officer who releases its funds, are
+        never the same login — enforced server-side even when one account holds both roles.
+      </p>
 
-      <div className="mb-5 flex flex-wrap gap-2">
-        {([['queue', 'Queue'], ['file', 'Payment file']] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-              view === id ? 'bg-gdb-green text-white' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-100'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-5">
+        <SegmentedControl
+          options={[
+            { id: 'queue', label: 'Queue' },
+            { id: 'file', label: 'Payment file' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
       </div>
 
       {view === 'file' && <PaymentFile company={company} />}
@@ -110,14 +114,14 @@ export function Disbursements() {
       {view === 'queue' && queue && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
-            <div className="rounded-xl bg-white p-4 shadow">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Awaiting action</p>
+            <Card className="p-4">
+              <CardLabel>Awaiting action</CardLabel>
               <p className="mt-1 text-2xl font-bold text-slate-800">{pending}</p>
-            </div>
-            <div className="rounded-xl bg-white p-4 shadow">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Undrawn</p>
+            </Card>
+            <Card className="p-4">
+              <CardLabel>Undrawn</CardLabel>
               <p className="mt-1 text-2xl font-bold text-slate-800">{formatGyd(undrawn)}</p>
-            </div>
+            </Card>
           </div>
 
           <Section
@@ -130,7 +134,7 @@ export function Disbursements() {
                 <td className="px-4 py-3">
                   <Link
                     to={`/loans/${l.loan_application ?? ''}`}
-                    className="font-medium text-gdb-green hover:underline"
+                    className="font-medium text-brand hover:underline"
                   >
                     {l.loan_application ?? l.name}
                   </Link>
@@ -143,9 +147,7 @@ export function Disbursements() {
                   {formatGyd(l.loan_amount - l.disbursed_amount)}
                 </td>
                 <td className="px-4 py-3">
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                    {l.status}
-                  </span>
+                  <Badge tone="warning">{l.status}</Badge>
                 </td>
               </tr>
             ))}
@@ -159,7 +161,7 @@ export function Disbursements() {
             {queue.booking.map((a) => (
               <tr key={a.name} className="hover:bg-slate-50">
                 <td className="px-4 py-3">
-                  <Link to={`/loans/${a.name}`} className="font-medium text-gdb-green hover:underline">
+                  <Link to={`/loans/${a.name}`} className="font-medium text-brand hover:underline">
                     {a.name}
                   </Link>
                 </td>

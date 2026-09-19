@@ -15,7 +15,7 @@ import { formatGyd, formatDate } from '../utils';
  */
 
 const TONE: Record<string, string> = {
-  Issued: 'bg-gdb-gold/20 text-gdb-green-dark',
+  Issued: 'bg-gdb-gold/20 text-brand-dark',
   Accepted: 'bg-green-50 text-green-800',
   Declined: 'bg-red-50 text-red-700',
   Expired: 'bg-slate-100 text-slate-600',
@@ -126,7 +126,7 @@ export function OfferPanel({
       <button
         type="button"
         onClick={() => setShowAgreement((v) => !v)}
-        className="mb-4 text-sm font-medium text-gdb-green hover:underline"
+        className="mb-4 text-sm font-medium text-brand hover:underline"
       >
         {showAgreement ? 'Hide the full offer' : 'Read the full offer'}
       </button>
@@ -156,20 +156,20 @@ export function OfferPanel({
               value={typedName}
               onChange={(e) => setTypedName(e.target.value)}
               placeholder="Your full name"
-              className="w-64 rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+              className="w-64 rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
             />
             <button
               type="button"
               disabled={busy || !typedName.trim()}
               onClick={() => void respond(true)}
-              className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
             >
               {busy ? 'Recording…' : 'Accept offer'}
             </button>
             <button
               type="button"
               onClick={() => setDeclining(true)}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               Decline
             </button>
@@ -185,7 +185,7 @@ export function OfferPanel({
               rows={3}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
             />
           </label>
           <div className="flex gap-3">
@@ -200,7 +200,7 @@ export function OfferPanel({
             <button
               type="button"
               onClick={() => setDeclining(false)}
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               Back
             </button>

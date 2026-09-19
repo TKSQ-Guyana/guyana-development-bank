@@ -45,7 +45,7 @@ export function ClusterMembers({ cluster }: { cluster: string }) {
                 <p className="text-sm font-medium text-slate-800">
                   {m.member_name}
                   {m.is_head && (
-                    <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-gdb-green-dark">
+                    <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
                       Head
                     </span>
                   )}
@@ -67,7 +67,7 @@ export function ClusterMembers({ cluster }: { cluster: string }) {
                 <button
                   type="button"
                   onClick={() => setOpen(open === m.member ? null : m.member)}
-                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className="rounded-xl border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
                   {open === m.member ? 'Hide documents' : 'Documents'}
                 </button>

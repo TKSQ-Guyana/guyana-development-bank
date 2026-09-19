@@ -109,7 +109,7 @@ export function Conditions({
         <h2 className="font-semibold text-slate-800">Conditions precedent</h2>
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold ${
-            clear ? 'bg-green-50 text-green-800' : 'bg-gdb-gold/20 text-gdb-green-dark'
+            clear ? 'bg-green-50 text-green-800' : 'bg-gdb-gold/20 text-brand-dark'
           }`}
         >
           {clear ? 'All cleared' : `${list.outstanding} outstanding`}
@@ -147,7 +147,7 @@ export function Conditions({
                       type="button"
                       disabled={busy === c.name}
                       onClick={() => void mark(c.name, 'Met')}
-                      className="rounded-md border border-gdb-green px-3 py-1 text-xs font-medium text-gdb-green hover:bg-gdb-green/5 disabled:opacity-50"
+                      className="rounded-md border border-brand px-3 py-1 text-xs font-medium text-brand hover:bg-brand/5 disabled:opacity-50"
                     >
                       Mark met
                     </button>
@@ -167,7 +167,7 @@ export function Conditions({
                       type="button"
                       disabled={busy === c.name}
                       onClick={() => void mark(c.name, 'Outstanding')}
-                      className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                     >
                       Reopen
                     </button>
@@ -187,7 +187,7 @@ export function Conditions({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="e.g. Independent valuation of the pledged equipment"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
             />
           </label>
           <p className="mb-2 text-xs text-slate-500">
@@ -197,7 +197,7 @@ export function Conditions({
           <button
             type="submit"
             disabled={busy === 'add' || !draft.trim()}
-            className="rounded-md bg-gdb-green px-4 py-2 text-xs font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+            className="rounded-full bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
           >
             {busy === 'add' ? 'Adding…' : 'Add condition'}
           </button>

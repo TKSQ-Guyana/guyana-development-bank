@@ -137,7 +137,7 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
             value={bankRef}
             onChange={(e) => setBankRef(e.target.value)}
             placeholder="e.g. DEM-COLL-2026-09-13"
-            className="w-56 rounded-md border border-slate-300 px-3 py-2"
+            className="w-56 rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
       </div>
@@ -155,7 +155,7 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
             setResult(null);
           }}
           placeholder={SAMPLE}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-xs"
+          className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-xs"
         />
       </label>
 
@@ -164,7 +164,7 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
           type="button"
           disabled={busy || rows.length === 0}
           onClick={() => void doPreview()}
-          className="rounded-md border border-gdb-green px-4 py-2 text-sm font-semibold text-gdb-green hover:bg-gdb-green/5 disabled:opacity-50"
+          className="rounded-md border border-brand px-4 py-2 text-sm font-semibold text-brand hover:bg-brand/5 disabled:opacity-50"
         >
           {busy ? 'Reading…' : 'Preview'}
         </button>
@@ -172,7 +172,7 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
           type="button"
           disabled={busy || !preview || preview.postable === 0}
           onClick={() => void doPost()}
-          className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
         >
           Post {preview ? `${preview.postable} payment${preview.postable === 1 ? '' : 's'}` : ''}
         </button>

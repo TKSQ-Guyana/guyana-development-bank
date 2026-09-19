@@ -19,7 +19,7 @@ import { formatDate } from '../utils';
  */
 
 const inputClass =
-  'w-full rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green';
+  'w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20';
 
 const REGIONS = [
   'Region 1 — Barima-Waini',
@@ -224,7 +224,7 @@ export function Profile() {
         <button
           type="submit"
           disabled={busy}
-          className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
         >
           {busy ? 'Saving…' : 'Save details'}
         </button>

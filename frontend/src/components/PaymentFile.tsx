@@ -104,7 +104,7 @@ export function PaymentFile({ company }: { company: string | null }) {
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2"
+            className="rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
         <label className="text-sm">
@@ -113,7 +113,7 @@ export function PaymentFile({ company }: { company: string | null }) {
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2"
+            className="rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>
         <label className="text-sm">
@@ -121,7 +121,7 @@ export function PaymentFile({ company }: { company: string | null }) {
           <select
             value={bank}
             onChange={(e) => setBank(e.target.value)}
-            className="rounded-md border border-slate-300 px-3 py-2"
+            className="rounded-xl border border-slate-200 px-3 py-2"
           >
             <option value="">All banks</option>
             {banks.map((b) => (
@@ -135,7 +135,7 @@ export function PaymentFile({ company }: { company: string | null }) {
           type="button"
           onClick={exportCsv}
           disabled={selected.length === 0}
-          className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
         >
           Download CSV ({selected.length})
         </button>

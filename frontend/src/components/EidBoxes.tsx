@@ -102,7 +102,7 @@ export function EidBoxes({
       aria-describedby={describedBy}
       aria-label={`e-ID digits, group ${index + 1} of 3`}
       placeholder={placeholder}
-      className={`${grow} min-w-0 rounded-md border px-2 py-2 text-center text-[15px] tabular-nums tracking-[0.04em] focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green disabled:bg-slate-100 disabled:text-slate-400 ${
+      className={`${grow} min-w-0 rounded-md border px-2 py-2 text-center text-[15px] tabular-nums tracking-[0.04em] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:text-slate-400 ${
         invalid ? 'border-red-400' : 'border-slate-300'
       }`}
     />

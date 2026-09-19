@@ -9,7 +9,7 @@ import type { Cluster as ClusterType, ClusterInvitation } from '../types';
 import { formatGyd } from '../utils';
 
 const inputClass =
-  'w-full rounded-md border border-slate-300 px-3 py-2 focus:border-gdb-green focus:outline-none focus:ring-1 focus:ring-gdb-green';
+  'w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20';
 
 const card = 'rounded-xl bg-white p-6 shadow';
 
@@ -46,7 +46,7 @@ export function Cluster() {
             {[cluster.region, cluster.sector].filter(Boolean).join(' · ') || 'Cluster'} ·{' '}
             {cluster.members.length} member{cluster.members.length === 1 ? '' : 's'}
             {cluster.is_head && (
-              <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-gdb-green-dark">
+              <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
                 You are the head
               </span>
             )}
@@ -55,7 +55,7 @@ export function Cluster() {
         {cluster.is_head && (
           <Link
             to="/apply"
-            className="rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark"
+            className="rounded-full bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark"
           >
             Apply for the cluster
           </Link>
@@ -94,7 +94,7 @@ export function Cluster() {
                 <div className="flex items-center gap-3">
                   <StatusBadge status={app.status} />
                   {!app.private && (
-                    <Link to={`/loans/${app.name}`} className="text-sm font-medium text-gdb-green hover:underline">
+                    <Link to={`/loans/${app.name}`} className="text-sm font-medium text-brand hover:underline">
                       View
                     </Link>
                   )}
@@ -162,14 +162,14 @@ function Plan({
           <button
             type="submit"
             disabled={busy}
-            className="rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+            className="rounded-full bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
           >
             {busy ? 'Saving…' : 'Save plan'}
           </button>
           <button
             type="button"
             onClick={() => setEditing(false)}
-            className="rounded-md border border-slate-300 px-4 py-2 font-medium text-slate-600"
+            className="rounded-xl border border-slate-200 px-4 py-2 font-medium text-slate-600"
           >
             Cancel
           </button>
@@ -183,7 +183,7 @@ function Plan({
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Shared business plan</h2>
         {cluster.is_head && (
-          <button onClick={() => setEditing(true)} className="text-sm font-medium text-gdb-green hover:underline">
+          <button onClick={() => setEditing(true)} className="text-sm font-medium text-brand hover:underline">
             Edit
           </button>
         )}
@@ -254,7 +254,7 @@ function Invitations({ onJoined }: { onJoined: () => void }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void respond(inv.name, true)}
-                className="rounded-md bg-gdb-green px-4 py-2 text-sm font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-50"
+                className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
               >
                 Accept
               </button>
@@ -262,7 +262,7 @@ function Invitations({ onJoined }: { onJoined: () => void }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void respond(inv.name, false)}
-                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
                 Decline
               </button>
@@ -308,7 +308,7 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
             <span className="text-sm text-slate-800">
               {m.member_name}
               {m.is_head && (
-                <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-gdb-green-dark">
+                <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
                   Head
                 </span>
               )}
@@ -354,7 +354,7 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
             <button
               type="submit"
               disabled={busy || !isCompleteEid(eid)}
-              className="h-10 self-end rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+              className="h-10 self-end rounded-full bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
             >
               {busy ? 'Sending…' : 'Send invitation'}
             </button>
@@ -428,7 +428,7 @@ function StartCluster({ onCreated }: { onCreated: (c: ClusterType) => void }) {
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-md bg-gdb-green px-4 py-2 font-semibold text-white hover:bg-gdb-green-dark disabled:opacity-60"
+          className="w-full rounded-full bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
         >
           {busy ? 'Creating…' : 'Create cluster'}
         </button>

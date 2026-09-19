@@ -17,7 +17,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, fmt_money, now_datetime, nowdate
 
-from gdb_bank.install import LOAN_PRODUCT_NAME
+from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
 
@@ -44,6 +44,111 @@ STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES | DISBURSEMENT_ROLES
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
 STATUS_FROM_PORTAL = {v: k for k, v in STATUS_TO_PORTAL.items()}
 
+# The journey the applicant is actually on, in order. `status` alone cannot
+# express it: everything after the credit decision lives in other records —
+# whether an offer was issued and accepted (GDB Loan Offer), whether the
+# conditions precedent are worked off (GDB Loan Condition), and whether money
+# has left the bank (lending's Loan). An applicant looking at "Approved" for
+# three weeks while conditions are outstanding is being told nothing.
+#
+# Derived HERE and handed to the portal as one field, rather than reassembled
+# in the SPA: the client is a presentation layer, and three clients working out
+# the same ladder from four record types would be three chances to disagree
+# about what stage somebody's loan is at.
+PORTAL_STAGES = ("Draft", "Review", "Approved", "Signing", "Disbursed")
+
+# Customer-safe wording, per the programme spec's internal-state/applicant-
+# wording map: the applicant is never shown a raw database value, and always
+# sees the next thing that is true of their case.
+STAGE_LABELS = {
+	"Draft": "Not submitted yet",
+	"Review": "GDB is reviewing your application",
+	"Rejected": "Your application was not approved",
+	"Approved": "Approved — your offer is being prepared",
+	"Offer": "Your offer is ready",
+	"Declined": "You declined this offer",
+	"Expired": "This offer has expired",
+	"Conditions": "Complete these items before funds can be released",
+	"Release": "Payment is being arranged",
+	"Disbursed": "Your loan is active",
+}
+
+
+def _stage_context(names: list[str]) -> dict:
+	"""Offer, conditions and disbursement state for these applications.
+
+	One batch per record type rather than per application, because the citizen
+	dashboard and the staff queue both render whole lists. Read with get_all /
+	get_value, which do not apply permissions — the caller has already been
+	checked against the application itself, and these are facts about that same
+	case.
+	"""
+	ctx = {n: {} for n in names if n}
+	if not ctx:
+		return ctx
+
+	wanted = list(ctx)
+	# Latest offer per application. Ordered oldest-first so a re-issued offer
+	# overwrites the one it replaced.
+	for offer in frappe.get_all(
+		"GDB Loan Offer",
+		filters={"application": ["in", wanted], "docstatus": ["<", 2]},
+		fields=["application", "status", "name", "valid_until"],
+		order_by="creation asc",
+	):
+		ctx[offer.application]["offer_status"] = offer.status
+		ctx[offer.application]["offer"] = offer.name
+		ctx[offer.application]["offer_valid_until"] = offer.valid_until
+
+	# Counted in Python rather than with a SQL aggregate: Frappe refuses a
+	# function written as a string in `fields`, and the row count here is one
+	# per outstanding condition on the cases already on screen.
+	for cond in frappe.get_all(
+		"GDB Loan Condition",
+		filters={"application": ["in", wanted], "status": "Outstanding", "is_required": 1},
+		fields=["application"],
+	):
+		entry = ctx[cond.application]
+		entry["conditions_outstanding"] = cint(entry.get("conditions_outstanding")) + 1
+
+	for loan in frappe.get_all(
+		"Loan",
+		filters={"loan_application": ["in", wanted], "docstatus": ["<", 2]},
+		fields=["loan_application", "name", "status", "disbursed_amount"],
+	):
+		ctx[loan.loan_application].update(
+			loan=loan.name, loan_status=loan.status, disbursed_amount=flt(loan.disbursed_amount)
+		)
+	return ctx
+
+
+def _stage_for(status: str, ctx: dict) -> tuple:
+	"""(stage, label) for one application, from its status and what follows it.
+
+	Read top down: money that has moved outranks an accepted offer, which
+	outranks the decision that produced it. Anything before the decision is the
+	decision's own status.
+	"""
+	if status in ("Draft", "Rejected"):
+		return ("Draft" if status == "Draft" else "Rejected", STAGE_LABELS[status])
+	if status == "Submitted":
+		return ("Review", STAGE_LABELS["Review"])
+
+	# Approved from here on.
+	if flt(ctx.get("disbursed_amount")) > 0:
+		return ("Disbursed", STAGE_LABELS["Disbursed"])
+
+	offer_status = ctx.get("offer_status")
+	if offer_status == "Accepted":
+		if cint(ctx.get("conditions_outstanding")):
+			return ("Signing", STAGE_LABELS["Conditions"])
+		return ("Signing", STAGE_LABELS["Release"])
+	if offer_status in ("Declined", "Expired"):
+		return ("Approved", STAGE_LABELS[offer_status])
+	if offer_status == "Issued":
+		return ("Approved", STAGE_LABELS["Offer"])
+	return ("Approved", STAGE_LABELS["Approved"])
+
 LOAN_FIELDS = [
 	"name",
 	"gdb_owner",
@@ -66,7 +171,66 @@ LOAN_FIELDS = [
 	"docstatus",
 	"creation",
 	"modified",
-]
+] + [f[0] for f in APPLICATION_SECTIONS]
+
+# Portal key <-> Custom Field name. The portal contract drops the gdb_ prefix,
+# so `sections.target_market` is `gdb_target_market` on the doctype.
+SECTION_KEYS = {f[0][4:]: (f[0], f[2]) for f in APPLICATION_SECTIONS}
+
+# Which section block belongs to which kind of business. Switching stage clears
+# the other block rather than leaving a start-up carrying filed accounts, or a
+# trading business carrying forecasts.
+EXISTING_ONLY = (
+	"gdb_annual_revenue",
+	"gdb_cost_of_sales",
+	"gdb_operating_expenses",
+	"gdb_existing_obligations",
+	"gdb_cash_position",
+)
+NEW_ONLY = (
+	"gdb_expected_sales_volume",
+	"gdb_projected_revenue",
+	"gdb_projected_costs",
+	"gdb_initial_costs",
+	"gdb_expected_cash_position",
+	"gdb_assumptions",
+)
+
+
+def _blanked(fieldnames) -> dict:
+	"""Empty values for these fields, each of its own type."""
+	by_name = {f[0]: f[2] for f in APPLICATION_SECTIONS}
+	return {f: (0 if by_name.get(f) in ("Currency", "Int") else "") for f in fieldnames}
+
+
+def _section_values(sections) -> dict:
+	"""Section B-H answers, whitelisted against the table and coerced by type.
+
+	Anything the table does not name is DROPPED rather than written. This is
+	reached from a whitelisted endpoint, and handing an arbitrary dict to
+	doc.update() would let any caller set any field on the Loan Application —
+	including the permlevel-1 status this module is careful never to touch
+	outside review_loan.
+	"""
+	if not sections:
+		return {}
+	if isinstance(sections, str):
+		sections = frappe.parse_json(sections)
+	if not isinstance(sections, dict):
+		return {}
+
+	values = {}
+	for key, (fieldname, fieldtype) in SECTION_KEYS.items():
+		if key not in sections:
+			continue
+		raw = sections.get(key)
+		if fieldtype == "Currency":
+			values[fieldname] = flt(raw)
+		elif fieldtype == "Int":
+			values[fieldname] = cint(raw)
+		else:
+			values[fieldname] = (raw or "").strip() if isinstance(raw, str) else (raw or "")
+	return values
 
 
 def _logger() -> logging.Logger:
@@ -170,17 +334,23 @@ def _as_system():
 		frappe.local.session.data = data
 
 
-def _portal_dict(row, eids: dict | None = None) -> dict:
+def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict:
 	"""Normalize a lending Loan Application row to the stable portal shape.
 
 	`eids` is the batch from _eids() when this is one row of a list; a single
 	row looks its own up. Either way the applicant's e-ID travels with the
 	application, because that — not their mailbox — is who staff are looking at.
+
+	`ctx` is the same arrangement for _stage_context: the batch when this is one
+	row of a list, looked up per row otherwise.
 	"""
 	get = row.get if isinstance(row, dict) else lambda f: row.get(f)
 	owner = get("gdb_owner")
+	name = get("name")
 	if eids is None:
 		eids = _eids([owner])
+	if ctx is None:
+		ctx = _stage_context([name])
 	# A draft is the applicant's own workspace: it exists so evidence can be
 	# attached before submission, and lending has no status for it (a fresh
 	# application is `Open` the moment it is submitted). docstatus is what
@@ -189,6 +359,8 @@ def _portal_dict(row, eids: dict | None = None) -> dict:
 	status = "Draft" if cint(get("docstatus")) == 0 else STATUS_TO_PORTAL.get(
 		get("status"), get("status")
 	)
+	case = ctx.get(name) or {}
+	stage, stage_label = _stage_for(status, case)
 	return {
 		"name": get("name"),
 		"applicant": get("gdb_owner"),
@@ -204,6 +376,18 @@ def _portal_dict(row, eids: dict | None = None) -> dict:
 		"monthly_income": get("gdb_monthly_income"),
 		"phone": get("applicant_phone_number"),
 		"status": status,
+		# Where the case actually is, and what to tell the applicant it means.
+		# See PORTAL_STAGES — `status` stays exactly as it was for every caller
+		# that already reads it.
+		"stage": stage,
+		"stage_label": stage_label,
+		"offer_status": case.get("offer_status"),
+		"conditions_outstanding": cint(case.get("conditions_outstanding")),
+		"loan": case.get("loan"),
+		"disbursed_amount": flt(case.get("disbursed_amount")),
+		# Sections B-H as one nested block, so the form round-trips exactly
+		# what it sent and the underwriter's case view reads the same shape.
+		"sections": {key: get(fieldname) for key, (fieldname, _t) in SECTION_KEYS.items()},
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),
 		"reviewed_on": get("gdb_reviewed_on"),
@@ -372,6 +556,7 @@ def _validated(
 	business_stage: str | None = None,
 	dcra_number: str | None = None,
 	business_name: str | None = None,
+	sections=None,
 	user: str | None = None,
 ) -> dict:
 	"""Check what the applicant typed, and answer the fields to write.
@@ -414,7 +599,7 @@ def _validated(
 	if not product:
 		frappe.throw(_("Loan Product is not configured. Contact the administrator."))
 
-	return {
+	values = {
 		"applicant_type": "Customer",
 		"applicant": _get_or_create_customer(user),
 		"applicant_name": frappe.utils.get_fullname(user),
@@ -436,6 +621,16 @@ def _validated(
 		"gdb_dcra_number": dcra_number,
 		"gdb_business_name": business_name,
 	}
+	values.update(_section_values(sections))
+	# The stage decides which financial block is meaningful, so switching it
+	# clears the other one. Same reasoning as dropping the DCRA number above:
+	# a start-up must never carry filed accounts, and a trading business must
+	# never be decided on forecasts it did not make.
+	if business_stage == "Existing":
+		values.update(_blanked(NEW_ONLY))
+	elif business_stage == "New":
+		values.update(_blanked(EXISTING_ONLY))
+	return values
 
 
 def _own_draft(name: str, user: str):
@@ -463,6 +658,7 @@ def save_application(
 	business_stage: str | None = None,
 	dcra_number: str | None = None,
 	business_name: str | None = None,
+	sections=None,
 	name: str | None = None,
 ):
 	"""Create or update the applicant own DRAFT application.
@@ -487,6 +683,7 @@ def save_application(
 		business_stage=business_stage,
 		dcra_number=dcra_number,
 		business_name=business_name,
+		sections=sections,
 		user=user,
 	)
 
@@ -560,6 +757,7 @@ def apply_loan(
 	business_stage: str | None = None,
 	dcra_number: str | None = None,
 	business_name: str | None = None,
+	sections=None,
 ):
 	"""Save and submit in one call, for an applicant with evidence already filed.
 
@@ -579,6 +777,7 @@ def apply_loan(
 		business_stage=business_stage,
 		dcra_number=dcra_number,
 		business_name=business_name,
+		sections=sections,
 	)
 	return submit_application(draft["name"])
 
@@ -609,9 +808,9 @@ def my_loans():
 		order_by="creation desc",
 	)
 	eids = _eids([r.gdb_owner for r in rows])
-	return [
-		_portal_dict(r, eids) for r in rows if r.gdb_owner == user or _is_shared_with(r, user)
-	]
+	mine = [r for r in rows if r.gdb_owner == user or _is_shared_with(r, user)]
+	ctx = _stage_context([r.name for r in mine])
+	return [_portal_dict(r, eids, ctx) for r in mine]
 
 
 @frappe.whitelist()
@@ -627,6 +826,50 @@ def loan_detail(name: str):
 		if not _is_shared_with(row, user):
 			frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
 	return _portal_dict(row)
+
+
+def _evidence_missing_map(rows) -> dict:
+	"""Expected-but-absent document types per application, batched.
+
+	Same trade as _stage_context: the review queue renders a whole list, so
+	this is one document query for every case on screen rather than
+	documents.missing_evidence's one-query-per-application — which is the
+	right shape for a single case page, and the wrong shape multiplied by a
+	queue's worth of rows.
+
+	Deferred import: documents.py imports from this module at load time, so
+	importing it back at module scope here would be circular.
+	"""
+	from gdb_bank.documents import PERSONAL_TYPES, REPLACED, required_types
+
+	names = [r.name for r in rows]
+	if not names:
+		return {}
+	owners = {r.name: r.gdb_owner for r in rows}
+	stages = {r.name: r.gdb_business_stage for r in rows}
+
+	doc_rows = frappe.get_all(
+		"GDB Applicant Document",
+		filters={
+			"applicant": ["in", list(set(owners.values()))],
+			"status": ["!=", REPLACED],
+			"file_url": ["is", "set"],
+		},
+		fields=["applicant", "application", "document_type"],
+	)
+	by_owner: dict = {}
+	for d in doc_rows:
+		by_owner.setdefault(d.applicant, []).append(d)
+
+	missing = {}
+	for name in names:
+		held = {
+			d.document_type
+			for d in by_owner.get(owners.get(name), [])
+			if d.application == name or (not d.application and d.document_type in PERSONAL_TYPES)
+		}
+		missing[name] = [t for t in required_types(stages.get(name)) if t not in held]
+	return missing
 
 
 @frappe.whitelist()
@@ -655,7 +898,15 @@ def all_loans(status: str | None = None):
 		order_by="creation desc",
 	)
 	eids = _eids([r.gdb_owner for r in rows])
-	return [_portal_dict(r, eids) for r in rows]
+	ctx = _stage_context([r.name for r in rows])
+	evidence = _evidence_missing_map(rows)
+	result = [_portal_dict(r, eids, ctx) for r in rows]
+	for portal_row, row in zip(result, rows):
+		# Additive, queue-only: loan_detail already renders the live shelf via
+		# DocumentShelf, so _portal_dict's shared shape stays as it was for
+		# every other caller.
+		portal_row["evidence_missing"] = evidence.get(row.name, [])
+	return result
 
 
 @frappe.whitelist()
