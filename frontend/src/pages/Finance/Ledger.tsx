@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiError, getList, runReport } from '../api';
-import type { ReportColumn } from '../api';
-import { formatGyd } from '../utils';
+import { ApiError, getList, runReport } from '../../api';
+import type { ReportColumn } from '../../api';
+import { formatGyd } from '../../utils';
+import { Card } from '../../components/ui/Card';
+import { SegmentedControl } from '../../components/ui/SegmentedControl';
 
-/** The finance view: ERPNext's own accounting reports, rendered in the portal.
+/** The ledger: ERPNext's own accounting reports, rendered in the portal.
  *
  *  Every figure here comes from `frappe.desk.query_report.run` against the
  *  stock reports the desk uses, so there is exactly one implementation of the
@@ -40,7 +42,7 @@ interface View {
   rows: Record<string, unknown>[];
 }
 
-export function Finance() {
+export function Ledger() {
   const [tab, setTab] = useState<TabId>('trial_balance');
   const [company, setCompany] = useState<string | null>(null);
   const [fiscalYear, setFiscalYear] = useState<string | null>(null);
@@ -49,15 +51,9 @@ export function Finance() {
   const [denied, setDenied] = useState(false);
 
   const year = new Date().getFullYear();
-  const period = useMemo(
-    () => ({ from: `${year}-01-01`, to: `${year}-12-31` }),
-    [year],
-  );
+  const period = useMemo(() => ({ from: `${year}-01-01`, to: `${year}-12-31` }), [year]);
 
   useEffect(() => {
-    // The statements are keyed to a Fiscal Year record, and its name is a
-    // label ("2026", "2026-2027", …) the site chooses — so read the one that
-    // actually covers today rather than assuming it matches the year number.
     Promise.all([
       getList<{ name: string }>('Company', { fields: ['name'], limit: 1 }),
       getList<{ name: string }>('Fiscal Year', {
@@ -68,17 +64,11 @@ export function Finance() {
       .then(([companies, years]) => {
         setCompany(companies[0]?.name ?? null);
         const today = new Date().toISOString().slice(0, 10);
-        const covering = (years as unknown as {
-          name: string;
-          year_start_date: string;
-          year_end_date: string;
-        }[]).find((y) => y.year_start_date <= today && today <= y.year_end_date);
+        const covering = (
+          years as unknown as { name: string; year_start_date: string; year_end_date: string }[]
+        ).find((y) => y.year_start_date <= today && today <= y.year_end_date);
         setFiscalYear(covering?.name ?? years[0]?.name ?? null);
       })
-      // A permission failure here is the same fact as one from a report, and
-      // has to reach the same panel: the bootstrap runs first, so without
-      // this the raw Frappe string ("Insufficient Permission for Fiscal
-      // Year") is all a user without accounting access ever sees.
       .catch((err: Error) => {
         if (err instanceof ApiError && (err.status === 403 || /permission/i.test(err.message))) {
           setDenied(true);
@@ -155,52 +145,41 @@ export function Finance() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold">Finance</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        The bank&rsquo;s books for {year}, straight from the accounting ledger.
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-brand">Finance</p>
+      <h1 className="mt-1 text-3xl font-bold text-slate-900">Ledger</h1>
+      <p className="mt-2 text-sm text-slate-500">The bank&rsquo;s books for {year}, straight from the accounting ledger.</p>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium ${
-              tab === t.id ? 'bg-gdb-green text-white' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-100'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mt-6">
+        <SegmentedControl value={tab} onChange={setTab} options={TABS} />
       </div>
 
       {denied && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
+        <Card className="mt-6 border border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-semibold">You do not have accounting access.</p>
           <p className="mt-1">
             Viewing the ledger needs an accounts role on your Frappe user — ERPNext ships{' '}
-            <span className="font-mono">Accounts User</span> for read access. Ask an administrator
-            to grant it. Nothing on this page works around that check.
+            <span className="font-mono">Accounts User</span> for read access. Ask an administrator to
+            grant it.
           </p>
-        </div>
+        </Card>
       )}
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
-      {!denied && !error && !view && <p className="text-slate-500">Loading…</p>}
+      {error && <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
+      {!denied && !error && !view && <p className="mt-4 text-slate-500">Loading…</p>}
       {view && view.rows.length === 0 && (
-        <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
+        <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
           Nothing posted for this period.
         </p>
       )}
 
       {view && view.rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl bg-white shadow">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <Card className="mt-4 overflow-x-auto p-0">
+          <table className="min-w-full divide-y divide-slate-100 text-sm">
+            <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
               <tr>
                 {view.columns.map((c) => (
                   <th
                     key={c.fieldname}
-                    className={`px-4 py-3 ${CURRENCY_TYPES.has(c.fieldtype ?? '') ? 'text-right' : ''}`}
+                    className={`px-5 py-3 ${CURRENCY_TYPES.has(c.fieldtype ?? '') ? 'text-right' : ''}`}
                   >
                     {c.label}
                   </th>
@@ -217,7 +196,7 @@ export function Finance() {
               ))}
             </tbody>
           </table>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -234,8 +213,6 @@ function Cell({
 }) {
   const value = row[column.fieldname];
   const isMoney = CURRENCY_TYPES.has(column.fieldtype ?? '');
-  // Financial statements carry their tree depth in `indent`; honouring it is
-  // what makes a Balance Sheet readable rather than a flat wall of accounts.
   const indent = first ? Number(row.indent ?? 0) : 0;
   const bold = Boolean(row.is_group) || /total/i.test(String(row[column.fieldname] ?? ''));
 
@@ -247,7 +224,7 @@ function Cell({
 
   return (
     <td
-      className={`px-4 py-2 ${isMoney ? 'text-right tabular-nums' : ''} ${bold ? 'font-semibold text-slate-800' : 'text-slate-600'}`}
+      className={`px-5 py-2 ${isMoney ? 'text-right tabular-nums' : ''} ${bold ? 'font-semibold text-slate-800' : 'text-slate-600'}`}
       style={indent ? { paddingLeft: `${1 + indent * 1.25}rem` } : undefined}
     >
       {text}

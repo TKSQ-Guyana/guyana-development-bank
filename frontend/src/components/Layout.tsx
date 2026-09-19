@@ -44,16 +44,11 @@ export function Layout() {
               My Details
             </NavLink>
             {user?.is_finance && (
-              <NavLink to="/finance" className={navLinkClass}>
+              <NavLink to="/finance/reconciliation" className={navLinkClass}>
                 Finance
               </NavLink>
             )}
-            {user?.is_finance && (
-              <NavLink to="/portfolio" className={navLinkClass}>
-                Portfolio
-              </NavLink>
-            )}
-            {user?.is_finance && (
+            {user?.is_disbursement && (
               <NavLink to="/disbursements" className={navLinkClass}>
                 Disbursements
               </NavLink>
@@ -76,6 +71,11 @@ export function Layout() {
               </span>
             )}
             {user?.is_finance && (
+              <span className="ml-2 rounded bg-brand-light px-1.5 py-0.5 text-xs font-semibold text-brand-text">
+                Finance
+              </span>
+            )}
+            {user?.is_disbursement && (
               <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-semibold text-sky-800">
                 Disbursement Officer
               </span>

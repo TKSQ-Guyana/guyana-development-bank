@@ -238,7 +238,7 @@ def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict |
 	# account is attached to the User it turns out to be. A head can therefore
 	# invite somebody who has never signed in, which is the ordinary case in a
 	# programme reaching people who are not online yet.
-	from gdb_bank.api import _is_finance, _is_underwriter, link_pending_invitations
+	from gdb_bank.api import _is_disbursement, _is_finance, _is_underwriter, link_pending_invitations
 	from gdb_bank.profiles import record_identity_claims
 
 	if claims:
@@ -251,6 +251,7 @@ def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict |
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
 		"is_finance": _is_finance(user),
+		"is_disbursement": _is_disbursement(user),
 		"provisioned": created,
 		"realm": realm,
 	}

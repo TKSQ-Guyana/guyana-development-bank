@@ -226,10 +226,78 @@ export interface Whoami {
   eid: string | null;
   roles: string[];
   is_underwriter: boolean;
-  /** Money movement: release, the payment file, collections, the ledger views.
-   *  Deliberately separate from `is_underwriter` — the officer who decides a
-   *  loan is not the officer who pays it. */
+  /** The books: the ledger, portfolio reporting, reconciling receipts, and
+   *  proposing (never deciding its own) lending-rule changes. Deliberately
+   *  separate from `is_underwriter` and from `is_disbursement` — the officer
+   *  who decides a loan is not the officer who pays it, and neither is the
+   *  officer who keeps the books. */
   is_finance: boolean;
+  /** Release authority: disburse_loan, the payment file. Split out of
+   *  is_finance — see api.DISBURSEMENT_ROLES. */
+  is_disbursement: boolean;
+}
+
+/** One row off ERPNext's Bank Transaction — money the bank has confirmed
+ *  arrived, not yet matched to a loan. Straight off
+ *  gdb_bank.collections.unreconciled_receipts / .suggest_loans. */
+export interface BankReceipt {
+  name: string;
+  date: string;
+  deposit: number;
+  withdrawal: number;
+  allocated_amount: number;
+  unallocated_amount: number;
+  description: string | null;
+  reference_number: string | null;
+  party_type: string | null;
+  party: string | null;
+  bank_account: string | null;
+  status: string;
+}
+
+export interface ReceiptCandidate {
+  loan: string;
+  application: string | null;
+  borrower: string | null;
+  outstanding: number;
+  instalment: number;
+  rank: number;
+  /** Why this loan ranked where it did, in the words an officer would use —
+   *  never applied automatically, so this is what a human reads before
+   *  deciding. */
+  why: string[];
+}
+
+export type LendingRuleType =
+  | 'Interest Rate'
+  | 'Maximum Loan Amount'
+  | 'Minimum Loan Amount'
+  | 'Loan Term Limits'
+  | 'Required Documents'
+  | 'Standard Conditions'
+  | 'Capacity Calculation'
+  | 'Charges';
+
+export type RuleProposalState = 'Draft' | 'Pending' | 'Approved' | 'Rejected';
+
+/** A GDB Lending Rule Proposal — Finance proposes, another Finance officer
+ *  decides. See gdb_lending_rule_proposal.py: the same person can never do
+ *  both, whatever role they hold. */
+export interface LendingRuleProposal {
+  name: string;
+  rule_type: LendingRuleType;
+  effective_date: string;
+  workflow_state: RuleProposalState;
+  current_value: string;
+  proposed_value: string;
+  justification: string;
+  proposed_by: string;
+  proposed_on: string;
+  decided_by: string | null;
+  decided_on: string | null;
+  decision_note: string | null;
+  docstatus: 0 | 1 | 2;
+  creation: string;
 }
 
 /** A Letter of Offer. Once accepted, this is the executed loan agreement —

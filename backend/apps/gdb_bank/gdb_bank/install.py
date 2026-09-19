@@ -2,16 +2,30 @@ import os
 
 import frappe
 
-# (role_name, desk_access) — Citizen is a website-user role (no desk); the two
+# (role_name, desk_access) — Citizen is a website-user role (no desk); the
 # staff roles are system roles so GDB staff can also use the ERPNext desk.
 #
-# THE SPLIT IS THE POINT. An underwriter decides; a finance officer moves money.
-# One account held both until now, and the consequence was demonstrable: a
-# single login approved, offered, verified every condition, booked and disbursed
-# G$99,000,000 with no second pair of eyes (R-127, R-131). The role boundary
-# below is half the fix — api.disburse_loan carries the other half, because a
-# person granted both roles would otherwise walk straight back through the gap.
-ROLES = (("Citizen", 0), ("Loan Underwriter", 1), ("Finance Officer", 1))
+# THE SPLIT IS THE POINT. An underwriter decides; a disbursement officer moves
+# money. One account held both until now, and the consequence was demonstrable:
+# a single login approved, offered, verified every condition, booked and
+# disbursed G$99,000,000 with no second pair of eyes (R-127, R-131). The role
+# boundary below is half the fix — api.disburse_loan carries the other half,
+# because a person granted both roles would otherwise walk straight back
+# through the gap.
+#
+# "Finance Officer" carried BOTH release and reporting/reconciliation/rule
+# authority for a while. `Disbursement Officer` is that role split in two:
+# release moves here, and "Finance Officer" narrows to the books — reading the
+# ledger, reconciling receipts, portfolio reporting, and proposing (never
+# deciding its own) lending-rule changes. patches/split_finance_roles.py grants
+# every existing Finance Officer holder Disbursement Officer too, so nobody
+# loses release access the day this ships; a fresh site starts the two apart.
+ROLES = (
+	("Citizen", 0),
+	("Loan Underwriter", 1),
+	("Finance Officer", 1),
+	("Disbursement Officer", 1),
+)
 
 # The banks a citizen may nominate for a payout. Seeded, because the portal's
 # payout destination is a Link to Bank and an empty list is an approved loan
@@ -277,10 +291,12 @@ def after_install():
 def after_migrate():
 	ensure_roles()
 	make_user_custom_fields()
+	ensure_lending_rule_proposal_workflow()
 	if "erpnext" in frappe.get_installed_apps():
 		make_erpnext_custom_fields()
 		ensure_banks()
 		ensure_accounts_read()
+		ensure_reconciliation_read()
 	if "lending" in frappe.get_installed_apps():
 		make_custom_fields()
 		ensure_loan_permissions()
@@ -426,6 +442,37 @@ def _grant_reports(reports):
 		doc.save(ignore_permissions=True) if existing else doc.insert(ignore_permissions=True)
 
 
+def ensure_reconciliation_read():
+	"""Let Finance read incoming Bank Transactions without being able to post
+	one by hand in the desk.
+
+	gdb_bank.collections (unreconciled_receipts, suggest_loans) reads this
+	doctype as the calling user, not as the system — unlike apply_receipt's
+	actual write, which happens inside _as_system(). Without this grant those
+	two read-only endpoints 403 for every Finance Officer holder.
+	"""
+	from frappe.permissions import add_permission, update_permission_property
+
+	doctype = "Bank Transaction"
+	if not frappe.db.exists("DocType", doctype):
+		return
+	if not frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": ACCOUNTS_READER_ROLE}):
+		add_permission(doctype, ACCOUNTS_READER_ROLE, 0)
+	for ptype, value in (
+		("read", 1),
+		("create", 0),
+		("write", 0),
+		("delete", 0),
+		("submit", 0),
+		("cancel", 0),
+		("amend", 0),
+		("export", 0),
+		("report", 0),
+	):
+		update_permission_property(doctype, ACCOUNTS_READER_ROLE, 0, ptype, value)
+	frappe.db.commit()
+
+
 # THE PORTFOLIO. Lending ships these as standard Script Reports and they have
 # been sitting unreachable: granted to `Loan Manager` and `Employee`, which the
 # disbursement officer only holds by accident of the demo seed, and rendered
@@ -489,13 +536,19 @@ def ensure_lending_reports_read():
 #
 # These rows carry citizens' account numbers, so the role list is deliberate
 # and short: the accounting roles that already see bank details, plus the
-# portal's finance officer, whose Disbursements page this is. Nothing wider —
-# and notably not the underwriter, who decides the loan and never pays it.
+# portal's disbursement officer, whose Disbursements page this is. Nothing
+# wider — and notably not the underwriter, who decides the loan and never pays
+# it, and not Finance, who reads the ledger but never releases funds.
 PAYMENT_FILE_REPORT = "GDB Disbursement Payment File"
 
 PAYMENT_FILE_REF_DOCTYPE = "Loan Disbursement"
 
-PAYMENT_FILE_ROLES = ("Accounts User", "Accounts Manager", "System Manager", ACCOUNTS_READER_ROLE)
+DISBURSEMENT_ROLE = "Disbursement Officer"
+
+# Finance Officer held this grant while it also carried release authority; that
+# authority moved to DISBURSEMENT_ROLE, so the grant does too — see
+# REVOKED_MONEY_ROLES for the same treatment applied to the underwriter earlier.
+PAYMENT_FILE_ROLES = ("Accounts User", "Accounts Manager", "System Manager", DISBURSEMENT_ROLE)
 
 PAYMENT_FILE_QUERY = """SELECT
     ba.bank                              AS "Bank:Data:160",
@@ -526,19 +579,21 @@ def ensure_payment_file_report():
 	of lending's `Loan Manager`, which the demo user happens to carry and a real
 	underwriter would not, so that grant is made here on the role the portal
 	actually uses rather than left to a coincidence of the seed data. That role
-	is now the finance officer; the underwriter's old grant is revoked below.
+	is the disbursement officer; the underwriter's old grant, and Finance
+	Officer's grant from when it also carried release authority, are both
+	revoked below.
 
-	Read and report only. A finance officer must be able to pull the file and to
-	release funds through `api.disburse_loan`, never to post a Loan Disbursement
-	by hand in the desk — the same separation `ensure_accounts_read` keeps over
-	the ledger.
+	Read and report only. A disbursement officer must be able to pull the file
+	and to release funds through `api.disburse_loan`, never to post a Loan
+	Disbursement by hand in the desk — the same separation `ensure_accounts_read`
+	keeps over the ledger.
 	"""
 	from frappe.permissions import add_permission, update_permission_property
 
 	if not frappe.db.exists("DocType", PAYMENT_FILE_REF_DOCTYPE):
 		return
 
-	for role in REVOKED_MONEY_ROLES:
+	for role in (*REVOKED_MONEY_ROLES, ACCOUNTS_READER_ROLE):
 		_revoke(PAYMENT_FILE_REF_DOCTYPE, role)
 
 	if not frappe.db.exists("Report", PAYMENT_FILE_REPORT):
@@ -557,7 +612,9 @@ def ensure_payment_file_report():
 	# Roles are a union, so a grant somebody made in the desk survives a migrate.
 	report = frappe.get_doc("Report", PAYMENT_FILE_REPORT)
 	wanted = sorted(
-		({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES)) - set(REVOKED_MONEY_ROLES)
+		({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES))
+		- set(REVOKED_MONEY_ROLES)
+		- {ACCOUNTS_READER_ROLE}
 	)
 	if sorted({r.role for r in report.roles}) != wanted:
 		report.roles = []
@@ -566,9 +623,9 @@ def ensure_payment_file_report():
 		report.save(ignore_permissions=True)
 
 	if not frappe.db.exists(
-		"Custom DocPerm", {"parent": PAYMENT_FILE_REF_DOCTYPE, "role": ACCOUNTS_READER_ROLE}
+		"Custom DocPerm", {"parent": PAYMENT_FILE_REF_DOCTYPE, "role": DISBURSEMENT_ROLE}
 	):
-		add_permission(PAYMENT_FILE_REF_DOCTYPE, ACCOUNTS_READER_ROLE, 0)
+		add_permission(PAYMENT_FILE_REF_DOCTYPE, DISBURSEMENT_ROLE, 0)
 	for ptype, value in (
 		("read", 1),
 		("report", 1),
@@ -581,7 +638,7 @@ def ensure_payment_file_report():
 		("export", 0),
 	):
 		update_permission_property(
-			PAYMENT_FILE_REF_DOCTYPE, ACCOUNTS_READER_ROLE, 0, ptype, value
+			PAYMENT_FILE_REF_DOCTYPE, DISBURSEMENT_ROLE, 0, ptype, value
 		)
 
 	frappe.db.commit()
@@ -800,6 +857,90 @@ def ensure_loan_accounting(company: str | None = None):
 	frappe.db.commit()
 
 
+LENDING_RULE_PROPOSAL_DOCTYPE = "GDB Lending Rule Proposal"
+LENDING_RULE_PROPOSAL_WORKFLOW = "GDB Lending Rule Proposal Workflow"
+
+# Standard Frappe workflow vocabulary throughout — no new Workflow State or
+# Workflow Action Master records, so this reads in the desk exactly like any
+# other workflow. (state, doc_status, allow_edit) — allow_edit is mandatory on
+# a Workflow Document State row, so every state names a role even though the
+# doctype's own field-level read_only and docstatus already do most of the
+# real locking once a proposal leaves Draft.
+_RULE_PROPOSAL_STATES = (
+	("Draft", "0", "Finance Officer"),
+	("Pending", "0", "Finance Officer"),
+	("Approved", "1", "Finance Officer"),
+	("Rejected", "0", "Finance Officer"),
+)
+
+# (state, action, next_state, allowed). Two rows per transition — Finance
+# Officer and System Manager — because a Workflow Transition's `allowed` is a
+# single role; both need to reach the same action.
+_RULE_PROPOSAL_TRANSITIONS = (
+	("Draft", "Submit", "Pending", "Finance Officer"),
+	("Draft", "Submit", "Pending", "System Manager"),
+	("Pending", "Approve", "Approved", "Finance Officer"),
+	("Pending", "Approve", "Approved", "System Manager"),
+	("Pending", "Reject", "Rejected", "Finance Officer"),
+	("Pending", "Reject", "Rejected", "System Manager"),
+)
+
+
+def ensure_lending_rule_proposal_workflow():
+	"""The maker-checker workflow behind Finance's lending-rule proposals.
+
+	Built here, on migrate, rather than only through fixtures/: everything else
+	GDB needs on a fresh site is created the same way, with no desk step in
+	between. Self-approval is refused twice over — the role gate here lets any
+	Finance Officer decide a Pending proposal, and
+	gdb_lending_rule_proposal.py's before_save refuses the SAME officer who
+	proposed it, the same shape as api.disburse_loan's four-eyes check.
+	Idempotent, and does nothing until the doctype it drives exists.
+	"""
+	if not frappe.db.exists("DocType", LENDING_RULE_PROPOSAL_DOCTYPE):
+		return
+	if frappe.db.exists("Workflow", LENDING_RULE_PROPOSAL_WORKFLOW):
+		return
+
+	# Belt and suspenders: real Frappe sites ship these master rows already,
+	# but a stripped-down one might not, and the Workflow below links to them.
+	for state, _doc_status, _allow_edit in _RULE_PROPOSAL_STATES:
+		if not frappe.db.exists("Workflow State", state):
+			try:
+				frappe.get_doc(
+					{"doctype": "Workflow State", "workflow_state_name": state}
+				).insert(ignore_permissions=True)
+			except Exception:
+				frappe.log_error(title=f"could not create Workflow State {state}")
+	for _state, action, _next_state, _allowed in _RULE_PROPOSAL_TRANSITIONS:
+		if not frappe.db.exists("Workflow Action Master", action):
+			try:
+				frappe.get_doc(
+					{"doctype": "Workflow Action Master", "workflow_action_name": action}
+				).insert(ignore_permissions=True)
+			except Exception:
+				frappe.log_error(title=f"could not create Workflow Action Master {action}")
+
+	workflow = frappe.new_doc("Workflow")
+	workflow.workflow_name = LENDING_RULE_PROPOSAL_WORKFLOW
+	workflow.document_type = LENDING_RULE_PROPOSAL_DOCTYPE
+	workflow.workflow_state_field = "workflow_state"
+	workflow.is_active = 1
+	workflow.send_email_alert = 0
+	for state, doc_status, allow_edit in _RULE_PROPOSAL_STATES:
+		workflow.append(
+			"states", {"state": state, "doc_status": doc_status, "allow_edit": allow_edit}
+		)
+	for state, action, next_state, allowed in _RULE_PROPOSAL_TRANSITIONS:
+		workflow.append(
+			"transitions",
+			{"state": state, "action": action, "next_state": next_state, "allowed": allowed},
+		)
+	workflow.insert(ignore_permissions=True)
+	frappe.db.commit()
+	print(f"created workflow: {LENDING_RULE_PROPOSAL_WORKFLOW}")
+
+
 def make_demo_users():
 	"""Create demo portal accounts. Password comes from GDB_DEMO_PASSWORD (or
 	ADMIN_PASSWORD) in the environment — invoked by scripts/create-site.sh via
@@ -809,13 +950,16 @@ def make_demo_users():
 		print("GDB_DEMO_PASSWORD/ADMIN_PASSWORD not set — skipping demo users")
 		return
 
-	# Three personas, because two could not demonstrate the control: the
-	# underwriter decides and the finance officer releases, and neither can do
-	# the other's half (api._require_finance, and the four-eyes check in
-	# api.disburse_loan).
+	# Four personas, because three could not demonstrate the control: the
+	# underwriter decides, the disbursement officer releases, and Finance
+	# manages the books and proposes rules — no two of those are the same
+	# account, and neither of the first two can do the other's half
+	# (api._require_disbursement, api._require_finance, and the four-eyes
+	# check in api.disburse_loan).
 	demo_users = (
 		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
-		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Finance Officer"),
+		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Disbursement Officer"),
+		("financeofficer@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
 		("citizen@example.gy", "Demo Citizen", "Website User", "Citizen"),
 	)
 	from frappe.utils.password import update_password

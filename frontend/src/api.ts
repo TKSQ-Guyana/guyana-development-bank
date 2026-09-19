@@ -5,6 +5,8 @@
  * { message: ... } and errors in _server_messages / exception.
  */
 
+import type { BankReceipt, LendingRuleProposal, LendingRuleType, ReceiptCandidate } from './types';
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -170,6 +172,47 @@ export async function runReport(
  *  rows to a citizen. Reads only — every write still goes through a
  *  gdb_bank.api endpoint, where the portal's own rules live.
  */
+/** Money the bank has confirmed arrived, not yet matched to a loan. */
+export const unreconciledReceipts = (bankAccount?: string) =>
+  call<{ receipts: BankReceipt[]; total_unapplied: number }>(
+    'gdb_bank.collections.unreconciled_receipts',
+    bankAccount ? { bank_account: bankAccount } : undefined,
+  );
+
+/** Ranked loan candidates for one receipt — never applied automatically. */
+export const suggestLoans = (bankTransaction: string) =>
+  call<{ receipt: BankReceipt; candidates: ReceiptCandidate[] }>(
+    'gdb_bank.collections.suggest_loans',
+    { bank_transaction: bankTransaction },
+  );
+
+export const applyReceipt = (bankTransaction: string, loan: string, amount?: number) =>
+  call<{
+    repayment: string;
+    repayment_type: string;
+    applied: number;
+    receipt_status: string;
+    still_unapplied: number;
+  }>('gdb_bank.collections.apply_receipt', { bank_transaction: bankTransaction, loan, amount });
+
+export const listRuleProposals = () =>
+  call<LendingRuleProposal[]>('gdb_bank.rules.list_rule_proposals');
+
+export const proposeRuleChange = (payload: {
+  rule_type: LendingRuleType;
+  current_value: string;
+  proposed_value: string;
+  justification: string;
+  effective_date: string;
+}) => call<{ name: string; workflow_state: string }>('gdb_bank.rules.propose_rule_change', payload);
+
+export const decideRuleProposal = (name: string, action: 'Approve' | 'Reject', decisionNote?: string) =>
+  call<{ name: string; workflow_state: string }>('gdb_bank.rules.decide_rule_proposal', {
+    name,
+    action,
+    decision_note: decisionNote,
+  });
+
 export async function getList<T>(
   doctype: string,
   opts: { fields: string[]; filters?: unknown; orderBy?: string; limit?: number } = { fields: ['name'] },

@@ -4,8 +4,18 @@
   --color-gdb-green: #007a3d;
   --color-gdb-green-dark: #00592d;
   --color-gdb-gold: #fcd116;
+
+  /* New enterprise theme (finance persona + design-system migration). Lives
+   * alongside the flag colors above rather than replacing them — pages move
+   * over one at a time, so both palettes are live during the migration. */
+  --color-brand: #5b3fe0;
+  --color-brand-dark: #2e1a6b;
+  --color-brand-light: #ede9fe;
+  --color-brand-text: #5b21b6;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply text-slate-900 antialiased;
+  background: linear-gradient(180deg, #f3f5fc 0%, #eaf0fb 100%);
+  background-attachment: fixed;
 }

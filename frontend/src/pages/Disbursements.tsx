@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { call, getList } from '../api';
 import { PaymentFile } from '../components/PaymentFile';
-import { Collections } from '../components/Collections';
 import type { LoanApplication, LoanRow } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
@@ -35,7 +34,7 @@ interface Queue {
 export function Disbursements() {
   const [queue, setQueue] = useState<Queue | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'queue' | 'file' | 'collections'>('queue');
+  const [view, setView] = useState<'queue' | 'file'>('queue');
   const [company, setCompany] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,12 +84,10 @@ export function Disbursements() {
   return (
     <div>
       <h1 className="mb-1 text-2xl font-bold">Disbursement Queue</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        Money going out to borrowers, and money coming back in from the banks.
-      </p>
+      <p className="mb-6 text-sm text-slate-500">Money going out to borrowers, booked and released.</p>
 
       <div className="mb-5 flex flex-wrap gap-2">
-        {([['queue', 'Queue'], ['file', 'Payment file'], ['collections', 'Collections']] as const).map(([id, label]) => (
+        {([['queue', 'Queue'], ['file', 'Payment file']] as const).map(([id, label]) => (
           <button
             key={id}
             onClick={() => setView(id)}
@@ -104,8 +101,6 @@ export function Disbursements() {
       </div>
 
       {view === 'file' && <PaymentFile company={company} />}
-
-      {view === 'collections' && <Collections onPosted={() => setView('collections')} />}
 
       {view === 'queue' && error && (
         <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>

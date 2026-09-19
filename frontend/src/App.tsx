@@ -2,11 +2,14 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
 import { Layout } from './components/Layout';
+import { FinanceLayout } from './components/FinanceLayout';
 import { Apply } from './pages/Apply';
 import { Cluster } from './pages/Cluster';
 import { Disbursements } from './pages/Disbursements';
-import { Finance } from './pages/Finance';
-import { Portfolio } from './pages/Portfolio';
+import { Reconciliation } from './pages/Finance/Reconciliation';
+import { Portfolio } from './pages/Finance/Portfolio';
+import { Ledger } from './pages/Finance/Ledger';
+import { RuleProposals } from './pages/Finance/RuleProposals';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { MyLoans } from './pages/MyLoans';
@@ -32,11 +35,20 @@ function RequireUnderwriter({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Money movement is the finance officer's, not the underwriter's. Mirrored
- *  server-side in api._require_finance — this only decides what to render. */
+/** The books are Finance's, not the underwriter's and not the disbursement
+ *  officer's. Mirrored server-side in api._require_finance — this only
+ *  decides what to render. */
 function RequireFinance({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user?.is_finance) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/** Money movement is the disbursement officer's, not Finance's and not the
+ *  underwriter's. Mirrored server-side in api._require_disbursement. */
+function RequireDisbursement({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_disbursement) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -68,29 +80,27 @@ export function App() {
               }
             />
             <Route
-              path="/finance"
-              element={
-                <RequireFinance>
-                  <Finance />
-                </RequireFinance>
-              }
-            />
-            <Route
-              path="/portfolio"
-              element={
-                <RequireFinance>
-                  <Portfolio />
-                </RequireFinance>
-              }
-            />
-            <Route
               path="/disbursements"
               element={
-                <RequireFinance>
+                <RequireDisbursement>
                   <Disbursements />
-                </RequireFinance>
+                </RequireDisbursement>
               }
             />
+          </Route>
+          <Route
+            element={
+              <RequireAuth>
+                <RequireFinance>
+                  <FinanceLayout />
+                </RequireFinance>
+              </RequireAuth>
+            }
+          >
+            <Route path="/finance/reconciliation" element={<Reconciliation />} />
+            <Route path="/finance/portfolio" element={<Portfolio />} />
+            <Route path="/finance/ledger" element={<Ledger />} />
+            <Route path="/finance/rules" element={<RuleProposals />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

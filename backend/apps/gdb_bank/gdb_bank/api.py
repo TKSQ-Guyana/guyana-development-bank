@@ -21,15 +21,23 @@ from gdb_bank.install import LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
 
-# Who may move money. Deliberately a different set from UNDERWRITER_ROLES: an
-# underwriter decides a loan and a finance officer pays it, and the two halves
-# of that sentence are enforced separately — role here, and "the releaser is not
-# the decider" in disburse_loan, which holds even for one person granted both.
+# Reconciliation, the ledger, portfolio reporting and lending-rule proposals —
+# manages the books and the rules, never a credit decision and never a release.
+# Split out of what used to be one "Finance Officer" surface: FINANCE_ROLES is
+# this half, DISBURSEMENT_ROLES below is the other. Kept as "Finance Officer"
+# rather than renamed, so every existing grant on this role keeps working.
 FINANCE_ROLES = {"Finance Officer", "System Manager"}
+
+# Who may move money. Deliberately a different set from UNDERWRITER_ROLES and
+# from FINANCE_ROLES: an underwriter decides a loan, a finance officer manages
+# the books, and a disbursement officer pays it — three different questions,
+# three different roles. "The releaser is not the decider" is enforced a second
+# way in disburse_loan itself, which holds even for one person granted both.
+DISBURSEMENT_ROLES = {"Disbursement Officer", "System Manager"}
 
 # Every staff role the portal knows. Used where the question is "is this person
 # the applicant or the bank", not "may they do this particular thing".
-STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES
+STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES | DISBURSEMENT_ROLES
 
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
@@ -97,6 +105,18 @@ def _require_finance() -> str:
 	user = _session_user()
 	if not _is_finance(user):
 		_logger().warning(f"denied finance endpoint to {user}")
+		frappe.throw(_("Only GDB Finance may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_disbursement(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & DISBURSEMENT_ROLES)
+
+
+def _require_disbursement() -> str:
+	user = _session_user()
+	if not _is_disbursement(user):
+		_logger().warning(f"denied disbursement endpoint to {user}")
 		frappe.throw(
 			_("Only the GDB disbursement officer may do this."), frappe.PermissionError
 		)
@@ -264,6 +284,10 @@ def whoami():
 		# this, and the server gates the endpoints behind them on the same role
 		# — neither trusts the other's answer.
 		"is_finance": _is_finance(user),
+		# Release authority, split out from is_finance: finance manages the
+		# books and proposes rules, the disbursement officer pays. See
+		# DISBURSEMENT_ROLES and disburse_loan's second, per-case gate.
+		"is_disbursement": _is_disbursement(user),
 	}
 
 
@@ -1378,24 +1402,25 @@ def book_loan(application: str):
 
 @frappe.whitelist()
 def disburse_loan(application: str, amount=None):
-	"""Release funds on a booked loan. FINANCE OFFICER ONLY, and never the
+	"""Release funds on a booked loan. DISBURSEMENT OFFICER ONLY, and never the
 	person who approved it.
 
 	TWO GATES, because one would not hold. The role gate says money movement
-	belongs to finance, not to the officer who assessed the credit. The
-	four-eyes gate below says that even a person holding both roles — which
-	happens in a small bank, and which nothing stops an administrator from
-	granting — cannot be both the decider and the releaser on the SAME case.
-	Without the second gate the first is a naming convention: R-131 was proven
-	end to end on this stack, one login carrying an application from decision
-	to G$99,000,000 disbursed.
+	belongs to the disbursement officer, not to the officer who assessed the
+	credit and not to finance, who manages the books but never releases funds.
+	The four-eyes gate below says that even a person holding both the deciding
+	and releasing roles — which happens in a small bank, and which nothing
+	stops an administrator from granting — cannot be both the decider and the
+	releaser on the SAME case. Without the second gate the first is a naming
+	convention: R-131 was proven end to end on this stack, one login carrying
+	an application from decision to G$99,000,000 disbursed.
 
 	Omit `amount` to disburse everything lending says is still drawable. Both
 	the default and the ceiling are lending's: get_disbursal_amount decides what
 	is available, validate_disbursal_amount rules on whatever is asked for, so
 	neither number is computed here.
 	"""
-	user = _require_finance()
+	user = _require_disbursement()
 
 	decision = frappe.db.get_value(
 		"Loan Application", application, ["gdb_reviewed_by", "gdb_owner"], as_dict=True
