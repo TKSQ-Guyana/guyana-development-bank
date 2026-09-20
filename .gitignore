@@ -27,3 +27,7 @@ _bmad/
 # Scratch output from reading the .docx briefs in General Overview/
 docx_text.txt
 docx_utf8.txt
+
+# Playwright MCP's own screenshots/session artifacts — testing tool output,
+# not project code.
+.playwright-mcp/

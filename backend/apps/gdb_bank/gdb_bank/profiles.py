@@ -27,6 +27,12 @@ from gdb_bank.api import _is_staff, _logger, _session_user
 
 DOCTYPE = "GDB Citizen Profile"
 
+# The text the applicant is asked to accept before GDB fetches anything from
+# an outside source on their behalf (DCRA's business register, the bank
+# switch). Bumping this string is what makes a citizen who accepted an older
+# version get asked again — nothing else drives re-consent.
+CONSENT_VERSION = "2026-09-1"
+
 # What the applicant may write. Everything else on the doctype is either
 # derived (name, e-ID) or asserted by the directory, and a citizen writing to
 # those would be declaring something as verified.
@@ -51,7 +57,11 @@ VERIFIED_FIELDS = (
 	"verified_on",
 )
 
-PROFILE_FIELDS = ("name", "user", "eid", "full_name", "updated_on") + DECLARED_FIELDS + VERIFIED_FIELDS
+CONSENT_FIELDS = ("consent_version", "consent_accepted_on")
+
+PROFILE_FIELDS = (
+	("name", "user", "eid", "full_name", "updated_on") + DECLARED_FIELDS + VERIFIED_FIELDS + CONSENT_FIELDS
+)
 
 
 def _ensure(user: str):
@@ -126,6 +136,25 @@ def my_profile():
 	"""The caller's own profile, created on first read."""
 	user = _session_user()
 	name = _ensure(user)
+	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def record_consent():
+	"""The applicant agrees GDB may fetch records on their behalf — DCRA's
+	business register, the bank switch — before the application asks for
+	either. Recorded once per version: accepting the current version again is
+	a no-op, and a citizen who accepted an older version is asked once more.
+	"""
+	user = _session_user()
+	name = _ensure(user)
+	frappe.db.set_value(
+		DOCTYPE,
+		name,
+		{"consent_version": CONSENT_VERSION, "consent_accepted_on": now_datetime()},
+	)
+	frappe.db.commit()
+	_logger().info(f"consent {CONSENT_VERSION} recorded for {user}")
 	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
 
 

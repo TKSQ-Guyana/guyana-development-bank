@@ -118,6 +118,14 @@ def add_condition(application: str, description: str, is_required=1):
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(application))
 
+	# Same wording twice on one case reads as a mistake, not two conditions —
+	# an underwriter who wants a second bank-statement request, say, should
+	# say what makes it different, not repeat the sentence.
+	if frappe.db.exists(
+		"GDB Loan Condition", {"application": application, "description": description}
+	):
+		frappe.throw(_("This case already has a condition with that exact wording."))
+
 	# Tie it to the agreement when there is one, so the checklist still reads as
 	# one list against one offer.
 	from gdb_bank.offers import accepted_offer

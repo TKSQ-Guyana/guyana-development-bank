@@ -2012,6 +2012,10 @@ def dcra_lookup(dcra_number: str):
 
 	result = dcra.lookup(number)
 	if result.get("business_name"):
+		# A number that resolves is not the same as it being the caller's own —
+		# say so rather than let a correct lookup read as confirmed ownership.
+		eid = frappe.db.get_value("User", user, "gdb_eid")
+		result["owned_by_caller"] = dcra.owned_by(result, eid) if eid else None
 		_logger().info(f"dcra lookup {number} -> {result.get('source')} ({result.get('status')})")
 		return result
 
@@ -2036,14 +2040,18 @@ def my_businesses():
 	The applicant never types a registration number: they sign in as
 	themselves, and the register says which businesses are theirs. That is
 	both the convenience and the control — a business they do not own cannot
-	appear in this list, so it cannot be claimed on an application.
+	appear in this list, so it cannot be claimed on an application. Matched
+	on e-ID, not name: a name is free text that two registers can disagree on,
+	the e-ID is the identifier this citizen actually signed in with. A citizen
+	who has never signed in with an e-ID has none on file yet and gets no
+	matches — the same "nothing found" fallback as anyone else.
 	"""
 	user = _session_user()
 	from gdb_bank.integrations import dcra
 
-	full_name = frappe.utils.get_fullname(user)
-	found = dcra.businesses_for(full_name)
-	_logger().info(f"dcra proprietor search for {user}: {len(found)} business(es)")
+	eid = frappe.db.get_value("User", user, "gdb_eid")
+	found = dcra.businesses_for(eid) if eid else []
+	_logger().info(f"dcra proprietor search for {user} (eid={eid}): {len(found)} business(es)")
 	return found
 
 

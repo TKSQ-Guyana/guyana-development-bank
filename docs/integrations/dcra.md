@@ -26,7 +26,8 @@ Accept: application/json
   "status": "Active",
   "registered_on": "2024-03-18",
   "region": "Region 2 — Pomeroon-Supenaam",
-  "proprietors": ["Hemanth Narine"]
+  "proprietors": ["Hemanth Narine"],
+  "proprietor_eids": ["592-1111-0001"]
 }
 ```
 
@@ -41,9 +42,28 @@ the registry being unavailable.
 | `status` | string | **Active / Struck Off / Suspended** — standing is a credit fact |
 | `registered_on` | date | trading history; a registration days old is a different case |
 | `region` | string | regional reporting and Field Officer routing |
-| `proprietors` | string[] | must match the applicant — the anti-impersonation check |
+| `proprietors` | string[] | display only — names are not the match key, see below |
+| `proprietor_eids` | string[] | **the anti-impersonation check** — GDB matches the caller's own e-ID against this list, never the name |
 
 `business_name` and `status` are the two GDB cannot proceed without.
+`proprietor_eids` is what `gdb_bank.api.my_businesses` and the ownership note
+on `dcra_lookup` are built on — without it every match falls back to name
+comparison, which two registers can spell differently for the same person.
+
+## Proprietor search
+
+Used to list the registrations a signed-in citizen may pick from, keyed by
+e-ID rather than name for the same reason as above.
+
+```
+GET {dcra_base_url}/registrations?proprietor_eid={eid}
+Accept: application/json
+```
+
+**200** — `{"registrations": [ <registration objects, same shape as above> ]}`
+(or a bare array). Any other status, or no response, is treated the same as
+an unreachable registry: the caller gets no matches and falls back to manual
+entry, never a fabricated one.
 
 ## Authentication
 
@@ -97,3 +117,8 @@ registrations, and always carry `source: "sandbox"`.
 The struck-off entry is deliberate: an underwriter must be able to see a
 business that exists but is no longer in good standing, and the flow has to
 handle it.
+
+Each sandbox entry also carries a stand-in `proprietor_eids`, matching the
+shape of the seeded e-IDs in `keycloak/gdb-realm.json`, so the proprietor
+search and the ownership check can be exercised end to end without a live
+registry.

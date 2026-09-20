@@ -40,6 +40,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"registered_on": "2024-03-18",
 		"region": "Region 2 - Pomeroon-Supenaam",
 		"proprietors": ["Hemanth Narine"],
+		"proprietor_eids": ["592-1111-0001"],
 	},
 	"BN-2023-001987": {
 		"registration_number": "BN-2023-001987",
@@ -49,6 +50,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"registered_on": "2023-07-02",
 		"region": "Region 4 - Demerara-Mahaica",
 		"proprietors": ["Asha Persaud"],
+		"proprietor_eids": ["592-4444-0004"],
 	},
 	"C-2022-000734": {
 		"registration_number": "C-2022-000734",
@@ -58,6 +60,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"registered_on": "2022-11-25",
 		"region": "Region 6 - East Berbice-Corentyne",
 		"proprietors": ["S. Khan", "M. Edwards"],
+		"proprietor_eids": ["592-6666-0006", "592-7777-0007"],
 	},
 	"BN-2019-000442": {
 		"registration_number": "BN-2019-000442",
@@ -69,6 +72,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"registered_on": "2019-05-14",
 		"region": "Region 10 - Upper Demerara-Berbice",
 		"proprietors": ["J. Fraser"],
+		"proprietor_eids": ["592-8888-0008"],
 	},
 }
 
@@ -129,18 +133,19 @@ def _live(number: str, base_url: str) -> dict | None:
 		"registered_on": payload.get("registered_on"),
 		"region": payload.get("region"),
 		"proprietors": payload.get("proprietors") or [],
+		"proprietor_eids": payload.get("proprietor_eids") or [],
 		"source": "dcra",
 	}
 
 
-def _live_by_proprietor(name: str, base_url: str) -> list[dict] | None:
-	"""Search the registry for businesses this person is a proprietor of."""
+def _live_by_eid(eid: str, base_url: str) -> list[dict] | None:
+	"""Search the registry for businesses this e-ID is a proprietor of."""
 	import requests
 
 	try:
 		res = requests.get(
 			f"{base_url.rstrip('/')}/registrations",
-			params={"proprietor": name},
+			params={"proprietor_eid": eid},
 			headers={"Accept": "application/json"},
 			timeout=_HTTP_TIMEOUT,
 		)
@@ -157,31 +162,45 @@ def _live_by_proprietor(name: str, base_url: str) -> list[dict] | None:
 	return [{**r, "source": "dcra"} for r in (rows or [])]
 
 
-def businesses_for(proprietor_name: str) -> list[dict]:
-	"""Every registration naming this person as a proprietor.
+def businesses_for(eid: str) -> list[dict]:
+	"""Every registration naming this e-ID as a proprietor.
 
 	This is what lets the portal fill the registration number in rather than
 	asking for it. It is also the anti-impersonation control: an applicant can
 	only ever pick from businesses the register says are theirs, so claiming
-	somebody else's registration is not a thing the form can express.
+	somebody else's registration is not a thing the form can express. Matched
+	on e-ID rather than name — a name is typed by two different registers and
+	can disagree; an e-ID is the one identifier both sides already share.
 	"""
-	name = (proprietor_name or "").strip()
-	if not name:
+	eid = (eid or "").strip()
+	if not eid:
 		return []
 
 	base_url = frappe.conf.get("dcra_base_url")
 	if base_url:
-		live = _live_by_proprietor(name, base_url)
+		live = _live_by_eid(eid, base_url)
 		# Unreachable registry yields nothing rather than sandbox data — the
 		# caller shows a manual fallback, never a fabricated business.
 		return live or []
 
-	folded = name.casefold()
 	return [
 		{**record, "source": "sandbox"}
 		for record in SANDBOX_REGISTER.values()
-		if any(p.strip().casefold() == folded for p in record.get("proprietors", []))
+		if eid in record.get("proprietor_eids", [])
 	]
+
+
+def owned_by(record: dict, eid: str) -> bool:
+	"""Whether this e-ID is listed as a proprietor on an already-resolved record.
+
+	Used on the manual-entry path: typing a registration number that resolves
+	is not the same as it being yours, so a caller who wants to say which is
+	which checks this rather than treating any confirmed lookup as ownership.
+	"""
+	eid = (eid or "").strip()
+	if not eid:
+		return False
+	return eid in (record.get("proprietor_eids") or [])
 
 
 def lookup(registration_number: str) -> dict:
