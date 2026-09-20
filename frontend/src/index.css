@@ -8,10 +8,10 @@
   /* New enterprise theme (finance persona + design-system migration). Lives
    * alongside the flag colors above rather than replacing them — pages move
    * over one at a time, so both palettes are live during the migration. */
-  --color-brand: #5b3fe0;
-  --color-brand-dark: #2e1a6b;
-  --color-brand-light: #ede9fe;
-  --color-brand-text: #5b21b6;
+  --color-brand: #2563eb;
+  --color-brand-dark: #1e3a8a;
+  --color-brand-light: #dbeafe;
+  --color-brand-text: #1e40af;
 }
 
 body {

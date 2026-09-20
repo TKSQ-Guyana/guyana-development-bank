@@ -1051,7 +1051,7 @@ def make_demo_users():
 		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
 		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Disbursement Officer"),
 		("financeofficer@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
-		("citizen@example.gy", "Demo Citizen", "Website User", "Citizen"),
+		("citizen@example.gy", "Hemanth", "Website User", "Citizen"),
 	)
 	from frappe.utils.password import update_password
 
