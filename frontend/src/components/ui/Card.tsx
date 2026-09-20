@@ -3,7 +3,7 @@ import type { HTMLAttributes } from 'react';
 export function Card({ className = '', children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-2xl bg-white p-6 shadow-[0_8px_30px_-12px_rgba(46,26,107,0.15)] ${className}`}
+      className={`rounded-lg border border-slate-200 bg-white p-6 shadow-sm ${className}`}
       {...rest}
     >
       {children}

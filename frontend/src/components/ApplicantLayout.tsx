@@ -96,7 +96,7 @@ export function ApplicantLayout() {
         footer={{ label: 'Log out', icon: <LogoutIcon />, onClick: () => void onLogout() }}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col bg-gradient-to-br from-slate-50 to-sky-50/30">
+      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-6 py-4 backdrop-blur lg:px-10">
           <div className="leading-tight">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">

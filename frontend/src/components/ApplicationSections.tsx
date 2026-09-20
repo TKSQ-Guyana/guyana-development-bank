@@ -1,6 +1,6 @@
 import { Card, CardLabel } from './ui/Card';
 import { Badge } from './ui/Badge';
-import { formatGyd } from '../utils';
+import { formatGyd, parseUseOfFunds } from '../utils';
 
 /** Sections B–H of the application — the business narrative an underwriter
  *  actually decides a development loan on.
@@ -18,7 +18,7 @@ import { formatGyd } from '../utils';
  *  never allowed to read like a filed result.
  */
 
-type FieldType = 'currency' | 'int' | 'text';
+type FieldType = 'currency' | 'int' | 'text' | 'table';
 
 interface FieldSpec {
   key: string;
@@ -55,8 +55,6 @@ const SECTIONS: SectionSpec[] = [
     source: 'Declared',
     fields: [
       { key: 'products_services', label: 'Products / services' },
-      { key: 'use_of_funds', label: 'Expected use of funds' },
-      { key: 'challenges', label: 'Current challenges' },
       { key: 'employment_impact', label: 'Employment / development impact' },
     ],
   },
@@ -67,9 +65,7 @@ const SECTIONS: SectionSpec[] = [
     fields: [
       { key: 'customer_segments', label: 'Customer segments' },
       { key: 'target_market', label: 'Target market' },
-      { key: 'customer_need', label: 'Customer need / problem' },
       { key: 'competitors', label: 'Competitors / alternatives' },
-      { key: 'pricing_approach', label: 'Pricing approach' },
     ],
   },
   {
@@ -82,17 +78,6 @@ const SECTIONS: SectionSpec[] = [
       { key: 'equipment_required', label: 'Equipment and assets' },
       { key: 'suppliers', label: 'Suppliers' },
       { key: 'permits_required', label: 'Permits / operating requirements' },
-    ],
-  },
-  {
-    letter: 'F',
-    title: 'Team and capability',
-    source: 'Declared',
-    fields: [
-      { key: 'key_people', label: 'Owners and key people' },
-      { key: 'relevant_experience', label: 'Relevant experience' },
-      { key: 'staff_count', label: 'Number of staff', type: 'int' },
-      { key: 'skills_gaps', label: 'Skills gaps' },
     ],
   },
   {
@@ -123,6 +108,12 @@ const SECTIONS: SectionSpec[] = [
       { key: 'expected_cash_position', label: 'Expected monthly cash position', type: 'currency' },
       { key: 'assumptions', label: 'Assumptions behind projections' },
     ],
+  },
+  {
+    letter: 'I',
+    title: 'Use of funds',
+    source: 'Declared',
+    fields: [{ key: 'use_of_funds', label: 'Use of funds', type: 'table' }],
   },
 ];
 
@@ -190,6 +181,38 @@ export function ApplicationSections({
                     {section.fields.map((f) => {
                       const raw = sections[f.key];
                       if (isBlank(raw)) return null;
+                      if (f.type === 'table') {
+                        const rows = parseUseOfFunds(raw);
+                        return (
+                          <div key={f.key} className="sm:col-span-2">
+                            <dt className="mb-1 text-xs text-slate-500">{f.label}</dt>
+                            {rows ? (
+                              <table className="w-full text-sm">
+                                <tbody className="divide-y divide-slate-100">
+                                  {rows.map((r, i) => (
+                                    <tr key={i}>
+                                      <td className="py-1 text-slate-700">{r.item}</td>
+                                      <td className="py-1 text-right font-medium tabular-nums text-slate-800">
+                                        {formatGyd(r.amount)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  <tr className="border-t border-slate-200 font-semibold">
+                                    <td className="py-1 text-slate-800">Total</td>
+                                    <td className="py-1 text-right tabular-nums text-slate-900">
+                                      {formatGyd(rows.reduce((sum, r) => sum + r.amount, 0))}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            ) : (
+                              <dd className="whitespace-pre-wrap text-sm font-medium text-slate-800">
+                                {formatValue(raw)}
+                              </dd>
+                            )}
+                          </div>
+                        );
+                      }
                       return (
                         <div key={f.key}>
                           <dt className="text-xs text-slate-500">{f.label}</dt>

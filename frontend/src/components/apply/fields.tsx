@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
  *  the server's answer, not the form's. */
 
 const controlClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 ' +
+  'w-full rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 ' +
   'placeholder:text-slate-300 transition-colors focus:border-brand focus:outline-none ' +
   'focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500';
 
@@ -130,6 +130,11 @@ export function MoneyField({
   required?: boolean;
   tag?: string;
 }) {
+  // A plain digit string travels in and out (every caller does Number(value)
+  // arithmetic on it) — only the display gets thousands separators, typed as
+  // free text so the browser's number-input spinner never shows on a
+  // currency field.
+  const display = value ? Number(value).toLocaleString('en-GY') : '';
   return (
     <Field label={label} hint={hint} required={required} tag={tag}>
       <div className="relative">
@@ -137,11 +142,10 @@ export function MoneyField({
           G$
         </span>
         <input
-          type="number"
-          min={0}
-          step="1"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          type="text"
+          inputMode="numeric"
+          value={display}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
           className={`${controlClass} pl-10 text-right font-semibold tabular-nums`}
         />
       </div>
@@ -204,7 +208,7 @@ export function ChoiceCard({
       type="button"
       disabled={disabled}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-2xl border-2 p-4 text-left transition-all ${
+      className={`flex w-full flex-col rounded-lg border-2 p-4 text-left transition-all ${
         selected
           ? 'border-brand bg-brand-light/40 shadow-sm shadow-brand/20'
           : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'

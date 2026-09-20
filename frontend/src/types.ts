@@ -14,6 +14,14 @@ export type LoanStage = 'Draft' | 'Review' | 'Approved' | 'Signing' | 'Disbursed
  *  than sitting at a step on it. */
 export const LOAN_STAGES: LoanStage[] = ['Draft', 'Review', 'Approved', 'Signing', 'Disbursed'];
 
+/** One line of the funding step's use-of-funds table. Stored JSON-encoded in
+ *  the same `use_of_funds` section field a free-text draft used to hold, so
+ *  an older application's plain string still round-trips as text. */
+export interface UseOfFundsRow {
+  item: string;
+  amount: number;
+}
+
 export interface LoanApplication {
   name: string;
   applicant: string;
@@ -391,4 +399,9 @@ export interface DcraRecord {
   region?: string;
   proprietors?: string[];
   source: 'dcra' | 'sandbox' | 'gdb_history' | 'unavailable';
+  /** Whether the signed-in citizen's e-ID is among this business's proprietors.
+   *  null when GDB has no e-ID on file to check against; absent on results
+   *  that came from the citizen's own proprietor list (my_businesses), where
+   *  ownership is already the reason the record appears at all. */
+  owned_by_caller?: boolean | null;
 }

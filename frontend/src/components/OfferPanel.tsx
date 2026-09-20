@@ -4,6 +4,74 @@ import { useAuth } from '../auth';
 import type { LoanOffer } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
+/** The frozen agreement text is a fixed-width plain-text letter (see
+ *  `offers._agreement_text`): a letterhead block of "Label : value" lines,
+ *  then numbered sections ("1. THE FACILITY", …) whose body lines wrap a
+ *  sentence across several source lines and mark conditions as "(n) …".
+ *  This turns that same frozen string — never re-derived from the live
+ *  offer — into a typeset document instead of a monospace dump. */
+interface AgreementSection {
+  heading: string;
+  paragraphs: string[][];
+}
+
+function parseAgreement(text: string): { meta: [string, string][]; sections: AgreementSection[] } {
+  const meta: [string, string][] = [];
+  const sections: AgreementSection[] = [];
+  let current: string[] | null = null;
+  let currentHeading = '';
+
+  const pushSection = () => {
+    if (!current) return;
+    sections.push({ heading: currentHeading, paragraphs: toParagraphs(current) });
+  };
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (/^\d+\.\s+\S/.test(line)) {
+      pushSection();
+      currentHeading = line;
+      current = [];
+    } else if (current) {
+      current.push(line);
+    } else {
+      const m = line.match(/^([A-Za-z][A-Za-z ]*?)\s*:\s*(.+)$/);
+      if (m) meta.push([m[1].trim(), m[2].trim()]);
+    }
+  }
+  pushSection();
+  return { meta, sections };
+}
+
+function toParagraphs(lines: string[]): string[][] {
+  const paragraphs: string[][] = [];
+  let sentence: string[] = [];
+  let list: string[] = [];
+  const flushSentence = () => {
+    if (sentence.length) paragraphs.push([sentence.join(' ')]);
+    sentence = [];
+  };
+  const flushList = () => {
+    if (list.length) paragraphs.push(list);
+    list = [];
+  };
+  for (const line of lines) {
+    if (!line) {
+      flushSentence();
+      flushList();
+    } else if (/^\(\d+\)/.test(line)) {
+      flushSentence();
+      list.push(line.replace(/^\(\d+\)\s*/, ''));
+    } else {
+      flushList();
+      sentence.push(line);
+    }
+  }
+  flushSentence();
+  flushList();
+  return paragraphs;
+}
+
 /** The Letter of Offer, and the act of executing it.
  *
  *  An approval is a credit decision; it binds nobody. This panel is where the
@@ -112,28 +180,25 @@ export function OfferPanel({
 
       {offer.conditions.length > 0 && (
         <div className="mb-4 rounded-lg bg-slate-50 p-4">
-          <p className="mb-2 text-sm font-semibold text-slate-700">
-            Conditions precedent — all must be met before funds are released
-          </p>
+          <p className="mb-2 text-sm font-semibold text-slate-700">As stated in this offer</p>
           <ol className="list-inside list-decimal space-y-1 text-sm text-slate-600">
             {offer.conditions.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
           </ol>
+          <p className="mt-2 text-xs text-slate-400">Live status of each is tracked below.</p>
         </div>
       )}
 
       <button
         type="button"
-        onClick={() => setShowAgreement((v) => !v)}
+        onClick={() => setShowAgreement(true)}
         className="mb-4 text-sm font-medium text-brand hover:underline"
       >
-        {showAgreement ? 'Hide the full offer' : 'Read the full offer'}
+        Read the full Letter of Offer
       </button>
-      {showAgreement && (
-        <pre className="mb-4 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 font-mono text-xs text-slate-700">
-          {offer.agreement_text}
-        </pre>
+      {showAgreement && offer.agreement_text && (
+        <LetterOfOfferDocument text={offer.agreement_text} onClose={() => setShowAgreement(false)} />
       )}
 
       {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -226,6 +291,70 @@ export function OfferPanel({
           facility.
         </p>
       )}
+    </div>
+  );
+}
+
+/** The frozen Letter of Offer, full-screen — a formal document to read
+ *  closely, not a panel among other panels on the case page. */
+function LetterOfOfferDocument({ text, onClose }: { text: string; onClose: () => void }) {
+  const { meta, sections } = parseAgreement(text);
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 px-4 py-8 sm:px-8">
+      <div className="mx-auto max-w-3xl rounded-lg bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-3 sm:px-12">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Letter of Offer
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="px-6 py-10 sm:px-16 sm:py-14">
+          <div className="mb-10 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
+              Guyana Development Bank
+            </p>
+            <h1 className="mt-2 text-2xl font-bold text-slate-900">Letter of Offer</h1>
+          </div>
+
+          <dl className="mb-10 grid grid-cols-1 gap-x-8 gap-y-2 border-y border-slate-200 py-5 text-sm sm:grid-cols-2">
+            {meta.map(([label, value]) => (
+              <div key={label} className="flex items-baseline justify-between gap-4 sm:justify-start">
+                <dt className="text-slate-400">{label}</dt>
+                <dd className="font-medium text-slate-800 sm:ml-2">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="space-y-8">
+            {sections.map((s) => (
+              <section key={s.heading}>
+                <h2 className="mb-2 text-sm font-bold tracking-wide text-slate-900">{s.heading}</h2>
+                {s.paragraphs.map((p, i) =>
+                  p.length > 1 ? (
+                    <ol key={i} className="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
+                      {p.map((item, j) => (
+                        <li key={j}>{item}</li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p key={i} className="mb-2 text-sm leading-relaxed text-slate-700 last:mb-0">
+                      {p[0]}
+                    </p>
+                  ),
+                )}
+              </section>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

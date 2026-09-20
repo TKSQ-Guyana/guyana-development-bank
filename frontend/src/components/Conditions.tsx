@@ -106,7 +106,7 @@ export function Conditions({
   return (
     <div className="mb-6 rounded-xl bg-white p-6 shadow">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold text-slate-800">Conditions precedent</h2>
+        <h2 className="font-semibold text-slate-800">Status — before funds release</h2>
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold ${
             clear ? 'bg-green-50 text-green-800' : 'bg-gdb-gold/20 text-brand-dark'
