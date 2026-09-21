@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { visibleNav } from '../widgets/navigation/nav-registry';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium ${
@@ -30,18 +31,14 @@ export function Layout() {
               </span>
             </span>
           </Link>
+          {/* Nav is data, filtered by capability — see
+              widgets/navigation/nav-registry.ts. No role checks live here. */}
           <nav className="flex items-center gap-1">
-            <NavLink to="/" end className={navLinkClass}>
-              My Loans
-            </NavLink>
-            <NavLink to="/apply" className={navLinkClass}>
-              Apply
-            </NavLink>
-            {user?.is_underwriter && (
-              <NavLink to="/review" className={navLinkClass}>
-                Review Queue
+            {visibleNav(user).map((entry) => (
+              <NavLink key={entry.to} to={entry.to} end={entry.end} className={navLinkClass}>
+                {entry.label}
               </NavLink>
-            )}
+            ))}
           </nav>
         </div>
       </header>
@@ -49,11 +46,14 @@ export function Layout() {
         <div className="mx-auto flex max-w-5xl items-center justify-end gap-3 px-4 py-2 text-sm text-slate-600">
           <span>
             {user?.full_name}
-            {user?.is_underwriter && (
-              <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-gdb-green-dark">
-                Underwriter
+            {user?.personas.map((persona) => (
+              <span
+                key={persona.key}
+                className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-gdb-green-dark"
+              >
+                {persona.title}
               </span>
-            )}
+            ))}
           </span>
           <button onClick={() => void onLogout()} className="font-medium text-gdb-green hover:underline">
             Log out

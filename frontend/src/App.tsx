@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
+import { CAP } from './shared/rbac';
+import { RequireCapability } from './shared/rbac/RequireCapability';
 import { Layout } from './components/Layout';
 import { Apply } from './pages/Apply';
 import { LoanDetail } from './pages/LoanDetail';
@@ -21,10 +23,19 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function RequireUnderwriter({ children }: { children: ReactNode }) {
+/**
+ * Landing route.
+ *
+ * Where "home" is depends on the persona, and the backend decides: a Board
+ * member has no permission to load the citizen application list at all, so
+ * sending everyone to `/` would hand them a guaranteed 403. `portal_home`
+ * comes from the persona registry via `whoami`.
+ */
+function PortalHome() {
   const { user } = useAuth();
-  if (!user?.is_underwriter) return <Navigate to="/" replace />;
-  return <>{children}</>;
+  if (!user) return null;
+  if (user.portal_home !== '/') return <Navigate to={user.portal_home} replace />;
+  return <MyLoans />;
 }
 
 export function App() {
@@ -41,17 +52,29 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<MyLoans />} />
-            <Route path="/apply" element={<Apply />} />
-            <Route path="/loans/:name" element={<LoanDetail />} />
+            <Route index element={<PortalHome />} />
             <Route
-              path="/review"
+              path="/apply"
               element={
-                <RequireUnderwriter>
-                  <Review />
-                </RequireUnderwriter>
+                <RequireCapability anyOf={[CAP.APPLICATION_CREATE]}>
+                  <Apply />
+                </RequireCapability>
               }
             />
+            <Route path="/loans/:name" element={<LoanDetail />} />
+            {/* Queue route: any persona granted APPLICATION_VIEW_QUEUE reaches
+                it, so a future Senior Underwriter or Credit Committee persona
+                needs no change here. */}
+            <Route
+              path="/underwriting"
+              element={
+                <RequireCapability anyOf={[CAP.APPLICATION_VIEW_QUEUE]}>
+                  <Review />
+                </RequireCapability>
+              }
+            />
+            {/* Pre-registry path, kept so existing links and bookmarks work. */}
+            <Route path="/review" element={<Navigate to="/underwriting" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

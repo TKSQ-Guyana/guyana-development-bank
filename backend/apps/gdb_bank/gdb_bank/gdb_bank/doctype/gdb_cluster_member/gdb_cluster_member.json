@@ -1,0 +1,50 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "member_eid",
+  "member_name",
+  "invitation_status"
+ ],
+ "fields": [
+  {
+   "fieldname": "member_eid",
+   "fieldtype": "Data",
+   "label": "Member e-ID",
+   "reqd": 1,
+   "in_list_view": 1,
+   "length": 32
+  },
+  {
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "invitation_status",
+   "fieldtype": "Select",
+   "label": "Invitation",
+   "options": "Invited\nAccepted\nDeclined",
+   "default": "Invited",
+   "in_list_view": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Cluster Member",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

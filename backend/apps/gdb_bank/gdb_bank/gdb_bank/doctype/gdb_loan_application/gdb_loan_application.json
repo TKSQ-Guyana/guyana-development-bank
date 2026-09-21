@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-09-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "applicant_name",
+  "subject_eid",
+  "facilitator_eid",
+  "column_break_lifecycle",
+  "status",
+  "application_route",
+  "business_type",
+  "doc_version",
+  "submitted_on",
+  "section_break_detail",
+  "detail_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-APP-.#####",
+   "default": "GDB-APP-.#####",
+   "hidden": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "applicant_name",
+   "fieldtype": "Data",
+   "label": "Applicant Name",
+   "in_list_view": 1,
+   "in_global_search": 0
+  },
+  {
+   "fieldname": "subject_eid",
+   "fieldtype": "Data",
+   "label": "Applicant e-ID",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The e-ID this case is ABOUT. Row scoping keys on this, never on owner.",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "length": 32
+  },
+  {
+   "fieldname": "facilitator_eid",
+   "fieldtype": "Data",
+   "label": "Facilitator e-ID",
+   "description": "Set only when a Regional Facilitator was mandated to act for this applicant. The owner stays the applicant.",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "length": 32
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break",
+   "label": null
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nSubmitted\nInformation Requested\nUnder Review\nVerification Pending\nApproved\nDeclined\nOffer Issued\nOffer Accepted\nOffer Declined\nCountersigned\nConditions Pending\nCleared for Disbursement\nPartially Disbursed\nDisbursed\nRepaying\nClosed\nWithdrawn",
+   "default": "Draft",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "description": "Business state. Only services/ may change it, and only along domain/statuses.TRANSITIONS."
+  },
+  {
+   "fieldname": "application_route",
+   "fieldtype": "Select",
+   "label": "Applying As",
+   "options": "\nSole Trader\nPartnership\nCluster",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "business_type",
+   "fieldtype": "Select",
+   "label": "Business",
+   "options": "\nExisting Business\nNew Venture"
+  },
+  {
+   "fieldname": "doc_version",
+   "fieldtype": "Int",
+   "label": "Version",
+   "default": "0",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Optimistic concurrency counter for draft autosave (If-Match). Incremented on every accepted write."
+  },
+  {
+   "fieldname": "submitted_on",
+   "fieldtype": "Datetime",
+   "label": "Submitted On",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "section_break_detail",
+   "fieldtype": "Section Break",
+   "label": "Application Detail"
+  },
+  {
+   "fieldname": "detail_note",
+   "fieldtype": "HTML",
+   "label": null,
+   "options": "<p class='text-muted'>Business, financial and purpose fields are added here as each Phase 2 wizard step is implemented. The persona, scoping and lifecycle fields above are the stable core.</p>"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-09-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Loan Application",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "applicant_name",
+ "search_fields": "subject_eid,status"
+}

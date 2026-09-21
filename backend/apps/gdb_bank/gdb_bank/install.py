@@ -2,9 +2,14 @@ import os
 
 import frappe
 
-# (role_name, desk_access) — Citizen is a website-user role (no desk), the
-# underwriter is a system role so GDB staff can also use the ERPNext desk.
-ROLES = (("Citizen", 0), ("Loan Underwriter", 1))
+from gdb_bank.rbac import provisioning
+from gdb_bank.security import eid as eid_mod
+
+# Legacy roles from the pre-registry build. They are still created so existing
+# accounts and any hand-written Permission Manager rows keep resolving;
+# `provisioning.reconcile()` grants every holder the equivalent GDB role.
+# NEW ROLES DO NOT GO HERE — add a PersonaSpec in rbac/personas.py instead.
+LEGACY_ROLES = (("Citizen", 0), ("Loan Underwriter", 1))
 
 LOAN_PRODUCT_NAME = "GDB Standard Loan"
 OFFSET_ORDER_TITLE = "GDB Standard Offset Order"
@@ -71,9 +76,34 @@ CUSTOM_FIELDS = {
 	],
 }
 
+# The e-ID mirror. Every GDB row scopes on the e-ID rather than on the email or
+# the Frappe owner (features.md: queues identify people by e-ID), so the User
+# record has to carry it. Written only by security/eid.bind_to_user from a
+# verified Keycloak claim — hence read_only and unique.
+IDENTITY_CUSTOM_FIELDS = {
+	"User": [
+		{
+			"fieldname": "gdb_eid",
+			"label": "e-ID",
+			"fieldtype": "Data",
+			"length": 32,
+			"unique": 1,
+			"read_only": 1,
+			"no_copy": 1,
+			"insert_after": "username",
+			"description": (
+				"Three-box national identity number, mirrored from the Keycloak "
+				"token. Row-level security keys on this field."
+			),
+		},
+	],
+}
+
 
 def ensure_roles():
-	for role_name, desk_access in ROLES:
+	"""Create the legacy roles only. The GDB personas are created by
+	`provisioning.reconcile()` from `rbac/personas.py`."""
+	for role_name, desk_access in LEGACY_ROLES:
 		if not frappe.db.exists("Role", role_name):
 			frappe.get_doc(
 				{
@@ -85,12 +115,28 @@ def ensure_roles():
 	frappe.db.commit()
 
 
+def make_identity_custom_fields():
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	create_custom_fields(IDENTITY_CUSTOM_FIELDS, ignore_validate=True)
+	frappe.db.commit()
+
+
 def after_install():
 	ensure_roles()
+	make_identity_custom_fields()
+	provisioning.reconcile()
 
 
 def after_migrate():
+	"""Every deploy converges the site onto the registry.
+
+	Order matters: the e-ID field must exist before anything scopes on it, and
+	the legacy roles must exist before reconcile() migrates their holders.
+	"""
 	ensure_roles()
+	make_identity_custom_fields()
+	provisioning.reconcile()
 	if "lending" in frappe.get_installed_apps():
 		make_custom_fields()
 
@@ -175,40 +221,71 @@ def ensure_lending_defaults():
 	frappe.db.commit()
 
 
+# One demo account per persona, so every role in the registry can actually be
+# exercised locally. Derived from the registry: adding a PersonaSpec gives you a
+# demo login for it automatically, with a deterministic e-ID.
+DEMO_DOMAIN = "gdb.gov.gy"
+DEMO_EID_PREFIX = "999"
+
+
+def _demo_account(persona, index: int) -> tuple[str, str, str]:
+	local = persona.key.replace("_", ".")
+	return (
+		f"{local}@{DEMO_DOMAIN}",
+		f"Demo {persona.title}",
+		f"{DEMO_EID_PREFIX}-{1000 + index:04d}-{index:03d}",
+	)
+
+
 def make_demo_users():
-	"""Create demo portal accounts. Password comes from GDB_DEMO_PASSWORD (or
-	ADMIN_PASSWORD) in the environment — invoked by scripts/create-site.sh via
-	`bench execute`."""
+	"""Create one demo portal account per persona.
+
+	Password comes from GDB_DEMO_PASSWORD (or ADMIN_PASSWORD) - invoked by
+	scripts/create-site.sh via `bench execute`. These are LOCAL accounts for
+	development: real deployments provision users from Keycloak. Each demo
+	account carries a 999-prefixed e-ID that cannot collide with a real one.
+	"""
 	password = os.environ.get("GDB_DEMO_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 	if not password:
-		print("GDB_DEMO_PASSWORD/ADMIN_PASSWORD not set — skipping demo users")
+		print("GDB_DEMO_PASSWORD/ADMIN_PASSWORD not set - skipping demo users")
 		return
 
-	demo_users = (
-		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
-		("citizen@example.gy", "Demo Citizen", "Website User", "Citizen"),
-	)
 	from frappe.utils.password import update_password
 
-	for email, full_name, user_type, role in demo_users:
-		if not frappe.db.exists("User", email):
-			user = frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": email,
-					"first_name": full_name,
-					"user_type": user_type,
-					"send_welcome_email": 0,
-					"enabled": 1,
-				}
-			).insert(ignore_permissions=True)
-			user.add_roles(role)
-			# GDB staff also get lending's desk role so the Lending workspace
-			# and doctypes are visible to them in ERPNext.
-			if user_type == "System User" and frappe.db.exists("Role", "Loan Manager"):
-				user.add_roles("Loan Manager")
-			update_password(user.name, password)
-			print(f"created {user_type} {email} with role {role}")
+	from gdb_bank.rbac import personas as reg
+
+	for index, persona in enumerate(reg.ACTIVE_PERSONAS, start=1):
+		email, full_name, demo_eid = _demo_account(persona, index)
+		if frappe.db.exists("User", email):
+			continue
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": full_name,
+				"user_type": "System User" if persona.desk_access else "Website User",
+				"send_welcome_email": 0,
+				"enabled": 1,
+			}
+		)
+		user.flags.ignore_permissions = True
+		user.insert()
+
+		# Assign the Role Profile rather than the bare role: that is the unit an
+		# administrator actually grants, and it carries the bundled roles
+		# (lending's Loan Manager and so on) with it.
+		if frappe.db.exists("Role Profile", persona.profile_name):
+			user.role_profile_name = persona.profile_name
+			user.flags.ignore_permissions = True
+			user.save()
+		else:
+			user.add_roles(persona.role)
+
+		eid_mod.bind_to_user(user.name, demo_eid)
+		update_password(user.name, password)
+		print(f"created {persona.key:22} {email:34} e-ID {demo_eid}")
+
 	frappe.db.commit()
 
 

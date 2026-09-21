@@ -1,0 +1,123 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-09-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "application",
+  "request_status",
+  "column_break_who",
+  "requested_by",
+  "requested_on",
+  "answered_on",
+  "section_break_body",
+  "request_text",
+  "response_text"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-INF-.#####",
+   "default": "GDB-INF-.#####",
+   "hidden": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "application",
+   "fieldtype": "Link",
+   "label": "Application",
+   "options": "GDB Loan Application",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "request_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nAnswered\nWithdrawn",
+   "default": "Open",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_who",
+   "fieldtype": "Column Break",
+   "label": null
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_on",
+   "fieldtype": "Datetime",
+   "label": "Requested On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "answered_on",
+   "fieldtype": "Datetime",
+   "label": "Answered On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_body",
+   "fieldtype": "Section Break",
+   "label": null
+  },
+  {
+   "fieldname": "request_text",
+   "fieldtype": "Small Text",
+   "label": "What The Bank Needs",
+   "reqd": 1,
+   "description": "Shown verbatim to the applicant."
+  },
+  {
+   "fieldname": "response_text",
+   "fieldtype": "Small Text",
+   "label": "Applicant Response",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-09-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Information Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "request_text"
+}

@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-09-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "subject_eid",
+  "facilitator_eid",
+  "cluster",
+  "column_break_status",
+  "mandate_status",
+  "granted_on",
+  "revoked_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-MND-.#####",
+   "default": "GDB-MND-.#####",
+   "hidden": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "subject_eid",
+   "fieldtype": "Data",
+   "label": "Granted By (e-ID)",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "The applicant or cluster lead who opted in. This is the consent handshake of Phase 2.5.",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "length": 32
+  },
+  {
+   "fieldname": "facilitator_eid",
+   "fieldtype": "Data",
+   "label": "Facilitator e-ID",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "length": 32
+  },
+  {
+   "fieldname": "cluster",
+   "fieldtype": "Link",
+   "label": "Cluster",
+   "options": "GDB Cluster"
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break",
+   "label": null
+  },
+  {
+   "fieldname": "mandate_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nRevoked",
+   "default": "Active",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "granted_on",
+   "fieldtype": "Datetime",
+   "label": "Granted On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revoked_on",
+   "fieldtype": "Datetime",
+   "label": "Revoked On",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-09-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Facilitator Mandate",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "facilitator_eid"
+}

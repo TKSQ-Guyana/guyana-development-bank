@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-09-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "application",
+  "document_kind",
+  "column_break_file",
+  "file_url",
+  "content_type",
+  "file_size",
+  "revision",
+  "supersedes"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-DOC-.#####",
+   "default": "GDB-DOC-.#####",
+   "hidden": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "application",
+   "fieldtype": "Link",
+   "label": "Application",
+   "options": "GDB Loan Application",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Scope is inherited from this link - see rbac/scoping.py."
+  },
+  {
+   "fieldname": "document_kind",
+   "fieldtype": "Data",
+   "label": "Document Kind",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "What the applicant says this document is."
+  },
+  {
+   "fieldname": "column_break_file",
+   "fieldtype": "Column Break",
+   "label": null
+  },
+  {
+   "fieldname": "file_url",
+   "fieldtype": "Attach",
+   "label": "File",
+   "read_only": 1,
+   "description": "Written by services/documents.py after MIME magic number validation. Never set from the client."
+  },
+  {
+   "fieldname": "content_type",
+   "fieldtype": "Data",
+   "label": "Verified Content Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "file_size",
+   "fieldtype": "Int",
+   "label": "Size (bytes)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revision",
+   "fieldtype": "Int",
+   "label": "Revision",
+   "default": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supersedes",
+   "fieldtype": "Link",
+   "label": "Supersedes",
+   "options": "GDB Application Document",
+   "read_only": 1,
+   "description": "Replacing a document never deletes the old one."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-09-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Application Document",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "title_field": "document_kind"
+}

@@ -155,3 +155,14 @@ Target layout: namespace `gdb-dev`, deployments `gdb-frontend` and
 gunicorn + worker + scheduler + nginx), plus MariaDB and Redis. No separate
 Job/worker/scheduler/websocket deployments. Reference manifests and the
 **RWX volume caveat** are in [k8s/README.md](k8s/README.md).
+
+## Where things stand
+
+- **[docs/developer/implementation_record.md](docs/developer/implementation_record.md)** —
+  what is built, what is not, and the open decisions. Read this first.
+- **[docs/developer/personas.md](docs/developer/personas.md)** — the role model
+  and how to add a role.
+
+Roles are declared once in `backend/apps/gdb_bank/gdb_bank/rbac/personas.py` and
+projected onto Frappe, Keycloak and the SPA. To add one: edit that file, run
+`cd backend && python scripts/export_rbac.py`, then `bench migrate`.

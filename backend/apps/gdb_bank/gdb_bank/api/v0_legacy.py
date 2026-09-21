@@ -1,4 +1,35 @@
-"""Whitelisted REST endpoints for the GDB citizen portal.
+"""DEPRECATED — the pre-registry portal endpoints, kept working during cutover.
+
+These are re-exported from `gdb_bank.api` (see `__init__.py`), so the paths the
+current SPA build calls still resolve:
+
+    gdb_bank.api.signup | apply_loan | my_loans | loan_detail
+                        | all_loans  | review_loan | whoami
+
+WHY THIS FILE IS HERE AND NOT `gdb_bank/api.py`
+    `api/` became a package. A package and a module of the same name cannot
+    coexist: Python resolves the directory and the `.py` file is silently
+    ignored. Leaving `api.py` in place would have made every endpoint below
+    unreachable while looking perfectly fine on disk.
+
+WHAT IS WRONG WITH THE CODE BELOW
+    It predates the persona registry and violates the standards this app now
+    holds itself to:
+      * `_is_underwriter()` checks a ROLE NAME rather than a capability, so a
+        new persona granted approval authority would not be recognised.
+      * `review_loan` uses `db_set` for a business status transition, which
+        CLAUDE.md section 2 forbids — it bypasses validation and audit hooks.
+      * `my_loans`/`all_loans` use `frappe.get_all`, which does NOT apply
+        permissions; their row security is the hand-written filter alone.
+      * No audit trail, so no separation-of-duties rule can see these actions.
+
+    Do not extend it. Phase 2/3 replaces it with `services/` + `api/v1_*`
+    modules; delete this file once the SPA calls those.
+"""
+
+"""Original module docstring follows.
+
+Whitelisted REST endpoints for the GDB citizen portal.
 
 All endpoints are called as POST /api/method/gdb_bank.api.<name> with a JSON
 body. Authentication is the standard Frappe session cookie obtained from
@@ -152,13 +183,17 @@ def signup(full_name: str, email: str, password: str):
 
 @frappe.whitelist()
 def whoami():
-	user = _session_user()
-	return {
-		"user": user,
-		"full_name": frappe.utils.get_fullname(user),
-		"roles": frappe.get_roles(user),
-		"is_underwriter": _is_underwriter(user),
-	}
+	"""Deprecated alias for `gdb_bank.api.v1_identity.whoami`.
+
+	Delegates rather than reimplements so there is exactly one identity
+	contract: the payload now carries `personas`, `capabilities`, `eid` and
+	`portal_home` alongside the original `roles`/`is_underwriter` keys the
+	current SPA build still reads. Remove once the SPA calls v1_identity
+	directly.
+	"""
+	from gdb_bank.api import v1_identity
+
+	return v1_identity.whoami()
 
 
 @frappe.whitelist()

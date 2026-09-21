@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ApiError, call, login as apiLogin, logout as apiLogout } from './api';
-import type { Whoami } from './types';
+import type { Identity } from './shared/rbac';
 
 interface AuthState {
-  user: Whoami | null;
+  user: Identity | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (fullName: string, email: string, password: string) => Promise<void>;
@@ -14,12 +14,12 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Whoami | null>(null);
+  const [user, setUser] = useState<Identity | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      setUser(await call<Whoami>('gdb_bank.api.whoami'));
+      setUser(await call<Identity>('gdb_bank.api.v1_identity.whoami'));
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         setUser(null);

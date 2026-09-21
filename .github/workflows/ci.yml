@@ -18,9 +18,80 @@ env:
 
 jobs:
   # ============================================================
+  # CI - Verify (runs before anything is built or pushed)
+  #
+  # The registry tests need no Frappe site and no database: rbac/ and domain/
+  # import nothing from Frappe precisely so these invariants are cheap to
+  # check on every push. They are the gate on the things that fail silently -
+  # a Board persona that gains case-level access, a separation-of-duties rule
+  # that stops referencing a real capability, a generated file left stale.
+  # ============================================================
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: RBAC registry invariants
+        working-directory: backend/apps/gdb_bank
+        run: python -m unittest discover -s gdb_bank/tests -t . -v
+
+      - name: Generated files are in step with the registry
+        working-directory: backend
+        run: python scripts/export_rbac.py --check
+
+      - name: DocType JSON integrity
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          base = pathlib.Path("backend/apps/gdb_bank/gdb_bank/gdb_bank/doctype")
+          failures = []
+          for path in sorted(base.rglob("*.json")):
+              d = json.loads(path.read_text(encoding="utf-8"))
+              names = [f["fieldname"] for f in d["fields"]]
+              if d["field_order"] != names:
+                  failures.append(f"{d['name']}: field_order does not match fields")
+              dupes = {n for n in names if names.count(n) > 1}
+              if dupes:
+                  failures.append(f"{d['name']}: duplicate fieldnames {sorted(dupes)}")
+              if d.get("module") != "GDB Bank":
+                  failures.append(f"{d['name']}: wrong module {d.get('module')!r}")
+          if failures:
+              print("\n".join(failures), file=sys.stderr)
+              sys.exit(1)
+          print(f"checked {len(list(base.rglob('*.json')))} doctypes")
+          PY
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+  # ============================================================
   # CI - Frontend (React citizen portal)
   # ============================================================
   docker-frontend:
+    needs: verify
     runs-on: ubuntu-latest
 
     defaults:
@@ -56,6 +127,7 @@ jobs:
   # CI - Backend (ERPNext + gdb_bank custom app)
   # ============================================================
   docker-backend:
+    needs: verify
     runs-on: ubuntu-latest
 
     defaults:

@@ -17,9 +17,9 @@ export interface LoanApplication {
   modified: string;
 }
 
-export interface Whoami {
-  user: string;
-  full_name: string;
-  roles: string[];
-  is_underwriter: boolean;
-}
+/**
+ * Identity moved to `shared/rbac` and is now capability-shaped rather than
+ * role-shaped. Re-exported here so existing imports keep resolving during the
+ * migration.
+ */
+export type { Identity, Identity as Whoami } from './shared/rbac';

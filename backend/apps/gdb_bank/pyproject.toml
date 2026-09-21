@@ -5,7 +5,9 @@ description = "Guyana Development Bank — citizen loan portal backend (custom F
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["version"]
-dependencies = []
+# PyJWT with the crypto extra: Keycloak signs RS256, and verifying that
+# signature is what makes the token a credential rather than a claim.
+dependencies = ["pyjwt[crypto]>=2.8"]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]

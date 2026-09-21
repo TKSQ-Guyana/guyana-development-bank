@@ -1,62 +1,73 @@
-# Guyana Development Bank citizen loan portal — project instructions
 
-ERPNext (v16, MariaDB + Redis) is the backend via the `gdb_bank` custom Frappe
-app; a React SPA (`frontend/`) is the citizen portal with a role-gated
-underwriter review queue. The official name everywhere is
-**Guyana Development Bank (GDB)**.
+## Enterprise Architecture & Coding Standards
 
-## Working agreements
+> **Current state of the build:** [`docs/developer/implementation_record.md`](docs/developer/implementation_record.md)
+> — what exists, what does not, the Frappe v16 facts already verified (do not
+> re-derive them), and the open decision blocking Phase 2.
+>
+> **Roles are registry-driven.** `backend/apps/gdb_bank/gdb_bank/rbac/personas.py`
+> is the single source of truth; Frappe roles, DocType permissions, row-level
+> scoping, Keycloak realm roles and the SPA's capability constants are all
+> derived from it. Adding a role is a data edit there plus `bench migrate` —
+> never hand-wire one. Runbook: [`docs/developer/personas.md`](docs/developer/personas.md).
+>
+> **Authorize on capabilities, not role names.** Guard services with
+> `@require(cap.X)`. A literal role-name comparison in `services/` or `api/` is
+> a bug: it is the coupling that makes adding a persona a codebase-wide edit.
 
-- Commit at every working logic state; conventional-commit subjects.
-- Never `git push` unless explicitly asked.
-- Docker Hub images follow the MPS-Guyana convention: one repo
-  `ravinadh/ksquarenis`, tags `gdb<run>`/`gdb-latest` (frontend) and
-  `gdb-backend<run>`/`gdb-backend-latest` (backend), pushed by CI using the
-  `DOCKERHUB_TOKEN` repo secret.
+> **CORE PRINCIPLE:** The frontend is an untrusted client. The backend is the enforcement boundary. Every financial state transition must be authorized, validated, auditable, idempotent where applicable, and executed within a well-defined consistency boundary.
 
-## Architecture facts
+### 1. Frontend Architecture & State
+* **Structural Taxonomy:** Maintain a strict separation of concerns beyond just "features".
+  * `entities/`: Domain models and types (Applicant, Loan, Business).
+  * `features/`: Business capabilities (Applications, Finance, Identity).
+  * `widgets/`: Complex assembled UI (Application Summary, Navigation).
+  * `shared/`: Generic UI (Buttons, Cards), base API wrappers, configuration.
+* **Component Responsibility:** Component quality is measured by responsibility, state ownership, and testability—not strictly by line count. 
+* **State Boundaries:** Do not duplicate server state in client state.
+  * **React Query:** Owns server state (loan status, profiles, documents).
+  * **Zustand:** Owns temporary UI/workflow state (current wizard step, themes).
+  * **React Hook Form + Zod:** Use for complex wizards/forms. Do not dump every keystroke into Zustand.
+* **Client-Side Security:** NEVER store PII or sensitive financial data in `localStorage`, `sessionStorage`, `IndexedDB`, or URL query parameters (e.g., `?nin=123`). Do not send PII to analytics or `console.log`.
 
-- **Four services total**: mariadb, redis (cache `/0`, queue `/1`), backend,
-  frontend. The backend container is self-contained: `start-backend.sh`
-  bootstraps the site under a flock on the shared sites volume (replica-safe),
-  then runs gunicorn (loopback :8000) + worker + scheduler behind the image's
-  own nginx on **:8080**, which also serves the ERPNext desk UI.
-- Loans are the **official frappe/lending app's Loan Application** doctype
-  (`ACC-LOAP-…`), pinned at v16.5.0 in `backend/Dockerfile`. gdb_bank has NO
-  doctype of its own — portal-only facts ride gdb_* Custom Fields
-  (install.CUSTOM_FIELDS) and `gdb_bank/api.py` maps the stable portal
-  contract (purpose/term_months/status Submitted|Approved|Rejected) onto it;
-  lending's `Open` = portal `Submitted`. Status changes happen ONLY in
-  `review_loan` via `db_set` (docs are submitted; status is permlevel 1).
-- Seeded lending masters (`install.ensure_lending_defaults`): Loan Product
-  "GDB Standard Loan" (GDB-STD, 8% term loan) + "GDB Standard Offset Order"
-  demand offset order wired into the Company. Loan accounting stays DISABLED
-  on the company — enabling it makes ~16 GL accounts mandatory on the product.
-- All portal APIs are whitelisted methods in `gdb_bank/api.py`
-  (`/api/method/gdb_bank.api.*`); auth is the Frappe session cookie from
-  `/api/method/login`. The site runs with `ignore_csrf: 1` because the SPA
-  never receives a Frappe-rendered CSRF token — nginx keeps `/api` same-origin.
-- Roles: `Citizen` (website user; sees own applications only) and
-  `Loan Underwriter` (+ System Manager) — enforcement is server-side in
-  `api.py`, mirrored in the SPA (`is_underwriter` from `whoami`). The demo
-  underwriter also holds lending's `Loan Manager` for desk visibility.
-- ERPNext does not run on Postgres. MariaDB 11.8 + one Redis are part of
-  every environment.
+### 2. Backend Architecture & Frappe Rules
+* **Layered Boundaries:** Separate concerns into API Controllers (routing, payload parsing), Services/Use Cases (business logic, transaction boundaries), and Repositories (complex Frappe ORM queries).
+* **Security vs. Domain:** Authorization policies (e.g., `_require_underwriter`) belong in `security/` or `infrastructure/` modules, not in core business `domain/` modules.
+* **Frappe Lifecycle (`doc.save` vs `db_set`):**
+  * **Business State:** ALWAYS use `doc.save()` or a controlled domain method. This guarantees Frappe's audit logging, validation, and webhooks fire.
+  * **System State:** `doc.db_set()` bypasses validation and audit hooks. It is ONLY allowed for exceptional, non-business operational updates (e.g., `last_seen`, `processing_lock`).
+* **Raw SQL:** Raw SQL writes to business data are strictly prohibited. Raw SQL reads are allowed only when the ORM is inefficient, but they require strict parameterization, review, and least-privilege access.
 
-## Local stack
+### 3. Financial Controls & Integrity
+* **Idempotency (Mandatory):** All state-changing financial APIs (submit, approve, disburse, repay) must enforce idempotency using an `Idempotency-Key` header to prevent duplicate transactions on network retries.
+* **Separation of Duties (Maker ≠ Checker):** The person who creates or reviews an application cannot be the same person who approves or disburses it. This must be structurally enforced by the backend using Frappe's native Workflow Engine and Roles.
+* **Server-Side Drafts:** Form drafts must use server-side persistence with **Optimistic Concurrency** (e.g., `If-Match: 17`) to prevent race conditions if an applicant has multiple tabs open.
+* **External API Resilience:** Government APIs (e.g., DCRA) must be wrapped in timeouts, retries, and circuit breakers. An external API timeout must yield a `VERIFICATION_PENDING` state for manual review, never a business rejection.
 
-`docker compose up -d --build` → mariadb, redis, backend (first boot takes
-minutes: new-site + erpnext + lending + gdb_bank + wizard + seeds; watch
-`logs -f backend`; seeds demo users `citizen@example.gy` /
-`underwriter@gdb.gov.gy`, password = `ADMIN_PASSWORD`, default `admin`),
-frontend nginx :3000; desk at :8080. Frontend dev loop: `npm run dev` in
-`frontend/` → vite :5173 proxying `/api` to :8080. After backend app changes:
-`docker compose up -d --build backend` (restart runs migrate + seeds again).
-`localhost` cookies are shared across ports 3000/8080 — log out of one before
-logging into the other.
+### 4. Security & Authentication
+* **Authentication:** Use OIDC Authorization Code Flow with PKCE via Frappe's Social Login integration (Keycloak).
+* **Role Management & Permissions (CRITICAL):** You MUST use Frappe's inbuilt Role Management (Role Profiles, Permission Manager, User Permissions) for each persona (Citizen, Underwriter, Manager).
+  * **Role-Based Access Control (RBAC):** Define Document-level permissions in the Frappe DocType via the "Permissions" table. Do not reinvent authorization logic in Python if the Permission Manager can handle it.
+  * **User Permissions (Row-Level Security):** Ensure that a Citizen can only see their own applications by leveraging Frappe's User Permissions or `has_permission` hooks, preventing BOLA/IDOR vulnerabilities.
+  * **Authorization Validation:** Never trust client-supplied IDs. Even if RBAC allows access to a DocType, ensure the specific document ID (`GET /applications/123`) belongs to the authenticated user or their authorized subset.
+* **Document Security:** Never trust user-supplied filenames. Enforce MIME type validation (magic numbers), strict size limits, virus scanning, and authorized signed URLs for downloads.
 
-## After every task
+### 5. Observability & Auditing
+* **Technical Logs vs. Business Audit:** 
+  * *Technical logs* capture API requests, latency, and errors using Request IDs. **Do not log PII.**
+  * *Business audit trails* must be tamper-resistant and capture: *Who? What changed? Old value? New value? When? Why? Which workflow transition?*
+* **Error Taxonomy:** Never expose stack traces, SQL queries, or Keycloak internals to the frontend. Use standardized error payloads (e.g., `{"code": "LOAN_INVALID_STATE"}`) mapped to appropriate HTTP status codes (400, 401, 403, 404, 409, 422).
 
-Frontend gates: `npm run typecheck && npm run build` in `frontend/`.
-Backend sanity: `docker compose up -d --build backend`, wait for
-`Site … ready`, then exercise an endpoint (login + `gdb_bank.api.whoami`).
+### 6. Forbidden Patterns
+**DO NOT:**
+* Put business logic in React components.
+* Trust frontend roles for backend authorization.
+* Reinvent role management; always use Frappe's inbuilt Role Profiles and Permission Manager.
+* Store PII in client storage or URLs.
+* Expose stack traces or internal DB hostnames.
+* Perform raw SQL business writes.
+* Bypass Frappe Workflow transitions or use `db_set` for business data.
+* Hardcode secrets or commit `.env` files.
+* Perform non-idempotent financial operations.
+* Call external APIs without timeouts.
+* Silently swallow exceptions.

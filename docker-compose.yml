@@ -35,6 +35,56 @@ services:
     image: redis:6.2-alpine
     restart: unless-stopped
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    command: ['start-dev', '--import-realm']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: 'true'
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8085}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+    ports:
+      - '${KEYCLOAK_PORT:-8085}:8080'
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak-local/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    restart: unless-stopped
+
+  kc-bootstrap:
+    image: node:22-alpine
+    working_dir: /tmp
+    environment:
+      KC: http://keycloak:8080
+      REALM: Guyana-Gov
+      KC_ADMIN: admin
+      KC_ADMIN_PASSWORD: admin
+      GDB_DEMO_PASSWORD: ${ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak-local:/seed:ro
+      - ./backend/scripts:/backend/scripts:ro
+    command:
+      - sh
+      - -c
+      - |
+        i=0
+        until node /seed/setup-mps.mjs; do
+          i=$$((i+1))
+          if [ "$$i" -ge 60 ]; then
+            echo '[kc-bootstrap] keycloak never became seedable' >&2
+            exit 1
+          fi
+          echo "[kc-bootstrap] keycloak not ready yet (attempt $$i) — retrying in 5s"
+          sleep 5
+        done
+        # GDB personas: realm roles, the gdb-portal PKCE client and the e-ID
+        # claim mapper. Generated from rbac/personas.py, so a new persona
+        # reaches Keycloak on the next `docker compose up`.
+        node /seed/setup-gdb.mjs
+    depends_on:
+      - keycloak
+    restart: 'no'
+
   backend:
     build: ./backend
     image: gdb-backend:local
@@ -76,3 +126,4 @@ services:
 volumes:
   sites:
   mariadb-data:
+  keycloak-data:
