@@ -140,6 +140,12 @@ def after_migrate():
 	if "lending" in frappe.get_installed_apps():
 		make_custom_fields()
 
+	# Defined since 2026-09-21 but never called, so `bench migrate` ran clean
+	# and the dashboard stayed empty - a seeder nothing invokes looks exactly
+	# like a seeder that ran and found nothing to do. It is idempotent (it
+	# counts existing rows first), so running it on every migrate is safe.
+	make_demo_applications()
+
 
 def make_custom_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
@@ -221,22 +227,6 @@ def ensure_lending_defaults():
 	frappe.db.commit()
 
 
-# One demo account per persona, so every role in the registry can actually be
-# exercised locally. Derived from the registry: adding a PersonaSpec gives you a
-# demo login for it automatically, with a deterministic e-ID.
-DEMO_DOMAIN = "gdb.gov.gy"
-DEMO_EID_PREFIX = "999"
-
-
-def _demo_account(persona, index: int) -> tuple[str, str, str]:
-	local = persona.key.replace("_", ".")
-	return (
-		f"{local}@{DEMO_DOMAIN}",
-		f"Demo {persona.title}",
-		f"{DEMO_EID_PREFIX}-{1000 + index:04d}-{index:03d}",
-	)
-
-
 def make_demo_users():
 	"""Create one demo portal account per persona.
 
@@ -244,6 +234,10 @@ def make_demo_users():
 	scripts/create-site.sh via `bench execute`. These are LOCAL accounts for
 	development: real deployments provision users from Keycloak. Each demo
 	account carries a 999-prefixed e-ID that cannot collide with a real one.
+
+	The accounts themselves come from `rbac/demo.py`, which the Keycloak seeder
+	also derives from - the two sides must name the same person by the same
+	e-ID or sign-in fails as "incorrect password" for an account that exists.
 	"""
 	password = os.environ.get("GDB_DEMO_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 	if not password:
@@ -252,18 +246,21 @@ def make_demo_users():
 
 	from frappe.utils.password import update_password
 
+	from gdb_bank.rbac import demo
 	from gdb_bank.rbac import personas as reg
 
-	for index, persona in enumerate(reg.ACTIVE_PERSONAS, start=1):
-		email, full_name, demo_eid = _demo_account(persona, index)
-		if frappe.db.exists("User", email):
+	by_key = {persona.key: persona for persona in reg.ACTIVE_PERSONAS}
+
+	for identity in demo.identities():
+		persona = by_key[identity.persona]
+		if frappe.db.exists("User", identity.email):
 			continue
 
 		user = frappe.get_doc(
 			{
 				"doctype": "User",
-				"email": email,
-				"first_name": full_name,
+				"email": identity.email,
+				"first_name": identity.full_name,
 				"user_type": "System User" if persona.desk_access else "Website User",
 				"send_welcome_email": 0,
 				"enabled": 1,
@@ -282,9 +279,149 @@ def make_demo_users():
 		else:
 			user.add_roles(persona.role)
 
-		eid_mod.bind_to_user(user.name, demo_eid)
+		eid_mod.bind_to_user(user.name, identity.eid)
 		update_password(user.name, password)
-		print(f"created {persona.key:22} {email:34} e-ID {demo_eid}")
+		print(f"created {persona.key:22} {identity.email:34} e-ID {identity.eid}")
+
+	frappe.db.commit()
+
+
+def demo_data_enabled() -> bool:
+	"""Whether this site may create fabricated loan records.
+
+	OFF UNLESS ASKED. These rows are indistinguishable from real credit
+	applications once they are in the table - one of them is an APPROVED
+	facility for two million dollars against a citizen's e-ID. In a production
+	database that is not test data, it is a fake loan book: it lands in the
+	portfolio aggregate the Board reads, in any reconciliation the Finance
+	persona runs, and in the audit trail, with nothing marking it as synthetic.
+
+	So the gate is an explicit environment variable, not `developer_mode`
+	(unset even on this dev site, so it would have silently disabled the
+	seeder here too) and not "is the table empty" (a freshly restored
+	production site is also empty). `docker-compose.yml` sets it for the local
+	stack; a real deployment simply does not, and `after_migrate` skips it.
+
+	Same pattern as `make_demo_users`, which already declines to run without
+	GDB_DEMO_PASSWORD.
+	"""
+	flag = os.environ.get("GDB_SEED_DEMO_DATA")
+	return bool(flag) and flag.strip().lower() in ("1", "true", "yes", "on")
+
+
+# (case-file status, lending status or None, amount, purpose, business type)
+#
+# A Draft has no lending counterpart on purpose: a draft has not been submitted
+# to the Bank, so there is nothing for `Loan Application` to represent. It
+# exists in the case file only, which is why the dashboard shows two rows while
+# `GDB Loan Application` holds three.
+DEMO_APPLICATIONS = (
+	("Submitted", "Open", 800000, "Retail shop expansion", "Existing Business"),
+	("Approved", "Approved", 2000000, "Start new manufacturing venture", "New Venture"),
+	("Draft", None, 1500000, "Purchase of new agricultural equipment", "Existing Business"),
+)
+
+
+def make_demo_applications():
+	"""Seed a few applications for the demo citizen across different stages.
+
+	WHY THIS WRITES TWO DOCTYPES
+	    `GDB Loan Application` is the case file (implementation_record §7,
+	    Option B) and is where this data belongs. But the dashboard calls
+	    `gdb_bank.api.my_loans`, which is still `v0_legacy.my_loans` and reads
+	    lending's `Loan Application` filtered on the `gdb_owner` custom field.
+	    Seeding only the case file therefore puts rows in the database that no
+	    screen can see - which is what "No applications yet" was showing.
+
+	    This dual write is scaffolding, not architecture. When §4.6's
+	    `api/v1_applications.py` read path lands on top of
+	    `repositories/applications.py`, delete the lending half and the
+	    `legacy_status` column of DEMO_APPLICATIONS with it.
+	"""
+	if not demo_data_enabled():
+		print("GDB_SEED_DEMO_DATA is not set - skipping demo applications")
+		return
+
+	from frappe.utils import now_datetime, nowdate
+
+	from gdb_bank.api.v0_legacy import _get_or_create_customer
+	from gdb_bank.rbac import demo
+
+	citizen = next((ident for ident in demo.identities() if ident.persona == "citizen"), None)
+	if not citizen:
+		return
+
+	user = frappe.db.get_value("User", {eid_mod.EID_USER_FIELD: citizen.eid}, "name")
+	if not user:
+		print(f"no Frappe user for demo e-ID {citizen.eid} - skipping demo applications")
+		return
+
+	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
+	if not product:
+		ensure_lending_defaults()
+		product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
+
+	if frappe.db.count("GDB Loan Application", {"subject_eid": citizen.eid}):
+		print("demo applications already exist - skipping")
+		return
+
+	customer = _get_or_create_customer(user)
+	company = frappe.db.get_value("Loan Product", product, "company")
+
+	for status, legacy_status, amount, purpose, business_type in DEMO_APPLICATIONS:
+		case = frappe.new_doc("GDB Loan Application")
+		case.applicant_name = citizen.full_name
+		case.subject_eid = citizen.eid
+		case.status = status
+		case.application_route = "Sole Trader"
+		case.business_type = business_type
+		case.product = LOAN_PRODUCT_NAME
+		case.requested_amount = amount
+		case.term_months = 36
+		case.purpose = purpose
+		if status == "Approved":
+			# Deliberately BELOW the request: features.md allows the Underwriter
+			# to approve for less and never for more, and a demo that only ever
+			# shows approved == requested never exercises the rule.
+			case.approved_amount = amount * 0.9
+			case.decided_by = user
+			case.decided_on = now_datetime()
+		case.insert(ignore_permissions=True)
+
+		if not legacy_status:
+			continue
+
+		legacy = frappe.get_doc(
+			{
+				"doctype": "Loan Application",
+				"applicant_type": "Customer",
+				"applicant": customer,
+				"applicant_name": citizen.full_name,
+				"applicant_email_address": user,
+				"company": company,
+				"posting_date": nowdate(),
+				"loan_product": product,
+				"loan_amount": amount,
+				"is_term_loan": 1,
+				"repayment_method": "Repay Over Number of Periods",
+				"repayment_periods": 36,
+				"status": "Open",
+				"gdb_owner": user,
+				"gdb_purpose": purpose,
+			}
+		)
+		legacy.flags.ignore_permissions = True
+		legacy.insert()
+		legacy.submit()
+		if legacy_status != "Open":
+			# `db_set` for the same reason `review_loan` uses it: the doc is
+			# submitted, `status` is permlevel-guarded, the review fields are
+			# allow_on_submit.
+			legacy.db_set("status", legacy_status)
+			legacy.db_set("gdb_reviewed_by", user)
+			legacy.db_set("gdb_reviewed_on", now_datetime())
+
+		print(f"created demo application: {status}")
 
 	frappe.db.commit()
 

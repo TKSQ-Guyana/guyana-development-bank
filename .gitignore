@@ -17,3 +17,6 @@ __pycache__/
 
 # Claude Code session-local config
 .claude/settings.local.json
+
+# Agent skills (installed locally, not committed)
+.agents/skills/

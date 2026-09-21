@@ -38,6 +38,7 @@ KC_TARGET = HERE / "gdb-realm-structure.generated.mjs"
 sys.path.insert(0, str(APP_ROOT))
 
 from gdb_bank.rbac import capabilities as cap  # noqa: E402
+from gdb_bank.rbac import demo  # noqa: E402
 from gdb_bank.rbac import personas as reg  # noqa: E402
 
 HEADER = """// GENERATED FILE - DO NOT EDIT.
@@ -120,7 +121,17 @@ def render_keycloak() -> str:
 	lines.append("  publicClient: true,")
 	lines.append("  standardFlowEnabled: true,")
 	lines.append("  // PKCE, no client secret in the browser (CLAUDE.md section 4).")
-	lines.append("  attributes: { 'pkce.code.challenge.method': 'S256' },")
+	lines.append("  attributes: {")
+	lines.append("    'pkce.code.challenge.method': 'S256',")
+	lines.append("    // RP-initiated logout returns here. Without it Keycloak")
+	lines.append("    // refuses the post_logout_redirect_uri and the citizen is")
+	lines.append("    // left on a Keycloak page after signing out of the portal.")
+	lines.append("    'post.logout.redirect.uris': [")
+	lines.append("      'http://localhost:3000/*',")
+	lines.append("      'http://localhost:3001/*',")
+	lines.append("      'http://localhost:5173/*',")
+	lines.append("    ].join('##'),")
+	lines.append("  },")
 	lines.append("  redirectUris: [")
 	lines.append("    'http://localhost:3000/*',")
 	lines.append("    'http://localhost:3001/*',")
@@ -133,8 +144,65 @@ def render_keycloak() -> str:
 	lines.append("  ],")
 	lines.append("};\n")
 
+	lines.append(
+		"""/** Put `gdb-portal` in its own access tokens' `aud` claim.
+ *
+ * WITHOUT THIS, EVERY SIGN-IN FAILS. Keycloak does not add a public client's
+ * own id to `aud`: that claim is filled by the Audience Resolve mapper from
+ * the *client roles* a user holds, and `gdb-portal` defines none. Its access
+ * tokens therefore carry `aud: ["account"]` and name the client only in `azp`,
+ * while `security/keycloak.verify_token` decodes with `audience='gdb-portal'`
+ * and rejects the lot - as "Your sign-in could not be verified", with the
+ * library's real message deliberately swallowed.
+ *
+ * The backend also asserts `azp`, so removing this mapper degrades to a
+ * refusal rather than to accepting another client's token. */"""
+	)
+	lines.append("export const GDB_AUDIENCE_MAPPER = {")
+	lines.append("  name: 'gdb-portal-audience',")
+	lines.append("  protocol: 'openid-connect',")
+	lines.append("  protocolMapper: 'oidc-audience-mapper',")
+	lines.append("  config: {")
+	lines.append("    'included.client.audience': 'gdb-portal',")
+	lines.append("    'access.token.claim': 'true',")
+	lines.append("    'id.token.claim': 'false',")
+	lines.append("  },")
+	lines.append("};\n")
+
 	lines.append("/** The token claim carrying the three-box e-ID. */")
-	lines.append("export const GDB_EID_CLAIM = 'eid';")
+	lines.append("export const GDB_EID_CLAIM = 'eid';\n")
+
+	lines.append(
+		"""/** The realm's login theme - `keycloak-local/themes/gdb`.
+ *
+ * Under PKCE the credential page belongs to Keycloak, so this theme is where
+ * the three-box e-ID control and the GDB branding live. Stock Keycloak asks
+ * for a "Username", which is not a thing a citizen has. */"""
+	)
+	lines.append("export const GDB_LOGIN_THEME = 'gdb';\n")
+
+	lines.append(
+		"""/** One development account per persona. NOT FOR ANY DEPLOYED REALM.
+ *
+ * `username` is the e-ID, not the email: under Authorization Code + PKCE the
+ * citizen types their credentials into Keycloak's own page, so the Keycloak
+ * username IS the thing they are asked for. Derived from `rbac/demo.py`, which
+ * `install.make_demo_users()` also builds the Frappe side from - the two must
+ * name the same person by the same e-ID or Keycloak answers `invalid_grant`
+ * for an account that exists. */"""
+	)
+	lines.append("export const GDB_DEMO_IDENTITIES = [")
+	for identity in demo.identities():
+		roles = ", ".join(_js_string(r) for r in identity.keycloak_roles)
+		lines.append("  {")
+		lines.append(f"    persona: {_js_string(identity.persona)},")
+		lines.append(f"    username: {_js_string(identity.username)},")
+		lines.append(f"    eid: {_js_string(identity.eid)},")
+		lines.append(f"    email: {_js_string(identity.email)},")
+		lines.append(f"    fullName: {_js_string(identity.full_name)},")
+		lines.append(f"    realmRoles: [{roles}],")
+		lines.append("  },")
+	lines.append("];")
 	return "\n".join(lines) + "\n"
 
 
@@ -156,6 +224,11 @@ def main() -> int:
 		help="exit non-zero if a committed file differs (for CI)",
 	)
 	args = parser.parse_args()
+
+	# Fail at generation time, not on somebody's cold start three days later:
+	# a registry edit that shifts the demo e-ID formula out of the card's shape
+	# would otherwise be discovered as "the demo logins stopped working".
+	demo.assert_well_formed()
 
 	stale = []
 	for label, target_fn, render_fn in OUTPUTS:

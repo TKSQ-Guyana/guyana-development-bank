@@ -91,8 +91,10 @@ EXPECTED: tuple[str, ...] = (
 	"gdb_bank.api.review_loan",
 	"gdb_bank.api.whoami",
 	# identity
+	"gdb_bank.api.v1_identity.sign_in_config",
 	"gdb_bank.api.v1_identity.exchange_token",
 	"gdb_bank.api.v1_identity.whoami",
+	"gdb_bank.api.v1_identity.sign_out",
 	"gdb_bank.api.v1_identity.registry",
 	# administration
 	"gdb_bank.api.v1_admin.users",

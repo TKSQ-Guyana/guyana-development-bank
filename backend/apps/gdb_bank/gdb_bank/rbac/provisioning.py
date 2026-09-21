@@ -28,7 +28,6 @@ from __future__ import annotations
 import frappe
 from frappe.permissions import (
 	add_permission,
-	remove_permission,
 	setup_custom_perms,
 	update_permission_property,
 )
@@ -36,9 +35,46 @@ from frappe.permissions import (
 from gdb_bank.rbac import personas as reg
 from gdb_bank.rbac.personas import PersonaSpec
 
+
+def _remove_permission(doctype: str, role: str, permlevel: int) -> bool:
+	"""Delete the Custom DocPerm rows for one (doctype, role, permlevel).
+
+	WHY THIS IS HAND-WRITTEN. `frappe.permissions` exports `add_permission` but
+	no `remove_permission` - this module imported one anyway, so importing
+	`rbac.provisioning` raised ImportError. Every path that reaches it does so
+	through `install.py`, which means `after_migrate` never ran: `bench migrate`
+	printed the traceback and carried on, and the reconcile that is supposed to
+	converge every persona's DocType permissions silently did nothing.
+
+	The revoke half of convergence is the half that matters for security. It is
+	what withdraws a permission after a capability is taken away from a persona
+	in the registry - so a role that should have lost access kept it, and the
+	registry and the database drifted with nothing reporting it.
+
+	Mirrors `add_permission`: touch only Custom DocPerm, then re-validate so
+	Frappe rebuilds its permission cache for the doctype.
+	"""
+	from frappe.core.doctype.doctype.doctype import validate_permissions_for_doctype
+
+	names = frappe.get_all(
+		"Custom DocPerm",
+		filters={"parent": doctype, "role": role, "permlevel": permlevel},
+		pluck="name",
+	)
+	if not names:
+		return False
+
+	for name in names:
+		frappe.delete_doc("Custom DocPerm", name, force=True, ignore_permissions=True)
+
+	validate_permissions_for_doctype(doctype)
+	frappe.clear_cache(doctype=doctype)
+	return True
+
+
 ROLE_DESCRIPTION_PREFIX = "GDB persona"
 
-_PERM_FLAGS = (
+_DECLARED_PERM_FLAGS = (
 	"read",
 	"write",
 	"create",
@@ -55,6 +91,57 @@ _PERM_FLAGS = (
 	"set_user_permissions",
 	"if_owner",
 )
+"""Every permission flag the registry knows how to express.
+
+NOT every one of these exists on every Frappe. `set_user_permissions` was
+dropped from `Custom DocPerm` by v16, and reconcile queried it by name -
+MySQLdb answered `Unknown column 'set_user_permissions' in 'SELECT'`, which
+aborted `after_migrate` and, with the entrypoint exiting on a failed migrate,
+restarted the container. Use `_perm_flags()` rather than this tuple directly.
+"""
+
+
+def _perm_flags() -> tuple[str, ...]:
+	"""The flags this Frappe's `Custom DocPerm` actually has, in declared order.
+
+	Derived from the DocType's own meta rather than hardcoded, so a Frappe
+	upgrade that adds or drops a permission flag cannot break migrate again.
+	The intersection is deliberate: reconcile should keep working across
+	versions, not assert a schema it does not own.
+
+	The one thing it will NOT do quietly is drop a flag a persona actually
+	asked for - see `_assert_flags_storable`.
+	"""
+	available = {df.fieldname for df in frappe.get_meta("Custom DocPerm").fields}
+	return tuple(flag for flag in _DECLARED_PERM_FLAGS if flag in available)
+
+
+def _assert_flags_storable(flags: tuple[str, ...]) -> None:
+	"""Fail if a persona grants a permission this Frappe cannot store.
+
+	Silently skipping an unsupported flag is fine when nobody wants it - which
+	is the case for `set_user_permissions`, a privilege no GDB persona is meant
+	to hold. It is NOT fine if a persona declares one: the registry would say
+	the permission was granted, the database would not have it, and the two
+	would disagree with nothing reporting it. Better to stop the migration.
+	"""
+	unsupported = set(_DECLARED_PERM_FLAGS) - set(flags)
+	if not unsupported:
+		return
+
+	wanted: list[str] = []
+	for persona in reg.ACTIVE_PERSONAS:
+		for perm in persona.doctype_permissions:
+			fields = perm.as_perm_fields()
+			for flag in unsupported:
+				if fields.get(flag):
+					wanted.append(f"{persona.key}:{perm.doctype}:{flag}")
+
+	if wanted:
+		raise frappe.ValidationError(
+			"gdb_bank: these personas grant permission flags this Frappe's Custom DocPerm "
+			f"does not have: {sorted(wanted)}"
+		)
 
 
 def reconcile(verbose: bool = True) -> dict:
@@ -166,29 +253,102 @@ def _reconcile_roles(verbose: bool) -> list[str]:
 
 
 def _reconcile_role_profiles(verbose: bool) -> list[str]:
+	"""Create or converge one Role Profile per persona.
+
+	THE DEADLOCK THIS GUARDS AGAINST - it crash-looped the container 33 times.
+
+	Frappe's `RoleProfile.on_update` ends with
+
+	    self.queue_action("update_all_users",
+	                      now=frappe.in_test or frappe.flags.in_install, ...)
+
+	and `queue_action` calls `self.lock()` before enqueuing. During
+	`after_migrate` neither flag is set, so `now` is False: saving a Role
+	Profile LOCKS it and enqueues a background job to do the real work.
+
+	But the background worker does not exist yet. `start-backend.sh` runs
+	`bench migrate` first and only starts gunicorn and the worker once it
+	SUCCEEDS. So the job never runs, the lock is never released, and the next
+	`bench migrate` hits `check_if_locked()` -> DocumentLockedError -> migrate
+	fails -> the entrypoint exits -> the container restarts -> migrate again.
+	The site never finishes coming up, and the logs read like a slow migration
+	rather than a loop.
+
+	Two things fix it, and both are needed:
+
+	  * `in_install` does NOT stop the lock being taken - `queue_action` locks
+	    unconditionally, before it looks at `now`. What it changes is that
+	    `enqueue` runs INLINE, and `frappe.model.document.execute_action`
+	    begins with `doc.unlock()`. So the lock is taken and released inside
+	    the same call, leaving nothing for the next migrate to trip over. It is
+	    also the flag Frappe itself uses to mean "we are bootstrapping, there
+	    is no worker", which is exactly our situation.
+	  * Clearing the lock before saving releases one left behind by a previous
+	    run that already died this way. Without it, a site that has hit the bug
+	    stays wedged even once the code is fixed.
+
+	    AND IT MUST HAPPEN ON THE INSERT PATH TOO, which is the part that is
+	    easy to get wrong. The lock is a FILE, keyed `sha224("<doctype>:<name>")`
+	    - see `Document.get_signature` - so it survives on the sites volume
+	    while the failed migrate's transaction rolls the database row back. The
+	    profile therefore does not exist on the next run, `reconcile` takes the
+	    `new_doc` branch, and a lock cleared only on the update branch is never
+	    reached. The profile names are deterministic, so the stale file matches
+	    the new document exactly.
+	"""
 	touched = []
-	for persona in reg.ACTIVE_PERSONAS:
-		wanted = [persona.role, *_existing(persona.bundled_roles)]
-		name = persona.profile_name
+	previous_in_install = frappe.flags.in_install
 
-		if frappe.db.exists("Role Profile", name):
-			doc = frappe.get_doc("Role Profile", name)
-			current = {r.role for r in doc.roles}
-			if current == set(wanted):
-				continue
-			doc.set("roles", [])
-		else:
-			doc = frappe.new_doc("Role Profile")
-			doc.role_profile = name
+	try:
+		frappe.flags.in_install = True
 
-		for role in wanted:
-			doc.append("roles", {"role": role})
-		doc.flags.ignore_permissions = True
-		doc.save()
-		touched.append(name)
-		if verbose:
-			print(f"[gdb_bank.rbac] Role Profile {name} -> {wanted}")
+		for persona in reg.ACTIVE_PERSONAS:
+			wanted = [persona.role, *_existing(persona.bundled_roles)]
+			name = persona.profile_name
+
+			# Before either branch: a lock file from a run that died between
+			# `lock()` and the job that would have released it.
+			_clear_document_lock("Role Profile", name)
+
+			if frappe.db.exists("Role Profile", name):
+				doc = frappe.get_doc("Role Profile", name)
+				current = {r.role for r in doc.roles}
+				if current == set(wanted):
+					continue
+				doc.set("roles", [])
+			else:
+				doc = frappe.new_doc("Role Profile")
+				doc.role_profile = name
+
+			for role in wanted:
+				doc.append("roles", {"role": role})
+			doc.flags.ignore_permissions = True
+			doc.save()
+			touched.append(name)
+			if verbose:
+				print(f"[gdb_bank.rbac] Role Profile {name} -> {wanted}")
+	finally:
+		frappe.flags.in_install = previous_in_install
+
 	return touched
+
+
+def _clear_document_lock(doctype: str, name: str) -> None:
+	"""Release a document lock file, whether or not the document exists.
+
+	Frappe's own `Document.unlock()` needs a loaded document, and the case that
+	wedges the site is precisely the one where there is no row to load. So the
+	signature is taken from an unsaved document with the name set - the lock is
+	keyed on `"<doctype>:<name>"` and nothing else, so that is sufficient and
+	keeps Frappe's hashing formula the single definition of it rather than
+	copying the `sha224` here to drift later.
+
+	`delete_lock` is a no-op when no lock exists (it swallows OSError), so this
+	is safe to call unconditionally.
+	"""
+	placeholder = frappe.new_doc(doctype)
+	placeholder.name = name
+	placeholder.unlock()
 
 
 def _existing(roles) -> list[str]:
@@ -203,6 +363,9 @@ def _existing(roles) -> list[str]:
 
 
 def _reconcile_permissions(verbose: bool) -> dict:
+	flags = _perm_flags()
+	_assert_flags_storable(flags)
+
 	desired: dict[tuple[str, str, int], dict] = {}
 	for persona in reg.ACTIVE_PERSONAS:
 		for perm in persona.doctype_permissions:
@@ -233,7 +396,7 @@ def _reconcile_permissions(verbose: bool) -> dict:
 			add_permission(doctype, role, permlevel)
 			added.append(f"{doctype}:{role}:{permlevel}")
 
-		for flag in _PERM_FLAGS:
+		for flag in flags:
 			value = fields.get(flag, 0)
 			current = frappe.db.get_value(
 				"Custom DocPerm",
@@ -265,7 +428,8 @@ def _revoke_undeclared(desired, doctypes, verbose: bool) -> list[str]:
 		key = (row.parent, row.role, row.permlevel)
 		if key in desired:
 			continue
-		remove_permission(row.parent, row.role, row.permlevel)
+		if not _remove_permission(row.parent, row.role, row.permlevel):
+			continue
 		removed.append(f"{row.parent}:{row.role}:{row.permlevel}")
 		if verbose:
 			print(f"[gdb_bank.rbac] revoked {row.role} on {row.parent}")

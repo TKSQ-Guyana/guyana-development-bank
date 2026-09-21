@@ -47,8 +47,113 @@ _JWKS_CACHE_KEY = "gdb_bank:keycloak_jwks"
 _JWKS_TTL_SECONDS = 3600
 
 
-def issuer() -> str:
+KEYCLOAK_PUBLIC_URL = os.environ.get("KEYCLOAK_PUBLIC_URL") or KEYCLOAK_URL
+"""Where the BROWSER reaches Keycloak, which is not where this container does.
+
+In compose the backend talks to `http://keycloak:8080` over the docker network,
+while the citizen's browser must be sent to `http://localhost:8086`. Issuing a
+redirect to the internal name produces a hostname the browser cannot resolve -
+a sign-in button that goes nowhere, with nothing in any log. Deployments where
+both are the same URL simply leave this unset.
+"""
+
+
+def internal_realm_url() -> str:
+	"""The realm as THIS CONTAINER reaches it. Backchannel calls only - JWKS,
+	the admin API, the service-account token."""
 	return f"{KEYCLOAK_URL.rstrip('/')}/realms/{KEYCLOAK_REALM}"
+
+
+def issuer() -> str:
+	"""The value that actually appears in a token's `iss`, and therefore the
+	one `verify_token` must check against.
+
+	THIS IS THE PUBLIC URL, NOT THE INTERNAL ONE, and the distinction has bitten
+	before. Keycloak stamps `iss` with its *frontend* hostname - `KC_HOSTNAME`,
+	which compose sets to `http://localhost:8085`. The backend reaching it at
+	`http://keycloak:8080` over the docker network does not change what the
+	token says. Validating against the internal name rejects every genuine
+	token with `InvalidIssuerError`, which `verify_token` reports as the same
+	generic "could not be verified" that a forged token produces.
+	"""
+	return f"{KEYCLOAK_PUBLIC_URL.rstrip('/')}/realms/{KEYCLOAK_REALM}"
+
+
+def public_config() -> dict:
+	"""Everything the SPA needs to run the PKCE dance, and nothing else.
+
+	The SPA must not hardcode a Keycloak URL, for the same reason
+	`project_overview.md` section 6 forbids hardcoding policy figures in
+	frontend content: the value differs per environment and a stale copy in a
+	built bundle is not something anyone notices until a citizen cannot sign in.
+
+	`configured` is false when no identity service is reachable at all, so the
+	login page can say so plainly instead of redirecting into a dead host.
+	"""
+	oidc = f"{issuer()}/protocol/openid-connect"
+	return {
+		"configured": bool(KEYCLOAK_PUBLIC_URL and KEYCLOAK_REALM and KEYCLOAK_CLIENT_ID),
+		"issuer": issuer(),
+		"realm": KEYCLOAK_REALM,
+		"client_id": KEYCLOAK_CLIENT_ID,
+		"authorize_url": f"{oidc}/auth",
+		"token_url": f"{oidc}/token",
+		"end_session_url": f"{oidc}/logout",
+	}
+
+
+# ---------------------------------------------------------------------------
+# The id_token, held for logout
+# ---------------------------------------------------------------------------
+
+_ID_TOKEN_CACHE_PREFIX = "gdb_bank:id_token:"
+_ID_TOKEN_TTL_SECONDS = 12 * 3600
+
+
+def remember_id_token(sid: str, id_token: str | None) -> None:
+	"""Stash the id_token for this Frappe session, so `sign_out` can send it
+	back to Keycloak as `id_token_hint`.
+
+	WHY THE SERVER HOLDS THIS AND NOT THE SPA
+	    An id_token carries `name`, `email` and `eid` - PII, in a form anything
+	    with browser access can read. CLAUDE.md section 1 forbids PII in
+	    `localStorage`, `sessionStorage` and `IndexedDB` outright, so the SPA
+	    keeping it between sign-in and sign-out is not available to us. Holding
+	    it server-side against the session keeps the citizen's own claims off
+	    their disk and out of any later XSS.
+
+	WHY IT IS NEEDED AT ALL
+	    RP-initiated logout without `id_token_hint` makes Keycloak render a
+	    "Do you want to log out?" confirmation page, because it cannot tell
+	    which session the request means. A citizen who closes the tab at that
+	    page instead of clicking through keeps their Keycloak session - which
+	    is the exact failure `api/v1_identity.sign_out` exists to prevent, on
+	    the exact shared machine its docstring is worried about.
+
+	Cache rather than a DocType: it is session-scoped, worthless after logout
+	and must not outlive the session it belongs to. The TTL is a backstop for
+	sessions that are never signed out of.
+	"""
+	if not sid or not id_token:
+		return
+	frappe.cache().set_value(
+		f"{_ID_TOKEN_CACHE_PREFIX}{sid}", id_token, expires_in_sec=_ID_TOKEN_TTL_SECONDS
+	)
+
+
+def forget_id_token(sid: str) -> str | None:
+	"""Take the id_token back out, and delete it in the same breath.
+
+	Read-and-delete rather than read-then-maybe-delete: sign-out is the only
+	consumer, it happens once, and a hint left in the cache after the session
+	it names is gone is just a stale copy of someone's claims.
+	"""
+	if not sid:
+		return None
+	key = f"{_ID_TOKEN_CACHE_PREFIX}{sid}"
+	token = frappe.cache().get_value(key)
+	frappe.cache().delete_value(key)
+	return token
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +170,7 @@ def _jwks() -> dict:
 
 	import requests
 
-	url = f"{issuer()}/protocol/openid-connect/certs"
+	url = f"{internal_realm_url()}/protocol/openid-connect/certs"
 	try:
 		response = requests.get(url, timeout=KEYCLOAK_TIMEOUT)
 		response.raise_for_status()
@@ -84,8 +189,28 @@ def _jwks() -> dict:
 def verify_token(token: str) -> dict:
 	"""Verify a Keycloak-issued JWT and return its claims.
 
-	Signature, issuer, audience and expiry are all checked. A token that fails
-	any of them yields 401 - never a partial trust.
+	Signature, issuer, audience, authorized party and expiry are all checked. A
+	token that fails any of them yields 401 - never a partial trust.
+
+	WHY `azp` IS CHECKED AS WELL AS `aud`
+	    Keycloak does not put a public client's own id in `aud` on its own: that
+	    claim is filled by the Audience Resolve mapper from the *client roles* a
+	    user holds, and `gdb-portal` defines none. The seeder therefore adds an
+	    explicit audience mapper (GDB_AUDIENCE_MAPPER) - but a realm where that
+	    mapper is missing or has been edited away must fail CLOSED, and it must
+	    fail in a way somebody can diagnose.
+
+	    `azp` ("authorized party") names the client the token was actually
+	    minted for, and Keycloak always sets it. Asserting it means a token
+	    issued to some *other* client in the same realm is refused even if that
+	    client's audience list happens to include us.
+
+	    The assertion is UNCONDITIONAL. `if claims.get("azp") and ...` reads as
+	    "check it when it is there", which is the shape of a control that fails
+	    open: a token carrying no `azp` at all skips the one check that exists
+	    for the realm whose audience mapper is gone. Absent is not "nothing to
+	    check" - it is a claim we cannot verify, from an issuer that is
+	    documented to always send it, and it is refused.
 	"""
 	try:
 		import jwt
@@ -101,12 +226,12 @@ def verify_token(token: str) -> dict:
 
 	try:
 		signing_key = PyJWKClient(
-			f"{issuer()}/protocol/openid-connect/certs",
+			f"{internal_realm_url()}/protocol/openid-connect/certs",
 			cache_keys=True,
 			timeout=KEYCLOAK_TIMEOUT,
 		).get_signing_key_from_jwt(token)
 
-		return jwt.decode(
+		claims = jwt.decode(
 			token,
 			signing_key.key,
 			algorithms=["RS256"],
@@ -114,11 +239,51 @@ def verify_token(token: str) -> dict:
 			audience=KEYCLOAK_CLIENT_ID,
 			options={"require": ["exp", "iat", "iss", "sub"]},
 		)
+	except jwt.InvalidIssuerError:
+		# The other whole-realm misconfiguration, and it looks identical to the
+		# audience one from the citizen's side. Keycloak stamps `iss` with its
+		# frontend hostname (KC_HOSTNAME), so this is what a KEYCLOAK_PUBLIC_URL
+		# that does not match it produces - for every sign-in, not just one.
+		frappe.log_error(
+			title="gdb_bank: Keycloak token has the wrong issuer",
+			message=(
+				f"expected iss {issuer()!r}. KEYCLOAK_PUBLIC_URL must match Keycloak's own "
+				f"KC_HOSTNAME — the internal docker URL is not what the token carries."
+			),
+		)
+		errors.throw(errors.AuthenticationRequired, "Your sign-in could not be verified.")
+	except jwt.InvalidAudienceError:
+		# Worth its own branch, and worth naming in the log. This is what a
+		# realm missing the audience mapper looks like, and it fails for EVERY
+		# sign-in - so the one thing the operator must not be told is the
+		# generic "could not be verified" that a tampered token also produces.
+		frappe.log_error(
+			title="gdb_bank: Keycloak token has the wrong audience",
+			message=(
+				f"expected {KEYCLOAK_CLIENT_ID!r} in aud. The realm is probably missing the "
+				f"audience mapper — re-run keycloak-local/setup-gdb.mjs."
+			),
+		)
+		errors.throw(errors.AuthenticationRequired, "Your sign-in could not be verified.")
 	except Exception:
 		# Never leak the library's message: it names the realm, the key id and
 		# the expected audience (CLAUDE.md section 5).
 		frappe.logger("gdb_bank", allow_site=True).warning("rejected an invalid Keycloak token")
 		errors.throw(errors.AuthenticationRequired, "Your sign-in could not be verified.")
+
+	azp = claims.get("azp")
+	if not azp or azp != KEYCLOAK_CLIENT_ID:
+		# Two different operator problems, one citizen-facing message. The log
+		# separates them because a missing claim means "look at the realm", and
+		# a wrong one means "somebody presented another client's token".
+		frappe.logger("gdb_bank", allow_site=True).warning(
+			"rejected a Keycloak token that carries no azp claim"
+			if not azp
+			else "rejected a Keycloak token minted for another client"
+		)
+		errors.throw(errors.AuthenticationRequired, "Your sign-in could not be verified.")
+
+	return claims
 
 
 # ---------------------------------------------------------------------------
@@ -228,11 +393,31 @@ def sync_roles(user: str, claims: dict) -> dict:
 	Keycloak is removed from Frappe on the next sign-in. Roles outside the
 	registry (System Manager, lending's Loan Manager) are never touched - they
 	are the site administrator's business, not the token's.
+
+	WHY `ignore_permissions` IS CORRECT AND NECESSARY HERE
+	    This runs inside `exchange_token`, which is `allow_guest` by necessity:
+	    the caller has no Frappe session yet, and the verified token IS the
+	    credential. So `frappe.session.user` is still "Guest" while we write the
+	    User document that is about to become their account - and Guest cannot
+	    write User, so `add_roles` -> `save()` failed with "User Guest does not
+	    have doctype access via role permission for document User". Every
+	    sign-in by a new or role-changed account died there.
+
+	    The authority for this write is not the session, which is by definition
+	    anonymous; it is the token, already verified against Keycloak's JWKS in
+	    `verify_token` before this function is reachable. `ignore_permissions`
+	    names that: skip the *session* permission check for a decision that was
+	    made by cryptography instead.
+
+	    The roles written are still only those `frappe_roles_for()` derives from
+	    the registry, so this cannot grant anything a realm role does not map
+	    to, and the change is audited below.
 	"""
 	wanted = set(frappe_roles_for(claims))
 	registry_roles = {p.role for p in reg.PERSONAS}
 
 	doc = frappe.get_doc("User", user)
+	doc.flags.ignore_permissions = True
 	current = {r.role for r in doc.roles} & registry_roles
 
 	to_add = sorted(wanted - current)
@@ -388,7 +573,7 @@ def _service_account_token() -> str | None:
 
 	try:
 		response = requests.post(
-			f"{issuer()}/protocol/openid-connect/token",
+			f"{internal_realm_url()}/protocol/openid-connect/token",
 			data={
 				"grant_type": "client_credentials",
 				"client_id": client_id,

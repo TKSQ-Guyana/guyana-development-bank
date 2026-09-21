@@ -73,7 +73,17 @@ export const GDB_PORTAL_CLIENT = {
   publicClient: true,
   standardFlowEnabled: true,
   // PKCE, no client secret in the browser (CLAUDE.md section 4).
-  attributes: { 'pkce.code.challenge.method': 'S256' },
+  attributes: {
+    'pkce.code.challenge.method': 'S256',
+    // RP-initiated logout returns here. Without it Keycloak
+    // refuses the post_logout_redirect_uri and the citizen is
+    // left on a Keycloak page after signing out of the portal.
+    'post.logout.redirect.uris': [
+      'http://localhost:3000/*',
+      'http://localhost:3001/*',
+      'http://localhost:5173/*',
+    ].join('##'),
+  },
   redirectUris: [
     'http://localhost:3000/*',
     'http://localhost:3001/*',
@@ -86,5 +96,102 @@ export const GDB_PORTAL_CLIENT = {
   ],
 };
 
+/** Put `gdb-portal` in its own access tokens' `aud` claim.
+ *
+ * WITHOUT THIS, EVERY SIGN-IN FAILS. Keycloak does not add a public client's
+ * own id to `aud`: that claim is filled by the Audience Resolve mapper from
+ * the *client roles* a user holds, and `gdb-portal` defines none. Its access
+ * tokens therefore carry `aud: ["account"]` and name the client only in `azp`,
+ * while `security/keycloak.verify_token` decodes with `audience='gdb-portal'`
+ * and rejects the lot - as "Your sign-in could not be verified", with the
+ * library's real message deliberately swallowed.
+ *
+ * The backend also asserts `azp`, so removing this mapper degrades to a
+ * refusal rather than to accepting another client's token. */
+export const GDB_AUDIENCE_MAPPER = {
+  name: 'gdb-portal-audience',
+  protocol: 'openid-connect',
+  protocolMapper: 'oidc-audience-mapper',
+  config: {
+    'included.client.audience': 'gdb-portal',
+    'access.token.claim': 'true',
+    'id.token.claim': 'false',
+  },
+};
+
 /** The token claim carrying the three-box e-ID. */
 export const GDB_EID_CLAIM = 'eid';
+
+/** The realm's login theme - `keycloak-local/themes/gdb`.
+ *
+ * Under PKCE the credential page belongs to Keycloak, so this theme is where
+ * the three-box e-ID control and the GDB branding live. Stock Keycloak asks
+ * for a "Username", which is not a thing a citizen has. */
+export const GDB_LOGIN_THEME = 'gdb';
+
+/** One development account per persona. NOT FOR ANY DEPLOYED REALM.
+ *
+ * `username` is the e-ID, not the email: under Authorization Code + PKCE the
+ * citizen types their credentials into Keycloak's own page, so the Keycloak
+ * username IS the thing they are asked for. Derived from `rbac/demo.py`, which
+ * `install.make_demo_users()` also builds the Frappe side from - the two must
+ * name the same person by the same e-ID or Keycloak answers `invalid_grant`
+ * for an account that exists. */
+export const GDB_DEMO_IDENTITIES = [
+  {
+    persona: 'citizen',
+    username: '999-1001-0001',
+    eid: '999-1001-0001',
+    email: 'citizen@gdb.gov.gy',
+    fullName: 'Demo Citizen',
+    realmRoles: ['Citizen', 'GDB_Citizen'],
+  },
+  {
+    persona: 'facilitator',
+    username: '999-1002-0002',
+    eid: '999-1002-0002',
+    email: 'facilitator@gdb.gov.gy',
+    fullName: 'Demo Regional Facilitator',
+    realmRoles: ['GDB_Regional_Facilitator'],
+  },
+  {
+    persona: 'underwriter',
+    username: '999-1003-0003',
+    eid: '999-1003-0003',
+    email: 'underwriter@gdb.gov.gy',
+    fullName: 'Demo Underwriter',
+    realmRoles: ['GDB_Underwriter'],
+  },
+  {
+    persona: 'disbursement_officer',
+    username: '999-1004-0004',
+    eid: '999-1004-0004',
+    email: 'disbursement.officer@gdb.gov.gy',
+    fullName: 'Demo Disbursement Officer',
+    realmRoles: ['GDB_Disbursement_Officer'],
+  },
+  {
+    persona: 'finance',
+    username: '999-1005-0005',
+    eid: '999-1005-0005',
+    email: 'finance@gdb.gov.gy',
+    fullName: 'Demo Finance Officer',
+    realmRoles: ['GDB_Finance_Officer'],
+  },
+  {
+    persona: 'board',
+    username: '999-1006-0006',
+    eid: '999-1006-0006',
+    email: 'board@gdb.gov.gy',
+    fullName: 'Demo Board / CEO',
+    realmRoles: ['GDB_Board_Member', 'GDB_CEO'],
+  },
+  {
+    persona: 'platform_admin',
+    username: '999-1007-0007',
+    eid: '999-1007-0007',
+    email: 'platform.admin@gdb.gov.gy',
+    fullName: 'Demo Platform Admin',
+    realmRoles: ['GDB_Platform_Admin'],
+  },
+];

@@ -1,9 +1,26 @@
 
 ## Enterprise Architecture & Coding Standards
 
+> **Before touching the sign-in or sign-out path, `security/errors.py` or
+> anything Keycloak:** read
+> [`docs/developer/record_2026-09-22_auth_audit.md`](docs/developer/record_2026-09-22_auth_audit.md)
+> §3. Three defects there were invisible from the source and would not have
+> failed a test — the error taxonomy's 401/403 arrived as 417 for months, and
+> logout left the Keycloak session alive for anyone who abandoned a
+> confirmation page. The flow is verified end to end in §2; do not re-derive
+> it.
+>
+> **Before touching `rbac/provisioning.py`:** read
+> [`docs/developer/record_2026-09-21_signin.md`](docs/developer/record_2026-09-21_signin.md) §2 and §3.
+> Four defects there were invisible from reading the code — including a
+> `provisioning.py` that had never run to completion, so no persona role had
+> ever reached a database, and a lock-file deadlock that crash-looped the
+> backend 33 times while looking like a slow migration. The Frappe v16 and
+> Keycloak 26 facts in §3 are verified; do not re-derive them.
+>
 > **Current state of the build:** [`docs/developer/implementation_record.md`](docs/developer/implementation_record.md)
-> — what exists, what does not, the Frappe v16 facts already verified (do not
-> re-derive them), and the open decision blocking Phase 2.
+> — what exists, what does not, and the Frappe v16 facts already verified
+> (do not re-derive them). The Phase 2 case-file decision is now resolved.
 >
 > **Roles are registry-driven.** `backend/apps/gdb_bank/gdb_bank/rbac/personas.py`
 > is the single source of truth; Frappe roles, DocType permissions, row-level
@@ -46,6 +63,19 @@
 
 ### 4. Security & Authentication
 * **Authentication:** Use OIDC Authorization Code Flow with PKCE via Frappe's Social Login integration (Keycloak).
+* **CSRF — `SameSite=Lax` on `sid` IS the control. Do not weaken it.** The API
+  takes no CSRF token: a form-encoded, token-less `POST /api/method/...` with a
+  valid session cookie is accepted (verified against the running stack,
+  2026-09-22). What stops that being a cross-site request forgery is the one
+  attribute `SameSite=Lax` on the Frappe `sid` cookie, which withholds it from
+  cross-site POSTs. That makes the attribute load-bearing rather than
+  incidental: setting `SameSite=None` — for an iframe embed, a cross-domain
+  portal, a payment provider's callback — removes the ONLY thing standing
+  between a session cookie and a forged state change, and nothing in the test
+  suite would fail. If it ever has to change, a real CSRF token must land in
+  the same commit; `errors.py` already gives the SPA a machine-readable code
+  to branch on. Also keep `sid` `HttpOnly` — it is what keeps the session out
+  of reach of any XSS.
 * **Role Management & Permissions (CRITICAL):** You MUST use Frappe's inbuilt Role Management (Role Profiles, Permission Manager, User Permissions) for each persona (Citizen, Underwriter, Manager).
   * **Role-Based Access Control (RBAC):** Define Document-level permissions in the Frappe DocType via the "Permissions" table. Do not reinvent authorization logic in Python if the Permission Manager can handle it.
   * **User Permissions (Row-Level Security):** Ensure that a Citizen can only see their own applications by leveraging Frappe's User Permissions or `has_permission` hooks, preventing BOLA/IDOR vulnerabilities.

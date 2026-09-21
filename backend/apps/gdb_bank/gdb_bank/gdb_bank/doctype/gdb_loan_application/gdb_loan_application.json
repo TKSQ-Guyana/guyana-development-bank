@@ -18,7 +18,16 @@
   "doc_version",
   "submitted_on",
   "section_break_detail",
-  "detail_note"
+  "detail_note",
+  "product",
+  "requested_amount",
+  "term_months",
+  "purpose",
+  "column_break_decision",
+  "approved_amount",
+  "decision_reason",
+  "decided_by",
+  "decided_on"
  ],
  "fields": [
   {
@@ -114,12 +123,66 @@
    "fieldtype": "HTML",
    "label": null,
    "options": "<p class='text-muted'>Business, financial and purpose fields are added here as each Phase 2 wizard step is implemented. The persona, scoping and lifecycle fields above are the stable core.</p>"
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Data",
+   "label": "Product",
+   "description": "The lending product this request is against."
+  },
+  {
+   "fieldname": "requested_amount",
+   "fieldtype": "Currency",
+   "label": "Requested Amount",
+   "options": "GYD",
+   "description": "What the applicant asked for. Checked against the active product ceiling at submit."
+  },
+  {
+   "fieldname": "term_months",
+   "fieldtype": "Int",
+   "label": "Term (months)"
+  },
+  {
+   "fieldname": "purpose",
+   "fieldtype": "Small Text",
+   "label": "Purpose of Funds",
+   "description": "The one line the applicant's dashboard card shows."
+  },
+  {
+   "fieldname": "column_break_decision",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_amount",
+   "fieldtype": "Currency",
+   "label": "Approved Amount",
+   "options": "GYD",
+   "description": "The Underwriter types the decided amount here. May be LOWER than requested, never higher (features.md) - a value rule, enforced in the service and in the controller's validate(), NOT by locking the field."
+  },
+  {
+   "fieldname": "decision_reason",
+   "fieldtype": "Small Text",
+   "label": "Decision Reason",
+   "description": "The Underwriter writes the reason here. Required on decline - features.md: 'cannot be left blank'. Enforced in validate(), not by a field lock."
+  },
+  {
+   "fieldname": "decided_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Decided By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_on",
+   "fieldtype": "Datetime",
+   "label": "Decided On",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,
  "is_submittable": 0,
  "links": [],
- "modified": "2026-09-21 00:00:00.000000",
+ "modified": "2026-09-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "GDB Bank",
  "name": "GDB Loan Application",

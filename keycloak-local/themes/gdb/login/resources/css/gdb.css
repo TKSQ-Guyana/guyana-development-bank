@@ -1,0 +1,160 @@
+/* GDB branding for Keycloak's sign-in page.
+ *
+ * Loaded after keycloak.v2's own css/styles.css (see theme.properties), so the
+ * few rules here win without restating PatternFly. Everything not mentioned
+ * below is deliberately left as Keycloak ships it — this file is a skin, not a
+ * fork, and every rule added here is one more thing to re-check on an upgrade.
+ *
+ * The palette matches frontend/src/index.css. The page a citizen signs in on
+ * and the page they land on should not look like two different institutions.
+ */
+
+:root {
+  --gdb-brand: #2563eb;
+  --gdb-brand-dark: #1e3a8a;
+  --gdb-brand-light: #dbeafe;
+  --gdb-gold: #fcd116;
+  --gdb-ink: #0f172a;
+  --gdb-muted: #64748b;
+  --gdb-line: #cbd5e1;
+}
+
+/* `.login-pf body`, not bare `body`. keycloak.v2 sets a dark background IMAGE
+ * on that exact selector (img/keycloak-bg-darken.svg), which outranks a
+ * single-element rule — the page rendered near-black behind a white card while
+ * this file looked correct. `background` shorthand so the image is cleared
+ * rather than layered under the gradient. */
+.login-pf body,
+body {
+  background: linear-gradient(180deg, #f3f5fc 0%, #eaf0fb 100%);
+  background-attachment: fixed;
+}
+
+/* The card. PatternFly's login main panel. */
+.pf-v5-c-login__main {
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 24px 60px -28px rgba(30, 58, 138, 0.45);
+}
+
+.pf-v5-c-login__main-header h1 {
+  color: var(--gdb-ink);
+}
+
+/* The realm display name, above the card. keycloak.v2 styles it WHITE, for the
+ * dark backdrop this file has just replaced — left alone it is white text on a
+ * near-white page. */
+#kc-header,
+.pf-v5-c-login__header {
+  color: var(--gdb-ink);
+}
+
+/* `!important`, and it is the only one in this file.
+ *
+ * keycloak.v2's styles.css declares
+ *     #kc-header-wrapper { color: var(--pf-v5-global--Color--light-100) !important }
+ * — white, for the dark backdrop this file replaces. `!important` outranks
+ * specificity, so no selector we can write wins without matching it. The
+ * alternative is overriding the PatternFly variable itself, which would
+ * repaint every other element that reads it. */
+#kc-header #kc-header-wrapper {
+  color: var(--gdb-ink) !important;
+}
+
+#kc-header-wrapper {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  /* The one gold accent on this page — the flag colour the portal reserves for
+   * an official mark, used here to say whose page this is. */
+  border-bottom: 3px solid var(--gdb-gold);
+  padding-bottom: 12px;
+}
+
+/* Primary action. */
+.pf-v5-c-button.pf-m-primary {
+  background-color: var(--gdb-brand);
+  border-radius: 999px;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+.pf-v5-c-button.pf-m-primary:focus {
+  background-color: var(--gdb-brand-dark);
+}
+
+.pf-v5-c-form-control:focus-within {
+  --pf-v5-c-form-control--BorderBottomColor: var(--gdb-brand);
+}
+
+/* ---------------------------------------------------------------- e-ID ---
+ * The three boxes built by js/eid-boxes.js. If that script does not run,
+ * none of these elements exist and the stock single field is shown instead —
+ * so nothing here may be load-bearing for a working sign-in.
+ */
+
+.gdb-eid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.gdb-eid__box {
+  /* Proportioned to each box's own digit count (3/4/4) by an inline
+   * `flex` the script sets, rather than split evenly: three equal boxes for a
+   * 3-then-4-then-4 value reads oddly once you notice the later boxes have
+   * more room per digit. */
+  min-width: 0;
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 16px; /* 16px or larger, or iOS Safari zooms the page on focus. */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--gdb-ink);
+  background: #fff;
+  border: 1px solid var(--gdb-line);
+  border-radius: 8px;
+}
+
+/* The hidden real input carries `aria-invalid`, which reaches nobody. The
+ * script mirrors it onto the visible boxes; this is what makes it visible. */
+.gdb-eid__box--invalid {
+  border-color: #dc2626;
+}
+
+.gdb-eid__box:focus {
+  outline: none;
+  border-color: var(--gdb-brand);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.gdb-eid__dash {
+  flex: none;
+  color: #94a3b8;
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.gdb-eid__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--gdb-muted);
+}
+
+/* Low-bandwidth mobile is a stated requirement (project_overview.md §6), and
+ * a 320px screen is the case that breaks a three-box row first. */
+@media (max-width: 360px) {
+  .gdb-eid {
+    gap: 4px;
+  }
+
+  .gdb-eid__box {
+    padding: 10px 4px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .gdb-eid__box {
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+}

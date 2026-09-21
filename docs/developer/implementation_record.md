@@ -1,6 +1,7 @@
 # Implementation Record — what exists, what doesn't, and why
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22 (auth audit — see record_2026-09-22_auth_audit.md)
+**Prior slice:** 2026-09-21 (sign-in — see record_2026-09-21_signin.md)
 **Audience:** AI agents (Claude/Gemini) and developers picking this up cold.
 
 Read this **before** `implementation_plan.md`. The plan says what to build;
@@ -16,14 +17,28 @@ still undecided. Update it whenever you complete a phase.
 - **Phases 2–5 are not started.** DocTypes exist as *skeletons* (identity,
   scoping and lifecycle fields only); no business fields, no wizard, no
   underwriting/disbursement/finance/board services.
+- **The auth flow has been audited end to end against a running browser**
+  ([`record_2026-09-22_auth_audit.md`](record_2026-09-22_auth_audit.md)). Five
+  defects fixed, three of which were invisible from reading the source: the
+  error taxonomy's HTTP statuses never reached the client (everything was 417),
+  logout showed a confirmation page because `id_token_hint` was absent, and the
+  demo-data seeder was called by nothing. Read §3 before changing
+  `security/errors.py`, `api/v1_identity.py` or the logout path.
 - **The single most important file is
   [`rbac/personas.py`](../../backend/apps/gdb_bank/gdb_bank/rbac/personas.py).**
   Adding or changing a role is a data edit there plus `bench migrate`.
 - **There is a more feature-complete sibling project** at
   `C:\Users\HemanthKumarChittipr\Downloads\guyana-development-bank` — see
   §6. It is the functional target; its architecture is what this build fixes.
-- **One decision is still open** — see §7. Do not start Phase 2 services
-  without resolving it.
+- **The §7 decision is RESOLVED** (2026-09-21): the case file is this build's
+  `GDB Loan Application`.
+- **e-ID sign-in works end to end** — OIDC Authorization Code + PKCE against a
+  GDB-themed Keycloak login page. See
+  [`record_2026-09-21_signin.md`](record_2026-09-21_signin.md).
+- **Four defects were found and fixed** in that slice, three of them
+  pre-existing and invisible from reading the code: `provisioning.py` had never
+  once run to completion, so no persona Role, Role Profile or DocPerm had ever
+  reached a database. Read §2 of that record before touching `rbac/`.
 
 ---
 
@@ -212,6 +227,25 @@ Verified against the Frappe v16 docs. **Do not re-derive these from memory.**
 6. `permission_query_conditions` returns a raw SQL string → every value goes
    through `frappe.db.escape`.
 
+**Added 2026-09-21** — found by running it, not by reading. Full detail and the
+failure each one produced: [`record_2026-09-21_signin.md`](record_2026-09-21_signin.md) §3.
+
+7. **`login_as()` already calls `post_login()`.** Calling both runs the whole
+   login twice, including every `on_session_creation` hook.
+8. **`frappe.permissions` has no `remove_permission`.** Importing one made
+   `provisioning.py` unimportable, so `after_migrate` had NEVER run — the
+   persona registry existed only in Python.
+9. **`Custom DocPerm` has no `set_user_permissions` in v16.** Derive permission
+   flags from `frappe.get_meta`, never hardcode them.
+10. **Document locks are FILES** keyed `sha224("<doctype>:<name>")` under
+    `sites/<site>/locks/`. They survive a transaction rollback.
+11. **`queue_action` locks unconditionally**, before it considers `now`.
+    During `after_migrate` there is no worker to release it — which deadlocked
+    the container into a 33-restart loop.
+12. **Keycloak does not put a public client's own id in `aud`** (it is in
+    `azp`), **drops unmanaged user attributes by default** in v26, and stamps
+    `iss` with its *frontend* hostname, not the URL the backend reaches it on.
+
 ---
 
 ## 4. Verification
@@ -264,8 +298,11 @@ Be explicit about this — it is easy to mistake the skeleton for the feature.
 - **Document security** — no MIME magic-number validation, no virus scan, no
   signed URLs.
 - **External APIs** — no DCRA or bank-registry integration, no circuit breaker.
-- **OIDC PKCE on the frontend** — `exchange_token` exists on the backend;
-  the SPA still uses the password `Login.tsx`. `oidc-client-ts` not installed.
+- ~~**OIDC PKCE on the frontend**~~ — **DONE 2026-09-21.** Hand-written
+  `shared/identity/pkce.ts` + `oidc.ts` (not `oidc-client-ts` — we discard the
+  token, so its whole reason for existing is dead weight here). The three-box
+  e-ID control lives in the Keycloak login theme, since under PKCE the
+  credential page is Keycloak's.
 - **React Query / Zustand / RHF+Zod** — named in the plan, **not yet added** to
   `package.json`.
 
@@ -303,27 +340,25 @@ it does not itself follow, and `implementation_plan.md` here explicitly says
 
 ---
 
-## 7. OPEN DECISION — resolve before Phase 2
+## 7. RESOLVED — where the loan case file lives
 
-**Where does the loan case file live?**
+**Answered 2026-09-21: Option B.** The `GDB Loan Application` DocType built
+here owns the full lifecycle. lending's `Loan` is created only at booking, for
+amortisation and GL.
 
-- **Option A — follow the sibling:** extend lending's `Loan Application` with
-  `gdb_*` custom fields plus satellite DocTypes. *Proven* to carry the whole
-  feature set. Costs: `STATUS_TO_PORTAL` mapping, `db_set` on submitted docs,
-  two competing status fields, awkward drafts.
-- **Option B — the `GDB Loan Application` DocType built here:** owns the full
-  lifecycle cleanly; lending's `Loan` is created only at booking for
-  amortisation and GL. Costs: more upfront work, the legacy `api.py` endpoints
-  must be migrated.
+This closes the question that blocked Phase 2. Consequences:
 
-**Current state:** the Option B DocTypes exist, and the legacy Option A path in
-`api.py` is untouched and still functional. **Both routes are still open.**
+- Business fields are appended to `GDB Loan Application` per phase, in the
+  marked `section_break_detail`.
+- The legacy Option A path in `api/v0_legacy.py` is **migration debt**, not the
+  forward path. Remove each endpoint when the SPA stops calling it.
+- `domain/journey.py` maps the 18-state lifecycle onto the 5 citizen-facing
+  tracker steps, server-side.
 
-The user was asked twice and redirected to other work both times. Ask again,
-concisely, before writing Phase 2 services — the answer determines every
-service module that follows.
-
----
+The rejected option was extending lending's `Loan Application` with `gdb_*`
+custom fields, as the sibling does. It is proven to carry the feature set, but
+costs a `STATUS_TO_PORTAL` mapping, `db_set` on submitted docs, two competing
+status fields and awkward drafts.
 
 ## 8. Conventions to follow
 

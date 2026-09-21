@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { visibleNav } from '../widgets/navigation/nav-registry';
 
@@ -9,12 +9,12 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 export function Layout() {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
 
-  const onLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
+  // No `navigate('/login')` after this: `logout` ends the Keycloak session too,
+  // which means leaving the SPA entirely. Keycloak returns the browser to
+  // /login itself (post_logout_redirect_uri), and a client-side navigate here
+  // would only race the redirect.
+  const onLogout = () => void logout();
 
   return (
     <div className="min-h-screen">
@@ -55,7 +55,7 @@ export function Layout() {
               </span>
             ))}
           </span>
-          <button onClick={() => void onLogout()} className="font-medium text-gdb-green hover:underline">
+          <button onClick={onLogout} className="font-medium text-gdb-green hover:underline">
             Log out
           </button>
         </div>

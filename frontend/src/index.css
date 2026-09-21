@@ -1,11 +1,27 @@
 @import 'tailwindcss';
 
 @theme {
+  /* The flag colours. `gdb-gold` is RESERVED for the verified-agency stamp —
+   * project_overview.md gives that mark a meaning ("which agency confirmed
+   * this, and when"), so it must not also be decoration. `gdb-green` is kept
+   * because the pre-registry screens still reference it; they move over one at
+   * a time. */
   --color-gdb-green: #007a3d;
   --color-gdb-green-dark: #00592d;
   --color-gdb-gold: #fcd116;
+
+  /* The portal's own ramp. Matched deliberately to
+   * keycloak-local/themes/gdb/login/resources/css/gdb.css: the page a citizen
+   * signs in on and the page they land on should not look like two different
+   * institutions. */
+  --color-brand: #2563eb;
+  --color-brand-dark: #1e3a8a;
+  --color-brand-light: #dbeafe;
+  --color-brand-text: #1e40af;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply text-slate-900 antialiased;
+  background: linear-gradient(180deg, #f3f5fc 0%, #eaf0fb 100%);
+  background-attachment: fixed;
 }

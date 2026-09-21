@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { CAP, can } from '../shared/rbac';
 import { StatusBadge } from '../components/StatusBadge';
 import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
@@ -53,7 +54,13 @@ export function LoanDetail() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <Link to={user?.is_underwriter ? '/review' : '/'} className="text-sm text-gdb-green hover:underline">
+      {/* Back to wherever this case was reached FROM, decided by capability:
+          whoever can see the queue came from the queue. `/underwriting`, not
+          the pre-registry `/review` — that path only survives as a redirect. */}
+      <Link
+        to={can(user, CAP.APPLICATION_VIEW_QUEUE) ? '/underwriting' : '/'}
+        className="text-sm text-gdb-green hover:underline"
+      >
         ← Back
       </Link>
       <div className="mt-2 mb-6 flex items-center justify-between">
@@ -86,7 +93,11 @@ export function LoanDetail() {
         </div>
       )}
 
-      {user?.is_underwriter && reviewable && (
+      {/* The narrowest capability the panel actually needs. A future Senior
+          Underwriter or Credit Committee persona lights this up by holding
+          `credit.approve` in the registry — no change here. Decline lives in
+          the same panel, so the guard is the pair, not just approve. */}
+      {can(user, CAP.CREDIT_APPROVE) && reviewable && (
         <div className="mt-4 rounded-xl border border-gdb-gold/60 bg-white p-6 shadow">
           <h2 className="mb-3 font-semibold">Underwriter actions</h2>
           {error && (

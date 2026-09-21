@@ -9,6 +9,8 @@ from __future__ import annotations
 
 # identity / consent
 CONSENT_GIVEN = "consent.given"
+SESSION_ESTABLISHED = "identity.session_established"
+SESSION_ENDED = "identity.session_ended"
 
 # application lifecycle
 APPLICATION_CREATED = "application.created"

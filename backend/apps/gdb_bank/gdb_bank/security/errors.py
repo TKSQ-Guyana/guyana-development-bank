@@ -17,10 +17,35 @@ from frappe import _
 
 
 class GdbError(frappe.ValidationError):
-	"""Base for every error this app raises deliberately."""
+	"""Base for every error this app raises deliberately.
+
+	WHY `http_status_code` EXISTS ALONGSIDE `http_status`
+	    Frappe reads the status off the EXCEPTION CLASS, not off the response
+	    dict: `frappe/app.py` does `getattr(e, "http_status_code", 500)` in
+	    `handle_exception`. The `frappe.local.response["http_status_code"]`
+	    that `throw()` sets below is only consulted on the SUCCESS path
+	    (`frappe/utils/response.py`), and that path is never reached once
+	    `frappe.throw` has raised.
+
+	    So for a while every error in this taxonomy went out as **417** - the
+	    value `frappe.ValidationError` carries - no matter what `http_status`
+	    said. A 401 that arrives as 417 is not cosmetic: `auth.tsx` branches on
+	    `status === 401 || status === 403` to tell "not signed in" from a real
+	    fault, and that condition could never be true, so every ordinary
+	    logged-out state was reported to the console as a failure.
+
+	    `http_status` is kept as the readable name this module is written in;
+	    `__init_subclass__` mirrors it onto the name Frappe reads, so a new
+	    subclass cannot forget and silently inherit 417.
+	"""
 
 	code = "GDB_ERROR"
 	http_status = 400
+	http_status_code = 400
+
+	def __init_subclass__(cls, **kwargs) -> None:
+		super().__init_subclass__(**kwargs)
+		cls.http_status_code = cls.http_status
 
 
 class AuthenticationRequired(GdbError):

@@ -7,18 +7,19 @@ an identity cannot. The e-ID arrives as a Keycloak token claim
 `gdb_eid` so every backend query can scope on it without a token round-trip.
 
 FORMAT
-    Three dash-separated boxes, e.g. `123-4567-890`. Stored normalized
-    (uppercase, single dashes, no spaces). `is_valid()` is deliberately lenient
-    on box widths - the authoritative check is Keycloak's; this exists to catch
-    a malformed claim before it becomes a row-scoping filter.
+    Three dash-separated boxes of 3, 4 and 4 digits: `592-1111-0001`. The shape
+    itself lives in `domain/eid_format.py`, which imports no frappe, so the
+    site-free tests can prove that what we seed is what the sign-in form can
+    express. This module is the frappe-bound half: storage, lookup and binding.
 """
 
 from __future__ import annotations
 
 import os
-import re
 
 import frappe
+
+from gdb_bank.domain import eid_format
 
 EID_CLAIM = os.environ.get("GDB_EID_CLAIM", "eid")
 """Which token claim carries the e-ID. Deployments that name it differently
@@ -26,21 +27,19 @@ EID_CLAIM = os.environ.get("GDB_EID_CLAIM", "eid")
 
 EID_USER_FIELD = "gdb_eid"
 
-_NORMALIZE = re.compile(r"[\s_]+")
-_SHAPE = re.compile(r"^[A-Z0-9]{2,6}(-[A-Z0-9]{2,6}){2}$")
-
 
 def normalize(raw: str | None) -> str | None:
-	if not raw:
-		return None
-	value = _NORMALIZE.sub("", str(raw)).strip().upper()
-	value = re.sub(r"-{2,}", "-", value).strip("-")
-	return value or None
+	"""The canonical `592-1111-0001`, or None for nothing usable.
+
+	None rather than `""` because every caller here goes on to use the result
+	as a database key, and an empty string is a value a query would happily
+	match against a row whose e-ID was never set.
+	"""
+	return eid_format.normalize(raw) or None
 
 
 def is_valid(raw: str | None) -> bool:
-	value = normalize(raw)
-	return bool(value and _SHAPE.match(value))
+	return eid_format.is_valid(raw)
 
 
 def for_user(user: str) -> str | None:
@@ -69,6 +68,17 @@ def bind_to_user(user: str, eid: str | None) -> str | None:
 	value = normalize(eid)
 	if not value:
 		return None
+
+	# Refuse a malformed claim outright. This value becomes the WHERE clause of
+	# every scoped query for this user, so binding something the format does not
+	# recognise would quietly scope them to nothing - a person signed in,
+	# permitted, and shown an empty portal with no error anywhere.
+	if not is_valid(value):
+		frappe.log_error(
+			title="gdb_bank: malformed e-ID claim",
+			message=f"refused to bind an e-ID that is not {eid_format.PART_LENGTHS} digits to {user}",
+		)
+		return frappe.db.get_value("User", user, EID_USER_FIELD)
 
 	current = frappe.db.get_value("User", user, EID_USER_FIELD)
 	if current == value:

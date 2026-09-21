@@ -49,6 +49,12 @@ services:
     volumes:
       - keycloak-data:/opt/keycloak/data
       - ./keycloak-local/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # The GDB login theme. Under PKCE the citizen types their e-ID on
+      # Keycloak's page, not ours, so this is where the three-box control and
+      # the GDB branding live. A directory theme needs no JAR and no `build`
+      # step — Keycloak reads it straight from here. `start-dev` also disables
+      # theme caching, so editing a file and reloading is enough.
+      - ./keycloak-local/themes/gdb:/opt/keycloak/themes/gdb:ro
     restart: unless-stopped
 
   kc-bootstrap:
@@ -96,11 +102,42 @@ services:
       REDIS_QUEUE: redis:6379/1
       DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      # TWO URLS FOR ONE KEYCLOAK, and they are not interchangeable.
+      #   KEYCLOAK_URL        how THIS CONTAINER reaches it, over the docker
+      #                       network. Used to fetch JWKS and to validate `iss`.
+      #   KEYCLOAK_PUBLIC_URL how the BROWSER reaches it. Used to build the
+      #                       sign-in redirect. Sending the browser to
+      #                       `http://keycloak:8080` yields a host it cannot
+      #                       resolve — a sign-in button that goes nowhere,
+      #                       with nothing in any log to say why.
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:${KEYCLOAK_PORT:-8085}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-Guyana-Gov}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-gdb-portal}
       WITH_WORKER: '1'
       WITH_SCHEDULER: '1'
       WITH_SOCKETIO: '0'
+      # Lets `after_migrate` seed the demo citizen's applications. LOCAL ONLY —
+      # these are fabricated credit records (one is an approved 2M facility),
+      # and in a real database they are a fake loan book that reaches the Board
+      # portfolio report and Finance reconciliation with nothing marking them
+      # synthetic. A production deployment leaves this unset; see
+      # `install.demo_data_enabled`.
+      GDB_SEED_DEMO_DATA: '1'
     volumes:
       - sites:/home/frappe/frappe-bench/sites
+      # DEV LOOP. `gdb_bank` is baked into the image, so without this every
+      # one-line Python change costs a full image rebuild AND a full
+      # `bench migrate` — minutes, repeated, for a typo. Mounting the package
+      # over the installed copy makes a change a restart instead.
+      #
+      # ONLY THE PACKAGE DIRECTORY, not the app root: `pyproject.toml` and the
+      # `.egg-info` that pip wrote at build time live one level up, and
+      # shadowing those would un-install the app from the bench's virtualenv.
+      #
+      # Remove this line for a production-shaped build, where the image should
+      # be the only source of code.
+      - ./backend/apps/gdb_bank/gdb_bank:/home/frappe/frappe-bench/apps/gdb_bank/gdb_bank
     ports:
       - '${BACKEND_PORT:-8080}:8080'
     depends_on:
