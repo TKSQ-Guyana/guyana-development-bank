@@ -2,7 +2,6 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar, type SidebarGroup, type SidebarItem } from './ui/Sidebar';
 import {
   ApplicationsIcon,
-  ClusterIcon,
   DashboardIcon,
   LedgerIcon,
   LogoutIcon,
@@ -22,7 +21,6 @@ const NAV_ITEMS: SidebarItem[] = [
   { to: '/statements', label: 'Statements', icon: <StatementsIcon /> },
   { to: '/training', label: 'Training', icon: <TrainingIcon />, disabled: true },
   { to: '/profile', label: 'My details', icon: <ProfileIcon /> },
-  { to: '/cluster', label: 'My cluster', icon: <ClusterIcon /> },
 ];
 
 /** Which module the header names. Longest prefix wins, so /apply/new still

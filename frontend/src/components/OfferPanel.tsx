@@ -186,7 +186,11 @@ export function OfferPanel({
               <li key={i}>{c}</li>
             ))}
           </ol>
-          <p className="mt-2 text-xs text-slate-400">Live status of each is tracked below.</p>
+          {/* Only staff have the checklist below to be pointed at; for the
+              applicant these lines are the offer's own wording, nothing more. */}
+          {(user?.is_underwriter || user?.is_finance || user?.is_disbursement) && (
+            <p className="mt-2 text-xs text-slate-400">Live status of each is tracked below.</p>
+          )}
         </div>
       )}
 

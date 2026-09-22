@@ -22,8 +22,8 @@ from gdb_bank.api import (
 	_as_system,
 	_logger,
 	_readable_application,
+	_require_staff,
 	_require_underwriter,
-	_session_user,
 )
 
 CONDITION_FIELDS = [
@@ -74,12 +74,20 @@ def outstanding(application: str) -> list[str]:
 
 @frappe.whitelist()
 def list_conditions(application: str):
-	"""The checklist for an application — applicant-visible by design.
+	"""The checklist for an application — GDB STAFF ONLY.
 
-	The SOW wants the borrower to see exactly what is holding their money up,
-	so this is readable by whoever may read the case, not staff only.
+	Every condition here is GDB's own verification work: a bank account
+	confirmed, a registration checked against DCRA, an identity accepted. The
+	borrower cannot clear one, so showing them the list offers no action, only
+	an internal control surface and an argument about a line they cannot move.
+	What GDB does need FROM the applicant leaves as an information request,
+	which is a question they can answer and a record of the asking.
+
+	Staff-wide rather than underwriter-only: the disbursement officer is
+	refused release while a required condition is outstanding, so they must be
+	able to read which one is holding it.
 	"""
-	user = _session_user()
+	user = _require_staff()
 	_readable_application(application, user)
 	rows = frappe.get_all(
 		"GDB Loan Condition",

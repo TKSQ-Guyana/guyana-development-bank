@@ -100,7 +100,9 @@ Expect `Disbursed` · `900000` · `12` rows · `50000` paid · `850000` outstand
 2. **Apply** — 2,500,000 over 36 months. Lands **Submitted**.
 3. Log out. Sign in as the underwriter. **Review Queue** appears in the nav
    (it does not for a citizen). Open the application → **Approve**.
-4. The **Booking & disbursement** panel appears → **Book loan** → `Sanctioned`.
+4. Log out. Sign in as the disbursement officer (`finance@gdb.gov.gy`). Open
+   the case → **Facility** → **Book loan** → `Sanctioned`. The underwriter sees
+   the same panel but is told whose desk booking is on.
 5. The amount prefills with what lending reports as drawable → **Disburse**.
    The repayment schedule appears — disbursement is what generates it.
 6. Log out. Sign in as the citizen. **Loan account** shows the schedule and
@@ -116,7 +118,9 @@ becomes `Partially Disbursed` and the panel re-offers only the remainder.
 
 | Attempt | Expected |
 | --- | --- |
-| Citizen calls `disburse_loan` or `book_loan` | `PermissionError` — "Only GDB underwriters may do this." |
+| Citizen calls `disburse_loan` or `book_loan` | `PermissionError` — "Only the GDB disbursement officer may do this." |
+| Underwriter calls `book_loan` | `PermissionError` — booking is the disbursement officer's |
+| Citizen calls `conditions.list_conditions` | `PermissionError` — "Only GDB staff may do this." |
 | Book an application still `Submitted` | "Only an approved application can be booked" |
 | Book the same application twice | "Loan … is already booked" |
 | Disburse a fully-drawn loan | "not awaiting disbursement (status Disbursed)" |

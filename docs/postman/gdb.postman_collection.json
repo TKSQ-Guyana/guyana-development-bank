@@ -469,7 +469,7 @@
               "mode": "raw",
               "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
             },
-            "description": "Creates the Loan via lending's own create_loan mapper and submits it (status Sanctioned). Approving does not book - this is a separate act."
+            "description": "Creates the Loan via lending's own create_loan mapper and submits it (status Sanctioned). Approving does not book - this is a separate act.\n\nDISBURSEMENT OFFICER ONLY. Signed in as the underwriter this answers \"Only the GDB disbursement officer may do this.\" Sign in as finance@gdb.gov.gy and repeat it to book."
           }
         },
         {
@@ -487,7 +487,7 @@
               "mode": "raw",
               "raw": "{\n  \"application\": \"{{loanName}}\"\n}"
             },
-            "description": "Money movement is the finance officer's. Signed in as the underwriter this answers \"Only the GDB finance officer may do this.\" Sign in as finance@gdb.gov.gy and repeat it to see the release.\n\nA second gate sits behind the role: disburse_loan also refuses whoever approved the case, so one account holding both roles still cannot decide and pay the same application."
+            "description": "Money movement is the disbursement officer's. Signed in as the underwriter this answers \"Only the GDB disbursement officer may do this.\" Sign in as finance@gdb.gov.gy and repeat it to see the release.\n\nA second gate sits behind the role: disburse_loan also refuses whoever approved the case, so one account holding both roles still cannot decide and pay the same application."
           }
         },
         {

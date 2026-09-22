@@ -7,10 +7,12 @@ import { formatGyd } from '../utils';
 
 /** Booking and disbursement — the bank's side of an approved application.
  *
- *  TWO OFFICERS, ONE PANEL. Booking belongs to the underwriter and release to
- *  the finance officer, so each sees their own half and is told who owns the
- *  other. The server decides both independently of this component, and refuses
- *  release outright to the person who approved the case.
+ *  ONE OFFICER, BOTH HALVES. Booking and release both belong to the
+ *  disbursement officer: booking is what puts a real Loan on GDB's books, so
+ *  it is the money side's first act, not the underwriter's last. Everyone else
+ *  reads this panel and is told whose desk it is on. The server decides both
+ *  independently of this component, and refuses release outright to the person
+ *  who approved the case.
  *
  *  Both actions are lending's own (`create_loan`, then a Loan Disbursement):
  *  the only figure this offers is what is still undrawn, and even that is a
@@ -63,12 +65,12 @@ export function Disbursement({
   const drawable = account.disbursable ?? 0;
   const awaitingRelease =
     !!loan && drawable > 0 && (loan.status === 'Sanctioned' || loan.status === 'Partially Disbursed');
-  const mayBook = Boolean(user?.is_underwriter);
-  // Release authority is is_disbursement, split out from is_finance (books
-  // only) — see api.DISBURSEMENT_ROLES. A pure Finance Officer should read
-  // this exactly like the underwriter does: told who releases, not offered
-  // the form.
-  const mayRelease = Boolean(user?.is_disbursement);
+  // One authority for both halves: is_disbursement, split out from is_finance
+  // (books only) — see api.DISBURSEMENT_ROLES. A pure Finance Officer reads
+  // this exactly like the underwriter does: told whose desk booking and
+  // release sit on, not offered either control.
+  const mayBook = Boolean(user?.is_disbursement);
+  const mayRelease = mayBook;
 
   const disburse = (e: FormEvent) => {
     e.preventDefault();
@@ -110,8 +112,8 @@ export function Disbursement({
 
       {!loan && !mayBook && (
         <p className="text-sm text-slate-600">
-          Approved, but no loan account exists yet. An underwriter books the loan before funds
-          can be released.
+          Approved, but no loan account exists yet. The disbursement officer books the loan
+          before funds can be released.
         </p>
       )}
 

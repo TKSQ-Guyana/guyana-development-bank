@@ -6,9 +6,12 @@ import { formatDate } from '../utils';
 
 /** Conditions precedent — what stands between an accepted offer and money.
  *
- *  Deliberately visible to the borrower, not just to staff: the SOW requires
- *  the applicant to see actionable outstanding items, and "why has my money
- *  not arrived" is the single most common question a lender gets.
+ *  STAFF ONLY. Every item on this list is GDB's own verification work — a bank
+ *  account confirmed, a registration checked, an identity accepted — so an
+ *  applicant reading it could not clear a single line, only watch it. Anything
+ *  GDB actually needs FROM the applicant goes out as an information request,
+ *  which is a question they can answer. `conditions.list_conditions` enforces
+ *  the same rule on the server; this is the mirror, not the control.
  *
  *  Staff can mark a condition Met or Waived. A waiver reads as loudly as a
  *  pass — same attribution, different word — because a condition that can
@@ -64,11 +67,12 @@ export function Conditions({
 
   useEffect(load, [load]);
 
-  // An empty checklist is still a panel for an underwriter — it is where the
-  // first case-specific condition gets added. For the applicant, nothing to
-  // show is nothing to show.
-  if (!list) return null;
-  if (list.total === 0 && !user?.is_underwriter) return null;
+  // Readable by every staff persona, writable only by the underwriter: the
+  // disbursement officer is refused release while a condition is outstanding,
+  // so they have to be able to see which one. An applicant gets nothing — the
+  // load above fails for them, and this is the second line of the same rule.
+  const staff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  if (!staff || !list) return null;
 
   const mark = async (name: string, status: string) => {
     setBusy(name);
@@ -191,8 +195,8 @@ export function Conditions({
             />
           </label>
           <p className="mb-2 text-xs text-slate-500">
-            Blocks release exactly like a condition from the Letter of Offer, and the applicant
-            sees it in this same list.
+            Blocks release exactly like a condition from the Letter of Offer. Internal to GDB —
+            to ask the applicant for something, raise an information request instead.
           </p>
           <button
             type="submit"

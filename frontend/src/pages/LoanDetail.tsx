@@ -195,9 +195,11 @@ export function LoanDetail() {
           <OfferPanel key={`offer-${accountKey}`} application={name} onExecuted={bump} />
         )}
 
-        {loan.status === 'Approved' && name && (
-          <Conditions key={`cp-${accountKey}`} application={name} onChange={bump} />
-        )}
+        {/* No conditions-precedent checklist here. Clearing a condition is
+            GDB's own verification work — the applicant can neither tick one
+            off nor act on most of them — so the list lives in the staff case
+            workspace only. What the applicant is asked to supply reaches them
+            as an information request, which is a question they can answer. */}
 
         {loan.status === 'Approved' && name && (
           <LoanAccount key={accountKey} application={name} canPay />

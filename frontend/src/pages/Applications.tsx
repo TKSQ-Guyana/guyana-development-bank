@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { Card, CardLabel } from '../components/ui/Card';
 import { StageBadge, Stepper } from '../components/ui/Stepper';
-import { ArrowRightIcon, PlusIcon } from '../components/ui/icons';
-import type { LoanApplication } from '../types';
+import { ArrowRightIcon, ClusterIcon, PlusIcon } from '../components/ui/icons';
+import type { Cluster as ClusterType, ClusterInvitation, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
 
 /** Closed cases: money fully drawn, or a decision that went the other way.
@@ -35,11 +35,6 @@ function ApplicationCard({ loan }: { loan: LoanApplication }) {
           {loan.stage === 'Draft' ? 'Continue' : 'Open case'}
           <ArrowRightIcon className="h-4 w-4" />
         </Link>
-        {loan.conditions_outstanding > 0 && (
-          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700">
-            {loan.conditions_outstanding} condition{loan.conditions_outstanding === 1 ? '' : 's'} outstanding
-          </span>
-        )}
         {loan.offer_status === 'Issued' && (
           <span className="rounded-full bg-brand-light px-3 py-1.5 text-xs font-semibold text-brand-text">
             Letter of Offer waiting for you
@@ -48,6 +43,100 @@ function ApplicationCard({ loan }: { loan: LoanApplication }) {
         <span className="ml-auto text-xs text-slate-400">Started {formatDate(loan.creation)}</span>
       </div>
     </Card>
+  );
+}
+
+/** The cluster entry point. It lives here rather than on the sidebar so a
+ *  citizen has one place for everything they have applied for, alone or with a
+ *  group. Pending invitations surface here too: `Invitations` only renders on
+ *  /cluster for someone who is not yet in one, so without this an invitee who
+ *  never thinks to visit that page would never learn they were asked. */
+function ClusterPanel() {
+  const [cluster, setCluster] = useState<ClusterType | null | undefined>(undefined);
+  const [invites, setInvites] = useState<ClusterInvitation[]>([]);
+
+  useEffect(() => {
+    call<ClusterType | null>('gdb_bank.api.my_cluster')
+      .then(setCluster)
+      .catch(() => setCluster(null));
+    call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
+      .then(setInvites)
+      .catch(() => setInvites([]));
+  }, []);
+
+  // Say nothing until the answer is in, rather than flashing "no cluster".
+  if (cluster === undefined) return null;
+
+  return (
+    <section>
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">My cluster</h3>
+
+      {invites.length > 0 && (
+        <Card className="mb-4 border border-gdb-gold/60">
+          <p className="text-base font-semibold text-slate-800">
+            You have been invited to {invites.length === 1 ? 'a cluster' : `${invites.length} clusters`}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            {invites.map((i) => i.cluster_name || i.name).join(', ')} — answer before the head applies
+            for the group.
+          </p>
+          <Link
+            to="/cluster"
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
+          >
+            Answer the invitation
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </Card>
+      )}
+
+      {cluster ? (
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <CardLabel>Cluster</CardLabel>
+              <p className="mt-1 truncate text-2xl font-bold text-slate-900">{cluster.name}</p>
+              <p className="text-sm text-slate-500">
+                {[cluster.region, cluster.sector].filter(Boolean).join(' · ') || 'Cluster'} ·{' '}
+                {cluster.members.length} member{cluster.members.length === 1 ? '' : 's'} ·{' '}
+                {cluster.applications.length} application
+                {cluster.applications.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            {cluster.is_head && (
+              <span className="rounded-full bg-gdb-gold/40 px-3 py-1.5 text-xs font-semibold text-brand-dark">
+                You are the head
+              </span>
+            )}
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+            <Link
+              to="/cluster"
+              className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
+            >
+              Open cluster
+              <ArrowRightIcon className="h-4 w-4" />
+            </Link>
+          </div>
+        </Card>
+      ) : (
+        <Card className="border border-dashed border-slate-200 py-10 text-center">
+          <ClusterIcon className="mx-auto h-6 w-6 text-slate-300" />
+          <p className="mt-3 text-base font-semibold text-slate-700">You are not in a cluster</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+            A cluster lets a group apply together. The head applies for the group, and every member
+            keeps their own record.
+          </p>
+          <Link
+            to="/cluster"
+            className="mt-5 inline-flex items-center gap-2 rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-brand hover:text-brand"
+          >
+            Start or join a cluster
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </Card>
+      )}
+    </section>
   );
 }
 
@@ -178,6 +267,8 @@ export function Applications() {
           )}
         </>
       )}
+
+      <ClusterPanel />
     </div>
   );
 }

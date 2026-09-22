@@ -68,7 +68,11 @@ STAGE_LABELS = {
 	"Offer": "Your offer is ready",
 	"Declined": "You declined this offer",
 	"Expired": "This offer has expired",
-	"Conditions": "Complete these items before funds can be released",
+	# Not "complete these items": the conditions precedent are GDB's own checks
+	# and the applicant no longer sees the list, so a label telling them to
+	# clear it would point at nothing. If GDB needs something from them, an
+	# information request says so in its own words.
+	"Conditions": "GDB is completing its final checks before release",
 	"Release": "Payment is being arranged",
 	"Disbursed": "Your loan is active",
 }
@@ -291,6 +295,16 @@ def _is_staff(user: str | None = None) -> bool:
 	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
 
 
+def _require_staff() -> str:
+	"""Any GDB persona, but not the applicant. For bank-internal reading where
+	all three staff roles have a legitimate view and a citizen has none."""
+	user = _session_user()
+	if not _is_staff(user):
+		_logger().warning(f"denied staff endpoint to {user}")
+		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
+	return user
+
+
 def _eids(users) -> dict:
 	"""e-ID for each of these users, in one query.
 
@@ -382,7 +396,13 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		"stage": stage,
 		"stage_label": stage_label,
 		"offer_status": case.get("offer_status"),
-		"conditions_outstanding": cint(case.get("conditions_outstanding")),
+		# Zero for the applicant, not merely hidden from their screen. The
+		# conditions precedent are GDB's internal pre-release checks (see
+		# conditions.list_conditions, staff-only), and a count served to a
+		# client that does not render it is still the client's to read. The
+		# stage above is computed from the real number before this line, so
+		# the applicant still learns that GDB is finishing its checks.
+		"conditions_outstanding": cint(case.get("conditions_outstanding")) if _is_staff() else 0,
 		"loan": case.get("loan"),
 		"disbursed_amount": flt(case.get("disbursed_amount")),
 		# Sections B-H as one nested block, so the form round-trips exactly
@@ -1602,13 +1622,21 @@ def _booked_loan(application: str):
 
 @frappe.whitelist()
 def book_loan(application: str):
-	"""Create the Loan for an approved application. Underwriter only.
+	"""Create the Loan for an approved application. DISBURSEMENT OFFICER ONLY.
 
 	Booking is a decision the bank makes after approval, not a consequence of
 	it — which is why this is a separate act with its own audit line rather
 	than a hook on review_loan.
+
+	It belongs to the disbursement officer rather than to the underwriter
+	because booking is the first step on the money side: it puts a real Loan on
+	GDB's books with its own schedule and its own GL entries, and everything
+	after it is a drawdown. The officer who assessed the credit says whether
+	GDB will lend; the officer who moves money says when the facility exists.
+	Keeping the two in one pair of hands would make the four-eyes gate on
+	disburse_loan the only thing standing between a decision and cash.
 	"""
-	user = _require_underwriter()
+	user = _require_disbursement()
 
 	row = frappe.db.get_value(
 		"Loan Application", application, ["name", "status", "gdb_owner"], as_dict=True

@@ -157,12 +157,6 @@ export function Dashboard() {
                 {active.stage === 'Draft' ? 'Continue application' : 'Open case'}
                 <ArrowRightIcon className="h-4 w-4" />
               </Link>
-              {active.conditions_outstanding > 0 && (
-                <span className="inline-flex items-center rounded-full bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
-                  {active.conditions_outstanding} condition
-                  {active.conditions_outstanding === 1 ? '' : 's'} to complete
-                </span>
-              )}
             </div>
           </Card>
         ) : (

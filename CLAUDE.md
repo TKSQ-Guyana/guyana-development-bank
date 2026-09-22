@@ -101,8 +101,11 @@ underwriter review queue. The official name everywhere is
     `docs/architecture/identity-and-auth.md`, which supersedes this path.
 - **Roles — three, and the split between the two staff ones is a control.**
   `Citizen` (website user; own applications only), `Loan Underwriter` (decides:
-  review, offer, conditions, booking, document review) and `Finance Officer`
-  (moves money: disbursement, payment file, collections, the ledger views).
+  review, offer, conditions, document review) and `Finance Officer`
+  (moves money: booking, disbursement, payment file, collections, the ledger
+  views). **Booking is the money side's, not the underwriter's** —
+  `book_loan` is `_require_disbursement`, because creating the Loan is what
+  puts the facility on GDB's books and everything after it is a drawdown.
   That third persona is called the **Disbursement Officer** everywhere a human
   reads it — the badge, the seeded user's name, the refusal messages. The
   Frappe Role is still named `Finance Officer` and so are `FINANCE_ROLES` /

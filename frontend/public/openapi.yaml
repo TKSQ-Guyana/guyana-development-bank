@@ -27,11 +27,13 @@ tags:
   - name: citizen
   - name: underwriter
     description: |
-      The officer who DECIDES: review, offer, conditions, booking, document
-      review. Not release — see the finance tag.
+      The officer who DECIDES: review, offer, conditions, document review.
+      Neither booking nor release — see the finance tag.
   - name: finance
     description: |
-      The officer who MOVES MONEY: disbursement, the payment file, collections.
+      The officer who MOVES MONEY: booking, disbursement, the payment file,
+      collections. Booking sits here rather than with the underwriter because
+      creating the Loan is what puts the facility on GDB's books.
       A separate role from the underwriter, and `disburse_loan` additionally
       refuses whoever approved the case, so one person holding both roles
       still cannot decide and pay the same application.
@@ -721,7 +723,9 @@ paths:
       description: |
         Blocks release exactly like a condition raised from the Letter of Offer
         — `disburse_loan` reads `outstanding`, which does not care where a
-        condition came from — and the applicant sees it in the same checklist.
+        condition came from. Internal to GDB: the checklist is staff-only
+        (`list_conditions`), so use an information request to ask the
+        applicant for something.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -875,15 +879,19 @@ paths:
 
   /api/method/gdb_bank.api.book_loan:
     post:
-      tags: [underwriter]
-      summary: Book the Loan for an approved application
+      tags: [finance]
+      summary: Book the Loan for an approved application (disbursement officer)
       description: |
         Creates the lending **Loan** from an Approved application using
         lending's own `create_loan` mapper, and submits it (status
         `Sanctioned`). Booking is a separate act from approval, with its own
         audit line - approving does not book.
 
-        Refuses an application that is not Approved, or one already booked.
+        **Disbursement officer only**, not the underwriter: booking is the
+        money side's first act, and everything after it is a drawdown.
+
+        Refuses an application that is not Approved, one already booked, and
+        one whose Letter of Offer the applicant has not accepted.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -903,8 +911,8 @@ paths:
                 type: object
                 properties:
                   message: { $ref: '#/components/schemas/LoanAccount' }
-        '403': { description: Caller is not an underwriter }
-        '417': { description: Not Approved, or already booked }
+        '403': { description: Caller is not the disbursement officer }
+        '417': { description: Not Approved, already booked, or no accepted offer }
 
   /api/method/gdb_bank.api.disburse_loan:
     post:
