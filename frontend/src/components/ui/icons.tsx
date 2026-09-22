@@ -200,3 +200,11 @@ export function CheckIcon({ className = base }: IconProps) {
     </svg>
   );
 }
+
+export function ChevronDownIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className}>
+      <path d="m5.5 8 4.5 4.5L14.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

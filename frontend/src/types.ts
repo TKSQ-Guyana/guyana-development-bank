@@ -261,6 +261,15 @@ export interface OfferExecution {
   complete: boolean | null;
 }
 
+/** A GDB facilitator a group may ask for. `placeholder` is true while the
+ *  roster is a stand-in rather than GDB's appointed officers. */
+export interface Facilitator {
+  eid: string;
+  full_name: string;
+  region: string;
+  placeholder?: boolean;
+}
+
 /** What `lookup_eid` answers: a name only for an e-ID that already holds a
  *  portal account, and nothing else about that person. */
 export interface EidLookup {

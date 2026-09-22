@@ -1453,6 +1453,47 @@ def save_cluster_plan(cluster: str, **sections):
 	return cluster_view(cluster)
 
 
+# PLACEHOLDER ROSTER. GDB has not published its regional facilitators yet and
+# there is no Facilitator role on this site, so the list a head chooses from is
+# stated here rather than invented in the browser — a citizen must never pick
+# from a list the server cannot recognise. Each entry is a real national e-ID,
+# so `attach_facilitator` links it to that person's User the moment they first
+# sign in, exactly as it would for a real roster.
+#
+# TO GO LIVE: grant a `Facilitator` role and return the Users holding it,
+# filtered by region. Nothing else below has to change — the endpoint's shape
+# and the e-ID it hands back are already what the real answer looks like.
+FACILITATOR_ROSTER = (
+	{"eid": "592-6666-0006", "full_name": "Rani Singh", "region": "Region 2 — Pomeroon-Supenaam"},
+	{"eid": "592-7777-0007", "full_name": "Devon Baksh", "region": "Region 3 — Essequibo Islands-West Demerara"},
+	{"eid": "592-8888-0008", "full_name": "Marcia Khan", "region": "Region 4 — Demerara-Mahaica"},
+	{"eid": "592-1010-0010", "full_name": "Anita Ramkissoon", "region": "Region 6 — East Berbice-Corentyne"},
+	{"eid": "592-1122-0011", "full_name": "Trevor Adams", "region": "Region 9 — Upper Takutu-Upper Essequibo"},
+	{"eid": "592-1133-0012", "full_name": "Shanta Narine", "region": "Region 10 — Upper Demerara-Berbice"},
+)
+
+
+@frappe.whitelist()
+def facilitators(region: str | None = None):
+	"""The GDB facilitators a group may ask for.
+
+	Region is a FILTER, not a gate: a head is asked whether they want a
+	facilitator before they are asked where the group works, and a list that
+	came back empty at that point would read as "there are none". Passing a
+	region moves that region's facilitators to the front instead of removing
+	the others.
+
+	`placeholder` is returned honestly rather than hidden — a screen showing
+	names GDB has not actually appointed should be able to say so.
+	"""
+	_session_user()
+	region = (region or "").strip()
+	rows = [dict(row, placeholder=True) for row in FACILITATOR_ROSTER]
+	if region:
+		rows.sort(key=lambda r: r["region"] != region)
+	return rows
+
+
 @frappe.whitelist()
 def save_cluster_details(
 	cluster: str,

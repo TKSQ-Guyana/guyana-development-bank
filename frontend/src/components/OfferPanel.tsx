@@ -125,9 +125,13 @@ export function OfferPanel({
   // which the server has already worked out. On an individual offer it is the
   // question it always was.
   const mine = joint ? offer.can_sign : offer.applicant_name === user?.full_name;
-  // The name this viewer must type: their own line on a group's offer, the
-  // applicant's on their own.
-  const myLine = offer.signatures?.find((sig) => sig.signature_status === 'Pending' && offer.can_sign);
+  // THIS viewer's own line, matched on who they are. Finding "the first line
+  // still pending" instead told whoever opened the offer to type the name of
+  // whichever member happened to be first on the roster — so the second
+  // member was asked for the head's name, typed it, and was refused by the
+  // server for signing as somebody else. Which is exactly what the server
+  // check is for, but the screen should never have asked.
+  const myLine = offer.signatures?.find((sig) => sig.member === user?.user) ?? null;
   const nameToType = joint ? (myLine?.member_name ?? user?.full_name ?? '') : offer.applicant_name;
 
   const respond = async (accept: boolean) => {
@@ -278,9 +282,11 @@ export function OfferPanel({
 
       {joint && offer.status === 'Issued' && !offer.can_sign && (
         <p className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
-          {offer.signatures.some((sig) => sig.member_name === user?.full_name)
+          {myLine?.signature_status === 'Signed'
             ? 'You have signed. The agreement is executed once every member has.'
-            : 'This is your group&rsquo;s offer. Only the members named on it can sign.'}
+            : myLine
+              ? 'You have already answered this offer.'
+              : 'This is your group’s offer. Only the members named on it can sign.'}
         </p>
       )}
 

@@ -114,12 +114,18 @@ def _roster_for(application: str) -> list[dict]:
 
 
 def _signatures(offer: str) -> list[dict]:
-	return frappe.get_all(
+	rows = frappe.get_all(
 		"GDB Offer Signature",
 		filters={"parent": offer, "parenttype": "GDB Loan Offer"},
 		fields=SIGNATURE_FIELDS,
 		order_by="is_head desc, idx asc",
 	)
+	# A Check field comes back as 0/1. Relayed raw, JSX renders the 0 — a
+	# member's name read "Asha Persaud0" on the signing screen. The portal was
+	# promised a boolean, so answer with one.
+	for row in rows:
+		row["is_head"] = bool(row.get("is_head"))
+	return rows
 
 
 def _execution_state(offer: str, rows: list | None = None) -> dict:

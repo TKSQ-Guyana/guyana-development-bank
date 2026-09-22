@@ -568,9 +568,9 @@ export function Apply() {
       if (forCluster) {
         if (!chosenCluster && !clusterName.trim()) return 'Give your group a name.';
         if (wantsFacilitator === null) return 'Tell us whether you would like a regional facilitator.';
-        if (wantsFacilitator && facilitatorEid !== EMPTY_EID && !isCompleteEid(facilitatorEid)) {
-          return "Finish the facilitator's e-ID, or clear it and GDB will attach one for your region.";
-        }
+        // Nothing to validate on the facilitator itself: it is chosen from a
+        // list the server supplied, and choosing nobody is a valid answer —
+        // GDB attaches one for the group's region instead.
       }
     }
     if (step === 'group') {

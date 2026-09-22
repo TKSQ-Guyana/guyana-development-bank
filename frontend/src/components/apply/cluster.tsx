@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { call } from '../../api';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
-import type { Cluster, ClusterPlan, ClusterPlanSection, EidLookup } from '../../types';
+import type {
+  Cluster,
+  ClusterPlan,
+  ClusterPlanSection,
+  EidLookup,
+  Facilitator,
+} from '../../types';
 import { EidBoxes } from '../EidBoxes';
 import { Notice, SelectField, TextAreaField, TextField } from './fields';
 
@@ -156,6 +162,61 @@ export function EidWithName({
   );
 }
 
+/** Choose a GDB facilitator from the ones GDB offers.
+ *
+ *  Not an e-ID box. A head knows the person's NAME, or knows only that they
+ *  want help — they have no reason to know anybody's eleven digits, and a
+ *  typed number that matches nobody is a dead end they cannot get out of.
+ *  The list is the server's; what travels back is still the e-ID, so the
+ *  attaching, the linking and the waiting-for-first-sign-in below it are
+ *  unchanged.
+ */
+export function FacilitatorPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (eid: string) => void;
+}) {
+  const [people, setPeople] = useState<Facilitator[] | null>(null);
+
+  useEffect(() => {
+    call<Facilitator[]>('gdb_bank.api.facilitators')
+      .then(setPeople)
+      .catch(() => setPeople([]));
+  }, []);
+
+  if (!people) return <p className="text-sm text-slate-500">Loading facilitators…</p>;
+  if (people.length === 0) {
+    return (
+      <Notice tone="info">
+        No facilitators are listed for your area yet. Carry on — GDB will attach one once your
+        region is known.
+      </Notice>
+    );
+  }
+
+  const chosen = people.find((p) => p.eid === value);
+  const label = (p: Facilitator) => `${p.full_name} — ${p.region}`;
+
+  // The roster's `placeholder` flag is deliberately NOT surfaced. Telling an
+  // applicant the names are examples invites the obvious question — then who
+  // will it actually be? — which nobody on this screen can answer, and it
+  // undermines a list the applicant is being asked to choose from. The fact is
+  // recorded where the people who can act on it will read it: the endpoint's
+  // own comment, and CLAUDE.md. Whoever is attached is confirmed to the group
+  // on the next screen either way.
+  return (
+    <SelectField
+      label="Facilitator"
+      value={chosen ? label(chosen) : ''}
+      onChange={(picked) => onChange(people.find((p) => label(p) === picked)?.eid ?? '')}
+      options={people.map(label)}
+      placeholder="Let GDB choose for my region"
+    />
+  );
+}
+
 /** Step: the group's name, and whether it wants a facilitator.
  *
  *  Asked together and first, because they are the two things the head already
@@ -247,13 +308,13 @@ export function ClusterIdentity({
 
         {wantsFacilitator === true && (
           <div className="mt-4 rounded-lg bg-slate-50/80 p-4">
-            <p className="mb-2 text-sm font-bold text-slate-800">Your facilitator's e-ID</p>
+            <p className="mb-2 text-sm font-bold text-slate-800">Who would you like?</p>
             <p className="mb-3 text-xs leading-relaxed text-slate-500">
-              Name the facilitator by their e-ID. If you do not know who yours is, leave this empty
+              Choose the facilitator you would like. If you do not mind which, leave it as it is
               and answer the region question on the next screen — GDB routes a facilitator by
               region and will attach one.
             </p>
-            <EidWithName value={facilitatorEid} onChange={onFacilitatorEid} />
+            <FacilitatorPicker value={facilitatorEid} onChange={onFacilitatorEid} />
           </div>
         )}
       </div>

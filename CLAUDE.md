@@ -130,9 +130,27 @@ underwriter review queue. The official name everywhere is
   accepts (`respond_to_invitation`) signed in as themselves. An e-ID with no
   portal account yet is a valid invitee — the row waits against the bare e-ID
   and `identity.link_pending_invitations` attaches it on their first e-ID
-  sign-in. `_cluster_of` counts Active rows only. Each member holds their own
+  sign-in. `_clusters_of` counts Active rows only and returns a LIST: a citizen
+  may belong to as many clusters as they accept, so every membership question
+  goes through it (`_cluster_for`, `_is_shared_with`, `my_loans`,
+  `permissions._visible_applications`). `_cluster_of` survives as "the first
+  one" for callers that genuinely want a default; anything deciding permission
+  or visibility must use the list. Each member holds their own
   `GDB Citizen Profile` and their own documents; members never see each
   other's, staff see both blocks of everyone's.
+- ⚠️ **The facilitator roster is a PLACEHOLDER and the portal does not say so.**
+  `api.FACILITATOR_ROSTER` is six invented names on real national e-IDs, served
+  by `api.facilitators()` and offered to a cluster head as a dropdown. The
+  endpoint returns `placeholder: true`, and the SPA deliberately does not
+  render it — a citizen told "these are examples" would ask who it will really
+  be, which that screen cannot answer. GDB has appointed nobody yet, so anyone
+  attached today is a name, not a commitment. TO GO LIVE: grant a `Facilitator`
+  role and return the Users holding it, filtered by region; nothing else
+  changes, because what the picker hands back is already an e-ID and
+  `attach_facilitator` links it on first sign-in exactly as an invitation does.
+  A facilitator's whole authority is `_require_shared_editor` — the group's
+  shared plan and its group details, and nothing within reach of an
+  application, assessment, decision or offer.
 - **A cluster loan is a different product, never a side effect of membership.**
   `_cluster_for` files against a group ONLY when the caller names it: both `""`
   and an omitted `cluster` mean the applicant's own application. Naming one
