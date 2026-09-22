@@ -68,7 +68,12 @@ export function DocumentShelf({
         applicant,
       });
       setShelf(data);
-      setType((current) => current || data.settings.types[0] || '');
+      setType(
+        (current) =>
+          current ||
+          (data.settings.types.includes('Bank Statement') ? 'Bank Statement' : data.settings.types[0]) ||
+          '',
+      );
       onChange?.(data.missing);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load documents');
@@ -191,20 +196,11 @@ export function DocumentShelf({
       )}
 
       {/* Advisory, never a blocker — the server stopped gating submission on
-          this. Worded as the prompt it now is for the applicant, and as a fact
-          about the file for the staff reading it. */}
-      {shelf.missing.length > 0 && (
+          this. Staff still see what is outstanding; the applicant-facing
+          banner was dropped per product ask. */}
+      {!canUpload && shelf.missing.length > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {canUpload ? (
-            <>
-              GDB will ask for your <strong>{shelf.missing.join(', ')}</strong> during review.
-              Attaching now is quicker, but you can submit without it.
-            </>
-          ) : (
-            <>
-              Not on file: <strong>{shelf.missing.join(', ')}</strong>
-            </>
-          )}
+          Not on file: <strong>{shelf.missing.join(', ')}</strong>
         </p>
       )}
 

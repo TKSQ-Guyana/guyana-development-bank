@@ -74,6 +74,16 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"proprietors": ["J. Fraser"],
 		"proprietor_eids": ["592-8888-0008"],
 	},
+	"BN-2021-000856": {
+		"registration_number": "BN-2021-000856",
+		"business_name": "Griffith General Trading",
+		"business_type": "Business Name",
+		"status": "Active",
+		"registered_on": "2021-09-10",
+		"region": "Region 4 - Demerara-Mahaica",
+		"proprietors": ["Kwame Griffith"],
+		"proprietor_eids": ["592-9999-0009"],
+	},
 }
 
 

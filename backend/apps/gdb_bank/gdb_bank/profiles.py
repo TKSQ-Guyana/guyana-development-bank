@@ -38,6 +38,7 @@ CONSENT_VERSION = "2026-09-1"
 # those would be declaring something as verified.
 DECLARED_FIELDS = (
 	"phone",
+	"email",
 	"date_of_birth",
 	"occupation",
 	"region",

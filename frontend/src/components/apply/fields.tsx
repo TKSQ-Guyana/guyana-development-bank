@@ -199,7 +199,7 @@ export function ChoiceCard({
   note,
 }: {
   title: string;
-  body: string;
+  body?: string;
   selected: boolean;
   onSelect: () => void;
   disabled?: boolean;
@@ -227,7 +227,7 @@ export function ChoiceCard({
           {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
         </span>
       </span>
-      <span className="mt-1 text-xs leading-relaxed text-slate-500">{body}</span>
+      {body && <span className="mt-1 text-xs leading-relaxed text-slate-500">{body}</span>}
       {note && (
         <span className="mt-2 rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-600">
           {note}

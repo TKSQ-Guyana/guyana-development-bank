@@ -42,6 +42,16 @@ export const REGIONS = [
 
 const REGISTRATION_STATES = ['Registered', 'Not registered', 'Registration in progress'];
 
+/** DCRA states a region as "Region 2 - Pomeroon-Supenaam" (a hyphen); REGIONS
+ *  uses an em dash. Match on the leading "Region N" so a select bound to
+ *  REGIONS still lands on the right option instead of showing blank. Falls
+ *  back to the raw string so nothing already saved silently disappears. */
+export function matchRegion(raw: string): string {
+  const n = raw.match(/Region\s+(\d+)/i)?.[1];
+  if (!n) return raw;
+  return REGIONS.find((r) => r.startsWith(`Region ${n} `)) ?? raw;
+}
+
 /** The seven shared-plan questions, in the order they are asked. The keys are
  *  the server's own field names (api.PLAN_SECTIONS), so a section cannot be
  *  added on one side and missed on the other. */

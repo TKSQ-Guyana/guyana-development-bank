@@ -35,7 +35,7 @@ function stageSince(loan: LoanApplication): string | null {
 
 export function Review() {
   const [stage, setStage] = useState<(typeof STAGES)[number]>('All');
-  const [sort, setSort] = useState<SortKey>('age_desc');
+  const [sort, setSort] = useState<SortKey>('age_asc');
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

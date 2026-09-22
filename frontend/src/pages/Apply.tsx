@@ -18,13 +18,16 @@ import {
 import {
   ClusterIdentity,
   GroupDetails,
+  matchRegion,
   MembersTable,
   PLAN_SECTIONS,
+  REGIONS,
   SharedPlan,
 } from '../components/apply/cluster';
 import { EMPTY_EID, isCompleteEid } from '../eid';
 import type {
   BankAccountRecord,
+  CitizenProfile,
   Cluster,
   ClusterPlan,
   ClusterPlanSection,
@@ -73,11 +76,12 @@ const SECTORS = [
 /** How the applicant is applying. Asked AFTER existing-vs-new: whether the
  *  business already trades decides which questions the form may ask at all,
  *  and how it is owned is the next question rather than the first one. */
-type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported';
+type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported' | 'Incorporated (Inc.)';
 
 type StepId =
   | 'consent'
   | 'route'
+  | 'about'
   | 'group'
   | 'members'
   | 'plan'
@@ -96,6 +100,7 @@ const CLUSTER_STEPS: StepId[] = ['group', 'members', 'plan'];
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
   { id: 'consent', title: 'Consent', blurb: 'Let GDB fetch the records this application needs' },
   { id: 'route', title: 'How you are applying', blurb: 'Who the loan is for, and what kind of business it is' },
+  { id: 'about', title: 'About you', blurb: 'Your details, confirmed against your e-ID' },
   { id: 'group', title: 'About your group', blurb: 'What the group does, and where it works' },
   { id: 'members', title: 'Group members', blurb: 'Who is in the group' },
   { id: 'plan', title: 'The shared plan', blurb: 'What the group is building together' },
@@ -131,7 +136,16 @@ interface Saved {
   clusterName?: string;
   wantsFacilitator?: boolean | null;
   facilitatorEid?: string;
+  profileDob?: string;
+  profilePhone?: string;
+  profileEmail?: string;
+  profileAddress?: string;
 }
+
+// An e-ID directory does not always carry a birth date, and a bank still
+// needs a value to hold rather than a blank the applicant could skip past.
+// Flagged as a placeholder in the field's own hint text.
+const DEFAULT_DOB = '1990-01-01';
 
 export function Apply() {
   const navigate = useNavigate();
@@ -156,6 +170,16 @@ export function Apply() {
   const [businessName, setBusinessName] = useState('');
   const [sections, setSections] = useState<Sections>({});
   const [useOfFunds, setUseOfFunds] = useState<UseOfFundsRow[]>([{ item: '', amount: 0 }]);
+
+  // Section A — about the applicant. Name and e-ID come straight off
+  // `whoami`, never asked. These four are the GDB Citizen Profile's own
+  // declared block — the same fields the standalone Profile page edits —
+  // pre-filled here from what the e-ID directory asserted at sign-in.
+  const [profile, setProfile] = useState<CitizenProfile | null>(null);
+  const [profileDob, setProfileDob] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profileAddress, setProfileAddress] = useState('');
 
   // The cluster this application is being filed for, once it exists, and the
   // groups this citizen already heads. A person may lead several — each group
@@ -277,6 +301,10 @@ export function Apply() {
       setClusterName(s.clusterName ?? '');
       setWantsFacilitator(s.wantsFacilitator ?? null);
       setFacilitatorEid(s.facilitatorEid ?? EMPTY_EID);
+      setProfileDob(s.profileDob ?? '');
+      setProfilePhone(s.profilePhone ?? '');
+      setProfileEmail(s.profileEmail ?? '');
+      setProfileAddress(s.profileAddress ?? '');
       if (s.step && s.step !== 'consent' && STEPS.some((st) => st.id === s.step)) setStep(s.step);
       setRestored(true);
     } catch {
@@ -303,6 +331,10 @@ export function Apply() {
       clusterName,
       wantsFacilitator,
       facilitatorEid,
+      profileDob,
+      profilePhone,
+      profileEmail,
+      profileAddress,
     };
     try {
       localStorage.setItem(storageKey, JSON.stringify(payload));
@@ -328,6 +360,10 @@ export function Apply() {
     clusterName,
     wantsFacilitator,
     facilitatorEid,
+    profileDob,
+    profilePhone,
+    profileEmail,
+    profileAddress,
   ]);
 
   // --- reference data -----------------------------------------------------
@@ -346,8 +382,22 @@ export function Apply() {
       .catch(() => setMyClusters([]));
     call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
     void loadMyAccounts();
-    call<{ consent_version?: string }>('gdb_bank.profiles.my_profile')
-      .then((p) => setConsentAccepted(Boolean(p?.consent_version)))
+    call<CitizenProfile>('gdb_bank.profiles.my_profile')
+      .then((p) => {
+        setConsentAccepted(Boolean(p?.consent_version));
+        setProfile(p);
+        // Prefer what the applicant already declared over the directory's
+        // assertion, and never overwrite a value a restored draft already
+        // holds — a functional update is what makes both true at once.
+        setProfileDob((cur) => cur || p.date_of_birth || p.verified_birth_date || DEFAULT_DOB);
+        setProfilePhone((cur) => cur || p.phone || p.verified_phone || '');
+        setProfileEmail((cur) => cur || p.email || p.verified_email || '');
+        setProfileAddress((cur) => cur || p.address || p.verified_address || '');
+        // The funding step asks for a contact number of its own — default it
+        // from the same source so the applicant is not asked twice, without
+        // touching anything they may already have typed there.
+        setPhone((cur) => cur || p.phone || p.verified_phone || '');
+      })
       .catch(() => setConsentAccepted(false));
   }, []);
 
@@ -421,12 +471,20 @@ export function Apply() {
     }
   };
 
+  // SelectField ties an option's value to its visible label, so the
+  // registration number is folded into the label itself rather than hidden
+  // behind it — the dropdown still resolves back to a DcraRecord by matching
+  // this same string.
+  const businessOption = (b: DcraRecord) =>
+    `${b.business_name ?? b.registration_number} (${b.registration_number})`;
+
   const selectBusiness = (b: DcraRecord) => {
     setDcraRecord(b);
     setDcra(b.registration_number);
     setBusinessName(b.business_name ?? '');
     setDcraNote(null);
-    if (b.region) setSections((s) => ({ ...s, operating_location: s.operating_location || b.region! }));
+    if (b.region)
+      setSections((s) => ({ ...s, operating_location: s.operating_location || matchRegion(b.region!) }));
   };
 
   const loadMyBusinesses = async () => {
@@ -447,6 +505,14 @@ export function Apply() {
       setLooking(false);
     }
   };
+
+  // A restored draft only carries `stage` and `dcra` — the fetched business
+  // list itself is never persisted. Without this, reloading mid-draft on the
+  // existing-business route would show "DCRA has no business registered" even
+  // though the list simply has not been re-fetched yet.
+  useEffect(() => {
+    if (stage === 'Existing' && myBusinesses === null) void loadMyBusinesses();
+  }, [stage, myBusinesses]);
 
   /** Resolves a manually typed DCRA number the same way `dcra_lookup` already
    *  can — this only wires an endpoint that existed but was never called from
@@ -469,7 +535,10 @@ export function Apply() {
             : null,
         );
         if (result.region) {
-          setSections((s) => ({ ...s, operating_location: s.operating_location || result.region! }));
+          setSections((s) => ({
+            ...s,
+            operating_location: s.operating_location || matchRegion(result.region!),
+          }));
         }
       } else {
         setDcraRecord(null);
@@ -571,6 +640,9 @@ export function Apply() {
     }
     if (step === 'route') {
       if (!stage) return 'Tell us whether this is an existing business or a new venture.';
+      if (stage === 'Existing' && (myBusinesses?.length ?? 0) > 0 && !dcra.trim()) {
+        return 'Tell us which business this application is for.';
+      }
       if (!structure) return 'Tell us how you are applying.';
       if (structure === 'Partnership' && validCoApplicants.length === 0) {
         return "Give at least one partner's e-ID, or apply as a sole trader.";
@@ -582,6 +654,11 @@ export function Apply() {
         // list the server supplied, and choosing nobody is a valid answer —
         // GDB attaches one for the group's region instead.
       }
+    }
+    if (step === 'about') {
+      if (!profileDob) return 'Give a date of birth.';
+      if (!profileEmail.trim()) return 'Give an email address.';
+      if (!profileAddress.trim()) return 'Give a residential address.';
     }
     if (step === 'group') {
       if (!groupPurpose.trim()) return 'Tell us what the group does.';
@@ -627,6 +704,9 @@ export function Apply() {
     clusterName,
     wantsFacilitator,
     facilitatorEid,
+    profileDob,
+    profileEmail,
+    profileAddress,
     groupPurpose,
     groupRegion,
     groupRegistered,
@@ -634,6 +714,7 @@ export function Apply() {
     plan,
     businessName,
     dcra,
+    myBusinesses,
     sections,
     amount,
     term,
@@ -684,6 +765,28 @@ export function Apply() {
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not create your group');
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+    }
+
+    // Written to the citizen's own profile — the same record the standalone
+    // Profile page edits — not to this application. It is one person's
+    // details, not one loan's.
+    if (step === 'about') {
+      setBusy(true);
+      try {
+        setProfile(
+          await call<CitizenProfile>('gdb_bank.profiles.save_profile', {
+            date_of_birth: profileDob,
+            phone: profilePhone,
+            email: profileEmail,
+            address: profileAddress,
+          }),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save your details');
         setBusy(false);
         return;
       }
@@ -920,7 +1023,10 @@ export function Apply() {
                       setDcraNote(null);
                       setDcraRecord(null);
                       setManualEntry(false);
-                      void loadMyBusinesses();
+                      // Existing business does not ask this question for now —
+                      // it defaults to Sole trader rather than leaving the
+                      // applicant to choose from a hidden set of options.
+                      setStructure('Sole Trader');
                     }}
                   />
                   <ChoiceCard
@@ -938,43 +1044,70 @@ export function Apply() {
                 </div>
               </Section>
 
-              {/* Only once the stage is answered. Asking how a business is
-                  owned before knowing whether it exists puts the two questions
-                  in the wrong order. */}
-              {stage && (
+              {/* An existing business is asked which DCRA registration this
+                  application is for, right here — not deferred to the
+                  business-identity step — so Continue is all that is left to
+                  do once a business is picked. */}
+              {stage === 'Existing' && (
                 <Section
                   letter="2"
-                  title="How are you applying?"
-                  blurb="This decides who is responsible for repaying, and whose records GDB will need."
+                  title="Which business is this for?"
+                  blurb="The businesses DCRA has registered against your e-ID."
                 >
+                  {looking && (
+                    <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>
+                  )}
+                  {!looking && (myBusinesses?.length ?? 0) > 0 && (
+                    <SelectField
+                      label="Business"
+                      value={
+                        myBusinesses?.find((b) => b.registration_number === dcra)
+                          ? businessOption(myBusinesses.find((b) => b.registration_number === dcra)!)
+                          : ''
+                      }
+                      onChange={(v) => {
+                        const chosen = myBusinesses?.find((b) => businessOption(b) === v);
+                        if (chosen) selectBusiness(chosen);
+                      }}
+                      options={(myBusinesses ?? []).map(businessOption)}
+                      required
+                    />
+                  )}
+                  {!looking && !(myBusinesses?.length ?? 0) && (
+                    <Notice tone="info">
+                      DCRA has no business registered to your e-ID yet. You can enter its
+                      registration number yourself on the next step.
+                    </Notice>
+                  )}
+                </Section>
+              )}
+
+              {/* Only once the stage is answered, and only for a new venture —
+                  an existing business defaults to Sole trader above, without
+                  asking this question. */}
+              {stage === 'New' && (
+                <Section letter="2" title="Type of business">
                   <div className="grid gap-3 sm:grid-cols-3">
                     <ChoiceCard
-                      title="Sole trader"
-                      body="You are applying alone, in your own name."
-                      note="You alone repay it. Only your documents are needed."
+                      title="Sole proprietorship"
                       selected={structure === 'Sole Trader'}
                       onSelect={() => setStructure('Sole Trader')}
                     />
                     <ChoiceCard
+                      title="Incorporated (Inc.)"
+                      selected={structure === 'Incorporated (Inc.)'}
+                      onSelect={() => setStructure('Incorporated (Inc.)')}
+                    />
+                    <ChoiceCard
                       title="Partnership"
-                      body="You and one or more partners."
-                      note="Each partner is named on the application. GDB may ask every partner for their own documents."
                       selected={structure === 'Partnership'}
                       onSelect={() => setStructure('Partnership')}
                     />
-                    {/* Only a new venture may be cluster-supported. A
-                        business already trading applies on its own accounts;
-                        a group forms to build something that does not exist
-                        yet, which is what this route is for. */}
-                    {stage === 'New' && (
-                      <ChoiceCard
-                        title="Cluster-supported"
-                        body="You and other businesses applying as one group."
-                        note="One application, one Letter of Offer, and every member of the group signs it."
-                        selected={structure === 'Cluster-supported'}
-                        onSelect={() => setStructure('Cluster-supported')}
-                      />
-                    )}
+                    <ChoiceCard
+                      title="Cluster"
+                      selected={structure === 'Cluster-supported'}
+                      onSelect={() => setStructure('Cluster-supported')}
+                    />
                   </div>
 
                   {/* Partners are named by e-ID, never by mailbox — the e-ID is
@@ -1050,6 +1183,70 @@ export function Apply() {
                 </Section>
               )}
             </>
+          )}
+
+          {/* ---------------------------------------------------- STEP: ABOUT */}
+          {step === 'about' && (
+            <Section
+              letter="A"
+              title="About you"
+              blurb="Confirmed against your e-ID. What it holds cannot be edited here."
+            >
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <dl className="space-y-1 text-xs text-slate-600">
+                  <div>
+                    <dt className="inline text-slate-400">Name: </dt>
+                    <dd className="inline font-medium text-slate-900">
+                      {profile?.verified_full_name || user?.full_name || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="inline text-slate-400">National ID: </dt>
+                    <dd className="inline font-mono font-medium text-slate-900">
+                      {user?.eid || profile?.eid || '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <TextField
+                label="Date of birth"
+                type="date"
+                value={profileDob}
+                onChange={setProfileDob}
+                required
+                hint={
+                  profile && !profile.date_of_birth && !profile.verified_birth_date
+                    ? 'Your e-ID did not carry a date of birth — check this before continuing.'
+                    : undefined
+                }
+              />
+              <TextField
+                label="Phone"
+                type="tel"
+                inputMode="tel"
+                value={profilePhone}
+                onChange={setProfilePhone}
+                placeholder="600 1234"
+                hint="Guyana number. The +592 is added for you."
+              />
+              <TextField
+                label="Email address"
+                type="email"
+                value={profileEmail}
+                onChange={setProfileEmail}
+                required
+                placeholder="you@example.gy"
+              />
+              <TextAreaField
+                label="Residential address"
+                value={profileAddress}
+                onChange={setProfileAddress}
+                required
+                rows={2}
+                hint="Where you live, not the business."
+              />
+            </Section>
           )}
 
           {/* ---------------------------------------------------- STEP: GROUP */}
@@ -1131,23 +1328,8 @@ export function Apply() {
                   <>
                     {looking && <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>}
 
-                    {!manualEntry && (myBusinesses?.length ?? 0) > 1 && (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium text-slate-700">
-                          DCRA has {myBusinesses?.length} businesses registered to you. Which is this
-                          loan for?
-                        </p>
-                        {myBusinesses?.map((b) => (
-                          <ChoiceCard
-                            key={b.registration_number}
-                            title={b.business_name ?? b.registration_number}
-                            body={`${b.registration_number} · ${b.status ?? 'status unknown'}`}
-                            selected={dcra === b.registration_number}
-                            onSelect={() => selectBusiness(b)}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    {/* Which business this is for was already asked, with a
+                        dropdown, on the previous step. */}
 
                     {manualEntry && (
                       <div onBlur={() => void checkTypedDcra()}>
@@ -1334,11 +1516,11 @@ export function Apply() {
           {/* ----------------------------------------------- STEP: OPERATIONS */}
           {step === 'operations' && (
             <Section letter="E" title="Operations" blurb="How the work actually gets done.">
-              <TextField
-                label="Operating location"
+              <SelectField
+                label="Operating region"
                 value={val('operating_location')}
                 onChange={set('operating_location')}
-                placeholder="Region, town or village"
+                options={REGIONS}
               />
               <TextAreaField
                 label="Production or service process"

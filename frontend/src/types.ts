@@ -168,6 +168,7 @@ export interface CitizenProfile {
   full_name: string | null;
   updated_on: string | null;
   phone: string | null;
+  email: string | null;
   date_of_birth: string | null;
   occupation: string | null;
   region: string | null;
@@ -182,6 +183,8 @@ export interface CitizenProfile {
   verified_address: string | null;
   identity_source: string | null;
   verified_on: string | null;
+  consent_version: string | null;
+  consent_accepted_on: string | null;
 }
 
 export interface ClusterCase {

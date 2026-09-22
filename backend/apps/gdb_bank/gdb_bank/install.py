@@ -112,7 +112,7 @@ APPLICATION_SECTIONS = (
 		"gdb_legal_structure",
 		"Legal Structure",
 		"Select",
-		"\nSole Trader\nPartnership\nCluster-supported",
+		"\nSole Trader\nPartnership\nCluster-supported\nIncorporated (Inc.)",
 	),
 	# The partners' e-IDs, when the structure is a partnership. Recorded as
 	# declared: naming somebody is not the same as that person agreeing, and a
