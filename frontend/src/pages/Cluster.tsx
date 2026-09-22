@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { EidBoxes } from '../components/EidBoxes';
 import { StatusBadge } from '../components/StatusBadge';
+import { PLAN_SECTIONS } from '../components/apply/cluster';
 import { isCompleteEid, EMPTY_EID } from '../eid';
 import type { Cluster as ClusterType, ClusterInvitation } from '../types';
 import { formatGyd } from '../utils';
@@ -14,12 +15,19 @@ const inputClass =
 const card = 'rounded-xl bg-white p-6 shadow';
 
 export function Cluster() {
-  const [cluster, setCluster] = useState<ClusterType | null | undefined>(undefined);
+  const [clusters, setClusters] = useState<ClusterType[] | undefined>(undefined);
+  const [selected, setSelected] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   const load = () =>
-    call<ClusterType | null>('gdb_bank.api.my_cluster')
-      .then(setCluster)
+    call<ClusterType[]>('gdb_bank.api.my_clusters')
+      .then((all) => {
+        setClusters(all ?? []);
+        // Keep whichever group was on screen; otherwise open the first.
+        setSelected((name) =>
+          name && (all ?? []).some((c) => c.name === name) ? name : ((all ?? [])[0]?.name ?? ''),
+        );
+      })
       .catch((err: Error) => setError(err.message));
 
   useEffect(() => {
@@ -28,15 +36,60 @@ export function Cluster() {
   }, []);
 
   if (error) return <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>;
-  if (cluster === undefined) return <p className="text-slate-500">Loading your cluster…</p>;
-  if (cluster === null)
-    return (
-      <div className="space-y-6">
-        <Invitations onJoined={() => void load()} />
-        <StartCluster onCreated={setCluster} />
-      </div>
-    );
+  if (clusters === undefined) return <p className="text-slate-500">Loading your clusters…</p>;
 
+  const cluster = clusters.find((c) => c.name === selected) ?? null;
+  const setCluster = (next: ClusterType) => {
+    setClusters((all) => (all ?? []).map((c) => (c.name === next.name ? next : c)));
+    setSelected(next.name);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ALWAYS, not only when this person belongs to nothing. A citizen can be
+          in several groups at once, so somebody already in one is exactly who a
+          second invitation is most likely to be waiting for — and before this
+          they had no way at all to answer it. */}
+      <Invitations onJoined={() => void load()} />
+
+      {clusters.length === 0 && <StartCluster onCreated={() => void load()} />}
+
+      {/* One tab per group. A head of three sees three, and which one they are
+          looking at is never a guess. */}
+      {clusters.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {clusters.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              onClick={() => setSelected(c.name)}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                c.name === selected
+                  ? 'bg-brand text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {cluster && <ClusterDetail cluster={cluster} onChanged={setCluster} reload={() => void load()} />}
+    </div>
+  );
+}
+
+function ClusterDetail({
+  cluster,
+  onChanged,
+  reload,
+}: {
+  cluster: ClusterType;
+  onChanged: (c: ClusterType) => void;
+  reload: () => void;
+}) {
+  const setCluster = onChanged;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -105,7 +158,7 @@ export function Cluster() {
         )}
       </section>
 
-      <Members cluster={cluster} onInvited={() => void load()} />
+      <Members cluster={cluster} onInvited={reload} />
     </div>
   );
 }
@@ -131,6 +184,7 @@ function Plan({
       const updated = await call<ClusterType>('gdb_bank.api.save_plan', {
         loan_purpose: purpose,
         business_plan: plan,
+        cluster: cluster.name,
       });
       onSaved(updated);
       setEditing(false);
@@ -178,23 +232,52 @@ function Plan({
     );
   }
 
+  // The seven sections the wizard writes. A plan written there used to read
+  // here as "not written yet", because this panel only ever knew about the one
+  // free-text field that came before it — telling every member of a group that
+  // their head had done nothing.
+  const written = PLAN_SECTIONS.filter((section) => (cluster.plan?.[section.key] ?? '').trim());
+
   return (
     <section className={card}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Shared business plan</h2>
-        {cluster.is_head && (
+        {cluster.can_edit_plan && (
           <button onClick={() => setEditing(true)} className="text-sm font-medium text-brand hover:underline">
             Edit
           </button>
         )}
       </div>
-      <p className="mb-2 text-sm">
-        <span className="font-medium text-slate-700">Purpose: </span>
-        <span className="text-slate-600">{cluster.loan_purpose || 'Not set yet'}</span>
-      </p>
-      <p className="whitespace-pre-wrap text-sm text-slate-600">
-        {cluster.business_plan || 'The cluster head has not written the plan yet.'}
-      </p>
+
+      {cluster.facilitator_name && (
+        <p className="mb-3 text-xs text-slate-500">
+          Facilitator: <span className="font-semibold text-slate-700">{cluster.facilitator_name}</span>
+        </p>
+      )}
+
+      {cluster.loan_purpose && (
+        <p className="mb-2 text-sm">
+          <span className="font-medium text-slate-700">Purpose: </span>
+          <span className="text-slate-600">{cluster.loan_purpose}</span>
+        </p>
+      )}
+
+      {written.length > 0 ? (
+        <div className="space-y-4">
+          {written.map((section) => (
+            <div key={section.key}>
+              <h3 className="text-sm font-bold text-slate-800">{section.title}</h3>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+                {cluster.plan[section.key]}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap text-sm text-slate-600">
+          {cluster.business_plan || 'The cluster head has not written the plan yet.'}
+        </p>
+      )}
     </section>
   );
 }
@@ -287,7 +370,7 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
     setError(null);
     setSent(null);
     try {
-      await call('gdb_bank.api.invite_member', { eid, full_name: name });
+      await call('gdb_bank.api.invite_member', { eid, full_name: name, cluster: cluster.name });
       setSent(eid);
       setEid(EMPTY_EID);
       setName('');

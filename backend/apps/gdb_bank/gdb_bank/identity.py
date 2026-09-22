@@ -238,12 +238,21 @@ def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict |
 	# account is attached to the User it turns out to be. A head can therefore
 	# invite somebody who has never signed in, which is the ordinary case in a
 	# programme reaching people who are not online yet.
-	from gdb_bank.api import _is_disbursement, _is_finance, _is_underwriter, link_pending_invitations
+	# A cluster that named this e-ID as its facilitator waits the same way, and
+	# is attached here for the same reason.
+	from gdb_bank.api import (
+		_is_disbursement,
+		_is_finance,
+		_is_underwriter,
+		link_pending_facilitator,
+		link_pending_invitations,
+	)
 	from gdb_bank.profiles import record_identity_claims
 
 	if claims:
 		record_identity_claims(user, eid, claims)
 	link_pending_invitations(user, eid)
+	link_pending_facilitator(user, eid)
 
 	return {
 		"user": user,

@@ -120,17 +120,30 @@ export function OfferPanel({
 
   if (!loaded || !offer) return null;
 
-  const mine = offer.applicant_name === user?.full_name;
+  const joint = offer.execution?.joint ?? false;
+  // On a group's offer the right to act is the viewer's own signature line,
+  // which the server has already worked out. On an individual offer it is the
+  // question it always was.
+  const mine = joint ? offer.can_sign : offer.applicant_name === user?.full_name;
+  // The name this viewer must type: their own line on a group's offer, the
+  // applicant's on their own.
+  const myLine = offer.signatures?.find((sig) => sig.signature_status === 'Pending' && offer.can_sign);
+  const nameToType = joint ? (myLine?.member_name ?? user?.full_name ?? '') : offer.applicant_name;
 
   const respond = async (accept: boolean) => {
     setBusy(true);
     setError(null);
     try {
       const updated = accept
-        ? await call<LoanOffer>('gdb_bank.offers.accept_offer', {
-            name: offer.name,
-            accepted_name: typedName,
-          })
+        ? joint
+          ? await call<LoanOffer>('gdb_bank.offers.sign_offer', {
+              name: offer.name,
+              signed_name: typedName,
+            })
+          : await call<LoanOffer>('gdb_bank.offers.accept_offer', {
+              name: offer.name,
+              accepted_name: typedName,
+            })
         : await call<LoanOffer>('gdb_bank.offers.decline_offer', {
             name: offer.name,
             reason,
@@ -209,16 +222,73 @@ export function OfferPanel({
 
       {offer.status === 'Issued' && (
         <p className="mb-4 text-sm text-slate-600">
-          This offer lapses on <strong>{formatDate(offer.valid_until)}</strong> unless you accept
-          it before then.
+          This offer lapses on <strong>{formatDate(offer.valid_until)}</strong> unless{' '}
+          {joint ? 'the group signs' : 'you accept'} it before then.
+        </p>
+      )}
+
+      {/* A group's Letter of Offer is one agreement with several parties to
+          it. Everyone can see where it stands, because a member waiting on
+          somebody else deserves to know who. */}
+      {joint && (
+        <div className="mb-4 rounded-xl bg-slate-50 p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-bold text-slate-800">Signatures</p>
+            <p className="text-xs font-medium text-slate-500">
+              {offer.execution.signed} of {offer.execution.total} signed
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-200">
+            {offer.signatures.map((sig) => (
+              <li key={sig.name} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-slate-800">
+                  {sig.member_name}
+                  {sig.is_head && (
+                    <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
+                      Head
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={`text-xs font-semibold ${
+                    sig.signature_status === 'Signed'
+                      ? 'text-emerald-700'
+                      : sig.signature_status === 'Declined'
+                        ? 'text-rose-600'
+                        : 'text-slate-400'
+                  }`}
+                >
+                  {sig.signature_status === 'Signed'
+                    ? `Signed ${formatDate(sig.signed_on)}`
+                    : sig.signature_status === 'Declined'
+                      ? 'Declined'
+                      : 'Waiting'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {offer.status === 'Issued' && !offer.execution.complete && (
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              The agreement is executed when the last member signs. GDB books nothing and releases
+              nothing until then.
+            </p>
+          )}
+        </div>
+      )}
+
+      {joint && offer.status === 'Issued' && !offer.can_sign && (
+        <p className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
+          {offer.signatures.some((sig) => sig.member_name === user?.full_name)
+            ? 'You have signed. The agreement is executed once every member has.'
+            : 'This is your group&rsquo;s offer. Only the members named on it can sign.'}
         </p>
       )}
 
       {offer.status === 'Issued' && mine && !declining && (
         <div className="border-t border-slate-200 pt-4">
           <p className="mb-2 text-sm text-slate-600">
-            To accept, type your name exactly as it appears above:{' '}
-            <strong>{offer.applicant_name}</strong>
+            To {joint ? 'sign' : 'accept'}, type your name exactly as it appears above:{' '}
+            <strong>{nameToType}</strong>
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -233,7 +303,7 @@ export function OfferPanel({
               onClick={() => void respond(true)}
               className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
             >
-              {busy ? 'Recording…' : 'Accept offer'}
+              {busy ? 'Recording…' : joint ? 'Sign the agreement' : 'Accept offer'}
             </button>
             <button
               type="button"
@@ -279,8 +349,18 @@ export function OfferPanel({
 
       {offer.status === 'Accepted' && (
         <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-          Accepted by <strong>{offer.accepted_name}</strong> on{' '}
-          {formatDate(offer.responded_on)}. This is your executed agreement with GDB.
+          {joint ? (
+            <>
+              Signed by all {offer.execution.total} members, the last on{' '}
+              {formatDate(offer.responded_on)}. This is the group&rsquo;s executed agreement with
+              GDB.
+            </>
+          ) : (
+            <>
+              Accepted by <strong>{offer.accepted_name}</strong> on{' '}
+              {formatDate(offer.responded_on)}. This is your executed agreement with GDB.
+            </>
+          )}
         </p>
       )}
       {offer.status === 'Declined' && (

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { LoanAccount } from '../components/LoanAccount';
 import { Card } from '../components/ui/Card';
+import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { ArrowRightIcon } from '../components/ui/icons';
 import type { LoanApplication } from '../types';
 import { formatGyd } from '../utils';
@@ -13,6 +14,7 @@ import { formatGyd } from '../utils';
 export function Payments() {
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [scope, setScope] = useState<'all' | 'own' | 'group'>('all');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,12 +23,30 @@ export function Payments() {
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  const facilities = useMemo(
+  const allFacilities = useMemo(
     () => (loans ?? []).filter((l) => l.stage === 'Disbursed' || l.disbursed_amount > 0),
     [loans],
   );
 
-  const active = selected ?? facilities[0]?.name ?? null;
+  // A group's facility and a personal one are answerable to different people,
+  // and a citizen in several clusters can end up with a long mixed list. The
+  // toggle only narrows what is shown — it never changes which facilities
+  // exist, and the default shows everything.
+  const facilities = useMemo(
+    () =>
+      allFacilities.filter((l) =>
+        scope === 'all' ? true : scope === 'group' ? Boolean(l.cluster) : !l.cluster,
+      ),
+    [allFacilities, scope],
+  );
+  const groupCount = allFacilities.filter((l) => l.cluster).length;
+
+  // A filter that hides the open facility would leave the panel below showing
+  // something no longer in the list above it.
+  const active = useMemo(() => {
+    if (selected && facilities.some((f) => f.name === selected)) return selected;
+    return facilities[0]?.name ?? null;
+  }, [selected, facilities]);
 
   if (error) {
     return <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>;
@@ -64,6 +84,25 @@ export function Payments() {
         </Card>
       ) : (
         <>
+          {/* Only worth offering when the list actually holds both kinds. */}
+          {groupCount > 0 && groupCount < allFacilities.length && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-500">
+                {facilities.length} of {allFacilities.length} facilit
+                {allFacilities.length === 1 ? 'y' : 'ies'}
+              </p>
+              <SegmentedControl
+                options={[
+                  { id: 'all' as const, label: 'All' },
+                  { id: 'own' as const, label: 'My own' },
+                  { id: 'group' as const, label: `Group (${groupCount})` },
+                ]}
+                value={scope}
+                onChange={setScope}
+              />
+            </div>
+          )}
+
           {/* Only worth a chooser when there is more than one facility. */}
           {facilities.length > 1 && (
             <div className="flex flex-wrap gap-2">
@@ -72,14 +111,27 @@ export function Payments() {
                   key={f.name}
                   onClick={() => setSelected(f.name)}
                   className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
-                    active === f.name
-                      ? 'border-brand bg-white shadow-sm shadow-brand/20'
-                      : 'border-slate-200 bg-white/60 hover:border-slate-300'
+                    // A group's facility is marked in the chooser, not only
+                    // once it is open: several of these belong to one person
+                    // and one belongs to a whole cluster, and which is which
+                    // decides who else is paying into it.
+                    f.cluster
+                      ? active === f.name
+                        ? 'border-gdb-gold bg-gdb-gold/[0.12] shadow-sm shadow-gdb-gold/30'
+                        : 'border-gdb-gold/50 bg-gdb-gold/[0.06] hover:border-gdb-gold'
+                      : active === f.name
+                        ? 'border-brand bg-white shadow-sm shadow-brand/20'
+                        : 'border-slate-200 bg-white/60 hover:border-slate-300'
                   }`}
                 >
                   <span className="block text-xs font-medium text-slate-400">{f.name}</span>
                   <span className="block font-bold text-slate-800">{formatGyd(f.loan_amount)}</span>
                   <span className="block truncate text-xs text-slate-500">{f.purpose}</span>
+                  {f.cluster && (
+                    <span className="mt-1.5 inline-block rounded-full bg-gdb-gold/40 px-2 py-0.5 text-[11px] font-semibold text-brand-dark">
+                      {f.cluster}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

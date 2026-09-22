@@ -56,6 +56,13 @@ export function LoanAccount({
   const loan = account.loan;
   const dues = account.dues ?? {};
   const rows = showAll ? account.schedule : account.schedule.slice(0, 6);
+  const payments = account.payments ?? [];
+  // A group's facility, which is the case this panel exists for: one loan
+  // carries the whole cluster, so who paid is part of the record from the
+  // first payment. On a sole borrower's loan every row would repeat the same
+  // name, so the payer is named only once a second person has actually paid.
+  const forCluster = Boolean(account.cluster);
+  const showPayer = forCluster || new Set(payments.map((p) => p.paid_by_name)).size > 1;
   const overdue = dues.overdue_total_amount ?? 0;
 
   const pay = async (e: FormEvent) => {
@@ -179,6 +186,76 @@ export function LoanAccount({
           {showAll ? 'Show fewer instalments' : `Show all ${account.schedule.length} instalments`}
         </button>
       )}
+
+      {/* Payments received. The schedule above is what is owed and when; this
+          is what has actually been paid, and on a cluster facility by whom —
+          one loan carries the whole group, so a member who has paid their
+          share and one who has not are otherwise indistinguishable. */}
+      <div
+        className={
+          forCluster
+            ? 'mt-5 rounded-xl border border-gdb-gold/60 bg-gdb-gold/[0.07] p-4 shadow-sm'
+            : 'mt-5 border-t border-slate-100 pt-5'
+        }
+      >
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-bold text-slate-800">Payments received</p>
+          {forCluster && (
+            <span className="rounded-full bg-gdb-gold/40 px-2.5 py-0.5 text-xs font-semibold text-brand-dark">
+              {account.cluster} · group facility
+            </span>
+          )}
+        </div>
+        {payments.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {forCluster
+              ? 'No payment has been received yet. This is one facility for the whole group — every payment appears here with the member who made it.'
+              : 'No payment has been received yet. Anything paid against this facility appears here, with the date it was received.'}
+          </p>
+        ) : (
+          <div
+            className={`overflow-hidden rounded-xl border ${
+              forCluster ? 'border-gdb-gold/50 bg-white' : 'border-slate-200'
+            }`}
+          >
+            <table className="w-full text-left text-sm">
+              <thead
+                className={`text-xs uppercase tracking-wide ${
+                  forCluster ? 'bg-gdb-gold/25 text-brand-dark' : 'bg-slate-50 text-slate-500'
+                }`}
+              >
+                <tr>
+                  <th className="px-4 py-2 font-semibold">Date</th>
+                  {showPayer && <th className="px-4 py-2 font-semibold">Paid by</th>}
+                  <th className="px-4 py-2 font-semibold">Type</th>
+                  <th className="px-4 py-2 text-right font-semibold">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {payments.map((p) => (
+                  <tr key={p.name}>
+                    <td className="px-4 py-2 text-slate-600">{formatDate(p.posting_date)}</td>
+                    {showPayer && (
+                      <td className="px-4 py-2 font-medium text-slate-800">
+                        {p.paid_by_name ?? 'Received by GDB'}
+                        {p.paid_by_eid && (
+                          <span className="ml-2 font-mono text-xs text-slate-400">
+                            {p.paid_by_eid}
+                          </span>
+                        )}
+                      </td>
+                    )}
+                    <td className="px-4 py-2 text-xs text-slate-500">{p.repayment_type}</td>
+                    <td className="px-4 py-2 text-right font-medium text-slate-800">
+                      {formatGyd(p.amount_paid)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {!canPay && (
         <p className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-500">

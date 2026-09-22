@@ -15,6 +15,7 @@ from contextlib import contextmanager
 
 import frappe
 from frappe import _
+from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, flt, fmt_money, now_datetime, nowdate
 
 from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME
@@ -551,14 +552,13 @@ def _cluster_for(user: str, cluster: str | None) -> str:
 	  - you may only file against a cluster you are an ACTIVE member of;
 	  - only the HEAD may borrow on the group's behalf.
 	"""
-	joined = _cluster_of(user)
 	if cluster is None:
 		return ""
 
 	cluster = (cluster or "").strip()
 	if not cluster:
 		return ""
-	if cluster != joined:
+	if cluster not in _clusters_of(user):
 		frappe.throw(
 			_("You are not a member of cluster {0}.").format(cluster), frappe.PermissionError
 		)
@@ -809,7 +809,7 @@ def _is_shared_with(row, user: str) -> bool:
 	every member may open it. A member's own application stays their own.
 	"""
 	cluster = row.get("gdb_cluster")
-	if not cluster or _cluster_of(user) != cluster:
+	if not cluster or cluster not in _clusters_of(user):
 		return False
 	return frappe.db.get_value("GDB Cluster", cluster, "head") == row.get("gdb_owner")
 
@@ -818,9 +818,13 @@ def _is_shared_with(row, user: str) -> bool:
 def my_loans():
 	"""The logged-in citizen's applications, newest first."""
 	user = _session_user()
-	cluster = _cluster_of(user)
-	head = frappe.db.get_value("GDB Cluster", cluster, "head") if cluster else None
-	owners = [user, head] if head and head != user else [user]
+	# Every cluster this citizen is in, not one: a member of two groups must
+	# see both heads' applications, and `_is_shared_with` below decides which
+	# of the rows fetched are actually theirs to read.
+	heads = {
+		frappe.db.get_value("GDB Cluster", cluster, "head") for cluster in _clusters_of(user)
+	}
+	owners = list({user} | {head for head in heads if head})
 	rows = frappe.get_all(
 		"Loan Application",
 		filters={"gdb_owner": ["in", owners], "docstatus": ["<", 2]},
@@ -1009,16 +1013,40 @@ def convert_lead(lead: str, cluster: str | None = None, purpose: str | None = No
 	frappe.db.commit()
 	_logger().info(f"lead {lead} -> application {doc.name} by {user}")
 	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
-def _cluster_of(user: str) -> str | None:
-	"""The cluster this user has JOINED, if any.
+def _clusters_of(user: str) -> list[str]:
+	"""Every cluster this user has JOINED. The one place membership is decided.
 
 	Active only. An invitation is not membership: someone who has been asked
 	and not yet answered must not have the group's application appear in their
-	list, and must still be free to be invited elsewhere.
+	list.
+
+	A person may belong to as many clusters as they are invited to and accept.
+	That is the whole reason this returns a list: a fisherman can be in the
+	landing-site cold-store group and the boat-repair group at once, and
+	neither membership is a reason to refuse the other. Every question about
+	membership — which cases are readable, which cluster an application may be
+	filed against, what the desk may see — comes through here, so multi-cluster
+	is implemented once rather than re-derived at each call site.
 	"""
-	return frappe.db.get_value(
-		"GDB Cluster Member", {"member": user, "member_status": "Active"}, "parent"
+	return frappe.get_all(
+		"GDB Cluster Member",
+		filters={"member": user, "member_status": "Active"},
+		pluck="parent",
 	)
+
+
+def _cluster_of(user: str) -> str | None:
+	"""The FIRST cluster this user joined, or None.
+
+	Kept because a single cluster was the only possibility when much of this
+	module was written, and a caller that genuinely wants one cluster — a
+	default to offer, a heading to print — should not have to say which.
+	Anything deciding permission or visibility must use `_clusters_of`: asking
+	"which cluster is this person in" of somebody in three is a question with
+	no correct answer.
+	"""
+	clusters = _clusters_of(user)
+	return clusters[0] if clusters else None
 
 
 def _invitation_of(user: str, eid: str | None = None):
@@ -1071,6 +1099,53 @@ def _require_head(user: str, cluster: str) -> None:
 		frappe.throw(_("Only the cluster head may do this."), frappe.PermissionError)
 
 
+def _head_cluster(user: str, cluster: str | None) -> str:
+	"""Resolve which of the caller's clusters they are acting as head of.
+
+	Named, or — for the single-cluster caller this app used to assume — the
+	only one they are in. Somebody in two groups who does not say which gets
+	asked rather than guessed at: an invitation sent to the wrong group is not
+	something the recipient can be expected to notice.
+	"""
+	cluster = (cluster or "").strip()
+	joined = _clusters_of(user)
+	if not cluster:
+		if not joined:
+			frappe.throw(_("You are not in a cluster."))
+		if len(joined) > 1:
+			frappe.throw(_("Say which cluster this is for."))
+		cluster = joined[0]
+	elif cluster not in joined:
+		frappe.throw(
+			_("You are not a member of cluster {0}.").format(cluster), frappe.PermissionError
+		)
+	_require_head(user, cluster)
+	return cluster
+
+
+def _require_shared_editor(user: str, cluster: str) -> None:
+	"""Who may write the group's SHARED sections: the head, or the facilitator.
+
+	The facilitator is attached to help a group put its plan together, so a
+	facilitator who can only read one is no help at all. This is the whole of
+	their authority: it is checked here, on the shared plan, and nowhere near
+	an application, an assessment, a decision or an offer — none of which a
+	facilitator may touch, and none of which call this.
+
+	Each member's own sections are not shared sections, and are not covered.
+	"""
+	row = frappe.db.get_value(
+		"GDB Cluster", cluster, ["head", "facilitator"], as_dict=True
+	)
+	if not row:
+		frappe.throw(_("Cluster {0} not found.").format(cluster))
+	if user not in (row.head, row.facilitator):
+		frappe.throw(
+			_("Only the cluster head or its facilitator may edit the shared plan."),
+			frappe.PermissionError,
+		)
+
+
 @frappe.whitelist()
 def create_cluster(
 	cluster_name: str,
@@ -1078,17 +1153,30 @@ def create_cluster(
 	sector: str | None = None,
 	loan_purpose: str | None = None,
 	business_plan: str | None = None,
+	group_purpose: str | None = None,
+	locality: str | None = None,
+	is_registered: str | None = None,
+	facilitator_eid: str | None = None,
+	facilitator_requested: int | None = None,
 ):
-	"""A citizen starts a cluster and becomes its head."""
+	"""A citizen starts a cluster and becomes its head.
+
+	Belonging to a group is no longer a reason to refuse another one. One
+	person's businesses can share a cold store with their neighbours and a
+	boat-repair shed with a different set of people, and asking them to pick
+	one would not make either group less real. So the only uniqueness left is
+	the cluster's own name.
+
+	Everything after `business_plan` is new and optional, which is what keeps
+	the older two-argument call — the one `Cluster.tsx` still makes — working
+	unchanged.
+	"""
 	user = _session_user()
 	cluster_name = (cluster_name or "").strip()
 	if not cluster_name:
 		frappe.throw(_("Cluster name is required."))
 	if frappe.db.exists("GDB Cluster", cluster_name):
 		frappe.throw(_("A cluster called {0} already exists.").format(cluster_name))
-	joined = _cluster_of(user)
-	if joined:
-		frappe.throw(_("You already belong to cluster {0}.").format(joined))
 
 	doc = frappe.get_doc(
 		{
@@ -1098,12 +1186,16 @@ def create_cluster(
 			"sector": (sector or "").strip(),
 			"loan_purpose": (loan_purpose or "").strip(),
 			"business_plan": (business_plan or "").strip(),
+			"group_purpose": (group_purpose or "").strip(),
+			"locality": (locality or "").strip(),
+			"is_registered": (is_registered or "").strip(),
 			"head": user,
 			"status": "Active",
 			"members": [
 				{
 					"member": user,
 					"member_name": frappe.utils.get_fullname(user),
+					"member_eid": frappe.db.get_value("User", user, "gdb_eid"),
 					"member_status": "Active",
 					"is_head": 1,
 					"joined_on": nowdate(),
@@ -1114,11 +1206,17 @@ def create_cluster(
 	doc.insert(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"cluster {doc.name} created by {user}")
-	return my_cluster()
+
+	# After the insert, so a facilitator e-ID that turns out to be unusable
+	# costs the head the facilitator and not the group they just named.
+	if cint(facilitator_requested) or (facilitator_eid or "").strip():
+		attach_facilitator(doc.name, facilitator_eid, requested=1)
+
+	return cluster_view(doc.name)
 
 
 @frappe.whitelist()
-def invite_member(eid: str, full_name: str | None = None):
+def invite_member(eid: str, full_name: str | None = None, cluster: str | None = None):
 	"""The head INVITES somebody by e-ID. They join by accepting, not by being added.
 
 	This used to take an email address, mint a portal account and drop the
@@ -1131,12 +1229,14 @@ def invite_member(eid: str, full_name: str | None = None):
 	they happen to hold; the row is written as Invited; and the invitation is
 	answered by that person, signed in as themselves. If they have never signed
 	in, the row waits against the bare e-ID until they do (link_pending_invitations).
+
+	`cluster` names which group the invitation is to. It is optional only so
+	that the older caller — which could not have named one, because there was
+	only ever one — keeps working; a head of two groups must say which, or the
+	invitation would land in whichever one happened to come back first.
 	"""
 	user = _session_user()
-	cluster = _cluster_of(user)
-	if not cluster:
-		frappe.throw(_("You are not in a cluster."))
-	_require_head(user, cluster)
+	cluster = _head_cluster(user, cluster)
 
 	from gdb_bank.identity import normalize_eid
 
@@ -1147,9 +1247,8 @@ def invite_member(eid: str, full_name: str | None = None):
 	if invitee:
 		if invitee == user:
 			frappe.throw(_("You are already the head of this cluster."))
-		joined = _cluster_of(invitee)
-		if joined:
-			frappe.throw(_("That person already belongs to cluster {0}.").format(joined))
+		# Belonging elsewhere is no longer a bar. Belonging HERE is: the
+		# check that matters is against this cluster's own roster, below.
 		full_name = full_name or frappe.utils.get_fullname(invitee)
 
 	doc = frappe.get_doc("GDB Cluster", cluster)
@@ -1164,7 +1263,7 @@ def invite_member(eid: str, full_name: str | None = None):
 			row.responded_on = None
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
-			return my_cluster()
+			return cluster_view(cluster)
 
 	doc.append(
 		"members",
@@ -1179,7 +1278,7 @@ def invite_member(eid: str, full_name: str | None = None):
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"{user} invited {eid} to cluster {cluster} (user: {invitee or 'not yet'})")
-	return my_cluster()
+	return cluster_view(cluster)
 
 
 @frappe.whitelist()
@@ -1235,9 +1334,6 @@ def respond_to_invitation(cluster: str, accept=1):
 		frappe.throw(_("You have no outstanding invitation to {0}.").format(cluster))
 
 	if accepting:
-		joined = _cluster_of(user)
-		if joined:
-			frappe.throw(_("You already belong to cluster {0}.").format(joined))
 		row.member = user
 		row.member_name = frappe.utils.get_fullname(user)
 		row.member_eid = row.member_eid or eid
@@ -1252,17 +1348,24 @@ def respond_to_invitation(cluster: str, accept=1):
 	_logger().info(
 		f"{user} {'accepted' if accepting else 'declined'} the invitation to {cluster}"
 	)
-	return my_cluster() if accepting else {"declined": cluster}
+	return cluster_view(cluster) if accepting else {"declined": cluster}
 
 
 @frappe.whitelist()
-def save_plan(loan_purpose: str | None = None, business_plan: str | None = None):
-	"""The head edits the shared purpose and business plan."""
+def save_plan(
+	loan_purpose: str | None = None,
+	business_plan: str | None = None,
+	cluster: str | None = None,
+):
+	"""The head edits the shared purpose and the legacy free-text plan.
+
+	Untouched apart from taking the cluster it is editing, which a caller in
+	one group may still omit. The seven sectioned questions have their own
+	endpoint — `save_cluster_plan` — so a portal built against this one keeps
+	working and keeps writing to the same field it always did.
+	"""
 	user = _session_user()
-	cluster = _cluster_of(user)
-	if not cluster:
-		frappe.throw(_("You are not in a cluster."))
-	_require_head(user, cluster)
+	cluster = _head_cluster(user, cluster)
 
 	doc = frappe.get_doc("GDB Cluster", cluster)
 	if loan_purpose is not None:
@@ -1271,15 +1374,222 @@ def save_plan(loan_purpose: str | None = None, business_plan: str | None = None)
 		doc.business_plan = business_plan.strip()
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
-	return my_cluster()
+	return cluster_view(cluster)
 
 
 @frappe.whitelist()
 def my_cluster():
-	"""The caller's cluster, or None. Safe to call for every logged-in user."""
+	"""The caller's FIRST cluster, or None. Safe to call for every logged-in user.
+
+	Left exactly as it was, for the portal pages written when one cluster was
+	all anybody could have. `my_clusters` is the honest question now.
+	"""
 	user = _session_user()
 	cluster = _cluster_of(user)
 	return cluster_view(cluster) if cluster else None
+
+
+@frappe.whitelist()
+def my_clusters():
+	"""Every cluster the caller is in, plus any they facilitate.
+
+	The facilitated ones are included because a facilitator has no roster row
+	— they are attached to the group, not a member of it — and a list that
+	left them out would leave them with a cluster they can edit and no way to
+	reach it.
+	"""
+	user = _session_user()
+	names = list(_clusters_of(user))
+	for name in frappe.get_all("GDB Cluster", filters={"facilitator": user}, pluck="name"):
+		if name not in names:
+			names.append(name)
+	return [cluster_view(name) for name in names]
+
+
+# The seven questions the shared plan asks. One list, so the doctype, the
+# endpoint and the portal cannot drift into disagreeing about what a cluster
+# plan consists of.
+PLAN_SECTIONS = (
+	"plan_executive_summary",
+	"plan_how_formed",
+	"plan_governance",
+	"plan_market",
+	"plan_shared_project",
+	"plan_operations",
+	"plan_impact",
+)
+
+
+@frappe.whitelist()
+def save_cluster_plan(cluster: str, **sections):
+	"""The head or the attached facilitator writes the shared plan.
+
+	Only the seven shared sections, and only the ones passed: a facilitator
+	filling in the market section must not blank the executive summary the
+	head wrote, and two people working on the same plan should not have to
+	take turns. Anything else in the payload is ignored rather than refused,
+	because this endpoint's job is the plan and nothing near an application.
+	"""
+	user = _session_user()
+	cluster = (cluster or "").strip()
+	if not cluster:
+		frappe.throw(_("Say which cluster this plan is for."))
+	_require_shared_editor(user, cluster)
+
+	doc = frappe.get_doc("GDB Cluster", cluster)
+	written = []
+	for field in PLAN_SECTIONS:
+		value = sections.get(field)
+		if value is None:
+			continue
+		doc.set(field, (value or "").strip())
+		written.append(field)
+	if not written:
+		return cluster_view(cluster)
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"{user} wrote {len(written)} plan section(s) on cluster {cluster}")
+	return cluster_view(cluster)
+
+
+@frappe.whitelist()
+def save_cluster_details(
+	cluster: str,
+	region: str | None = None,
+	sector: str | None = None,
+	group_purpose: str | None = None,
+	locality: str | None = None,
+	is_registered: str | None = None,
+):
+	"""The group's own description: what it does, where, and whether it is registered.
+
+	Separate from `save_cluster_plan` because these are facts about the group
+	rather than the case it is making, and because the region is what GDB
+	routes a facilitator on — it has to be editable without touching a word of
+	the plan. Head or facilitator, same rule as the plan.
+
+	Only the fields passed are written, so the head correcting a village name
+	cannot blank the region.
+	"""
+	user = _session_user()
+	cluster = (cluster or "").strip()
+	if not cluster:
+		frappe.throw(_("Say which cluster this is for."))
+	_require_shared_editor(user, cluster)
+
+	doc = frappe.get_doc("GDB Cluster", cluster)
+	for field, value in (
+		("region", region),
+		("sector", sector),
+		("group_purpose", group_purpose),
+		("locality", locality),
+		("is_registered", is_registered),
+	):
+		if value is not None:
+			doc.set(field, (value or "").strip())
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	return cluster_view(cluster)
+
+
+@frappe.whitelist()
+@rate_limit(limit=40, seconds=60 * 5)
+def lookup_eid(eid: str):
+	"""Who an e-ID belongs to, for a head filling in a members table.
+
+	Answers a name ONLY for an e-ID that already holds a portal account, and
+	nothing else about them — not their email, not their region, not whether
+	they have ever borrowed. An unknown e-ID comes back as simply unknown,
+	which is a perfectly good answer: an invitation may be issued to somebody
+	who has never signed in.
+
+	Rate-limited because a name-for-a-number endpoint is a directory if you
+	let it be one. Eleven digits is a small enough space to walk, and the
+	limit is what stops this being the way to walk it. The limit is per
+	CALLER, not per e-ID looked up — keyed the other way it would count one
+	request against each number and never fire, which is the shape of the
+	enumeration it exists to stop.
+	"""
+	user = _session_user()
+	from gdb_bank.identity import normalize_eid
+
+	eid = normalize_eid(eid)
+
+	row = frappe.db.get_value("User", {"gdb_eid": eid}, ["name", "enabled"], as_dict=True)
+	if not row or not row.enabled:
+		return {"eid": eid, "registered": False, "name": None}
+	return {
+		"eid": eid,
+		"registered": True,
+		"name": frappe.utils.get_fullname(row.name),
+		"is_you": row.name == user,
+	}
+
+
+@frappe.whitelist()
+def attach_facilitator(cluster: str, eid: str | None = None, requested: int | None = None):
+	"""Name the GDB regional facilitator who will help this group.
+
+	Named by e-ID, like everybody else in this bank. An e-ID with no portal
+	account yet is still a valid answer: `facilitator_eid` holds it and the
+	link is made on that person's first sign-in, exactly as an invitation to a
+	member waits for them.
+
+	Attaching somebody does NOT give them anything beyond the shared plan —
+	see `_require_shared_editor`. It is not a role grant, and it is not a
+	referral the Bank has accepted: `facilitator_requested` records that the
+	group asked, which is the fact GDB routes on.
+	"""
+	user = _session_user()
+	cluster = _head_cluster(user, cluster)
+	doc = frappe.get_doc("GDB Cluster", cluster)
+
+	eid = (eid or "").strip()
+	if not eid:
+		doc.facilitator = None
+		doc.facilitator_eid = None
+		doc.facilitator_name = None
+		doc.facilitator_requested = cint(requested)
+	else:
+		from gdb_bank.identity import normalize_eid
+
+		eid = normalize_eid(eid)
+		if eid == frappe.db.get_value("User", user, "gdb_eid"):
+			frappe.throw(_("You cannot be your own group's facilitator."))
+		match = frappe.db.get_value("User", {"gdb_eid": eid}, "name")
+		doc.facilitator = match
+		doc.facilitator_eid = eid
+		doc.facilitator_name = frappe.utils.get_fullname(match) if match else None
+		doc.facilitator_requested = 1
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"{user} set facilitator {eid or '(none)'} on cluster {cluster}")
+	return cluster_view(cluster)
+
+
+def link_pending_facilitator(user: str, eid: str) -> int:
+	"""Attach clusters that named this e-ID as facilitator before they signed in.
+
+	The mirror of `link_pending_invitations`, and called from the same place.
+	"""
+	rows = frappe.get_all(
+		"GDB Cluster",
+		filters={"facilitator_eid": eid, "facilitator": ["in", ["", None]]},
+		pluck="name",
+	)
+	for name in rows:
+		frappe.db.set_value(
+			"GDB Cluster",
+			name,
+			{"facilitator": user, "facilitator_name": frappe.utils.get_fullname(user)},
+			update_modified=False,
+		)
+	if rows:
+		frappe.db.commit()
+		_logger().info(f"linked {len(rows)} cluster facilitator row(s) for {eid} -> {user}")
+	return len(rows)
 
 
 @frappe.whitelist()
@@ -1298,7 +1608,7 @@ def cluster_view(cluster: str):
 	# see is any other member's own case — that filter is below and applies to
 	# every non-staff reader alike.
 	members = {m.get("member") for m in roster if m.get("member")}
-	if not (_is_staff(user) or user in members):
+	if not (_is_staff(user) or user in members or user == doc.facilitator):
 		frappe.throw(_("You are not a member of this cluster."), frappe.PermissionError)
 
 	cases = []
@@ -1342,8 +1652,20 @@ def cluster_view(cluster: str):
 		"sector": doc.sector,
 		"loan_purpose": doc.loan_purpose,
 		"business_plan": doc.business_plan,
+		"group_purpose": doc.group_purpose,
+		"locality": doc.locality,
+		"is_registered": doc.is_registered,
+		"facilitator": doc.facilitator,
+		"facilitator_eid": doc.facilitator_eid,
+		"facilitator_name": doc.facilitator_name,
+		"facilitator_requested": bool(doc.facilitator_requested),
+		"plan": {field: doc.get(field) for field in PLAN_SECTIONS},
 		"head": doc.head,
 		"is_head": doc.head == user,
+		# The facilitator writes the shared plan and nothing else. The SPA
+		# mirrors this to decide what to enable; api enforces it either way.
+		"is_facilitator": bool(doc.facilitator) and doc.facilitator == user,
+		"can_edit_plan": user in (doc.head, doc.facilitator),
 		"viewer": user,
 		"members": [
 			{
@@ -1400,13 +1722,18 @@ def loan_account(application: str):
 	Returns loan: None while the application is still with the underwriter.
 	"""
 	user = _session_user()
-	_readable_application(application, user)
+	row = _readable_application(application, user)
 
 	loan = frappe.db.get_value(
 		"Loan", {"loan_application": application}, LOAN_ACCOUNT_FIELDS, as_dict=True
 	)
 	if not loan:
 		return {"application": application, "loan": None, "schedule": [], "next_due": None}
+
+	# Whether this facility belongs to a group, said plainly rather than
+	# inferred from how many people happen to have paid so far. The first
+	# payment into a cluster loan needs attributing just as much as the tenth.
+	cluster = row.get("gdb_cluster") or None
 
 	schedule = []
 	sched = frappe.db.get_value(
@@ -1465,7 +1792,49 @@ def loan_account(application: str):
 		"schedule": schedule,
 		"dues": dues,
 		"disbursable": disbursable,
+		"cluster": cluster,
+		"payments": _repayment_history(loan.name),
 	}
+
+
+def _repayment_history(loan: str) -> list[dict]:
+	"""Every payment received against this facility, newest first.
+
+	`gdb_paid_by` has been stamped on each portal repayment since the endpoint
+	was written, and until now nothing ever read it back. On a CLUSTER facility
+	that omission mattered: one loan carries the whole group, several members
+	may pay into it, and a single `total_amount_paid` cannot tell any of them —
+	or the head answering for it — who has actually paid. The figure was there
+	and the contributions behind it were not.
+
+	Submitted repayments only (docstatus 1). A cancelled repayment is money
+	that did not stay received, and showing it as a payment would overstate
+	what the group has put in.
+
+	Nothing here computes money: every figure is lending's own row.
+	"""
+	rows = frappe.get_all(
+		"Loan Repayment",
+		filters={"against_loan": loan, "docstatus": 1},
+		fields=[
+			"name",
+			"posting_date",
+			"amount_paid",
+			"principal_amount_paid",
+			"repayment_type",
+			"gdb_paid_by",
+		],
+		order_by="posting_date desc, creation desc",
+	)
+	names = _eids([r.gdb_paid_by for r in rows if r.gdb_paid_by])
+	for row in rows:
+		payer = row.pop("gdb_paid_by", None)
+		# Who paid, as a person rather than a mailbox — the e-ID is how GDB
+		# names anybody else in this bank. A receipt applied from Collections
+		# has no portal payer at all, and says so.
+		row["paid_by_name"] = frappe.utils.get_fullname(payer) if payer else None
+		row["paid_by_eid"] = names.get(payer) if payer else None
+	return rows
 
 
 

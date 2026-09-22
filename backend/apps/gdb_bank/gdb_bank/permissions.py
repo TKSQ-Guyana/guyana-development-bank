@@ -17,13 +17,12 @@ def _is_staff(user: str) -> bool:
 
 def _visible_applications(user: str) -> list[str]:
 	"""Applications this citizen may see: their own, plus the head's
-	application for a cluster they belong to."""
-	from gdb_bank.api import _cluster_of
+	application for every cluster they belong to."""
+	from gdb_bank.api import _clusters_of
 
 	names = frappe.get_all("Loan Application", filters={"gdb_owner": user}, pluck="name")
 
-	cluster = _cluster_of(user)
-	if cluster:
+	for cluster in _clusters_of(user):
 		head = frappe.db.get_value("GDB Cluster", cluster, "head")
 		if head:
 			names += frappe.get_all(

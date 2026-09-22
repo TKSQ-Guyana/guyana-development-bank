@@ -1,0 +1,86 @@
+{
+ "actions": [],
+ "creation": "2026-09-22 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "member",
+  "member_eid",
+  "member_name",
+  "is_head",
+  "signature_status",
+  "signed_name",
+  "signed_on",
+  "declined_reason"
+ ],
+ "fields": [
+  {
+   "description": "The cluster member this signature line belongs to. Empty only while that member's e-ID has no portal account yet, in which case they cannot sign until it does.",
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Member",
+   "options": "User"
+  },
+  {
+   "fieldname": "member_eid",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member e-ID"
+  },
+  {
+   "description": "The name this member must type to sign, taken from the roster when the offer was issued so it cannot drift afterwards.",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member Name",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_head",
+   "fieldtype": "Check",
+   "label": "Cluster Head"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "signature_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nSigned\nDeclined"
+  },
+  {
+   "description": "The name as this member typed it. Their signature.",
+   "fieldname": "signed_name",
+   "fieldtype": "Data",
+   "label": "Signed As",
+   "read_only": 1
+  },
+  {
+   "fieldname": "signed_on",
+   "fieldtype": "Datetime",
+   "label": "Signed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "declined_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Declining",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Offer Signature",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

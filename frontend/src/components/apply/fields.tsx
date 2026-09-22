@@ -89,6 +89,7 @@ interface TextAreaFieldProps {
   placeholder?: string;
   required?: boolean;
   rows?: number;
+  disabled?: boolean;
 }
 
 export function TextAreaField({
@@ -99,12 +100,14 @@ export function TextAreaField({
   placeholder,
   required,
   rows = 3,
+  disabled,
 }: TextAreaFieldProps) {
   return (
     <Field label={label} hint={hint} required={required}>
       <textarea
         rows={rows}
         value={value}
+        disabled={disabled}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className={`${controlClass} resize-y leading-relaxed`}

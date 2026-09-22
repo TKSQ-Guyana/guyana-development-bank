@@ -13,9 +13,25 @@
   "column_break_head",
   "head",
   "status",
+  "section_break_group",
+  "group_purpose",
+  "locality",
+  "is_registered",
+  "column_break_group",
+  "facilitator_requested",
+  "facilitator",
+  "facilitator_eid",
+  "facilitator_name",
   "section_break_plan",
   "loan_purpose",
   "business_plan",
+  "plan_executive_summary",
+  "plan_how_formed",
+  "plan_governance",
+  "plan_market",
+  "plan_shared_project",
+  "plan_operations",
+  "plan_impact",
   "section_break_members",
   "members"
  ],
@@ -64,6 +80,59 @@
    "options": "Active\nClosed"
   },
   {
+   "fieldname": "section_break_group",
+   "fieldtype": "Section Break",
+   "label": "About the Group"
+  },
+  {
+   "description": "What the group does together. Required of a cluster raised through the portal; blank on clusters created before this section existed.",
+   "fieldname": "group_purpose",
+   "fieldtype": "Small Text",
+   "label": "What the Group Does"
+  },
+  {
+   "description": "The village, ward or stelling.",
+   "fieldname": "locality",
+   "fieldtype": "Data",
+   "label": "Part of the Region"
+  },
+  {
+   "fieldname": "is_registered",
+   "fieldtype": "Select",
+   "label": "Is the Group Registered?",
+   "options": "\nRegistered\nNot registered\nRegistration in progress"
+  },
+  {
+   "fieldname": "column_break_group",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The head asked for a GDB regional facilitator to be attached.",
+   "fieldname": "facilitator_requested",
+   "fieldtype": "Check",
+   "label": "Facilitator Requested"
+  },
+  {
+   "description": "The attached facilitator's portal account, once that e-ID has one. Set from facilitator_eid; never typed directly.",
+   "fieldname": "facilitator",
+   "fieldtype": "Link",
+   "label": "Facilitator",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "The facilitator as an e-ID. Holds even when that person has never signed in — the link above is filled on their first e-ID sign-in.",
+   "fieldname": "facilitator_eid",
+   "fieldtype": "Data",
+   "label": "Facilitator e-ID"
+  },
+  {
+   "fieldname": "facilitator_name",
+   "fieldtype": "Data",
+   "label": "Facilitator Name",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_break_plan",
    "fieldtype": "Section Break",
    "label": "Shared Plan"
@@ -74,9 +143,52 @@
    "label": "Loan Purpose"
   },
   {
+   "description": "The single free-text plan this app carried before the plan was sectioned. Kept so no existing cluster loses what its head wrote.",
    "fieldname": "business_plan",
    "fieldtype": "Text",
-   "label": "Business Plan"
+   "label": "Business Plan (legacy)"
+  },
+  {
+   "description": "Who this group is, what it is building together, and why it is worth doing.",
+   "fieldname": "plan_executive_summary",
+   "fieldtype": "Long Text",
+   "label": "Executive Summary"
+  },
+  {
+   "description": "How the businesses found one another, who brought them together, and when.",
+   "fieldname": "plan_how_formed",
+   "fieldtype": "Long Text",
+   "label": "How the Cluster Formed"
+  },
+  {
+   "description": "How the group decides things, who leads it, how members join or leave, and what the written agreement says.",
+   "fieldname": "plan_governance",
+   "fieldtype": "Long Text",
+   "label": "Governance and Membership"
+  },
+  {
+   "description": "Who the group sells to, what it competes with, and what the demand looks like.",
+   "fieldname": "plan_market",
+   "fieldtype": "Long Text",
+   "label": "Market"
+  },
+  {
+   "description": "What is being built or bought together, where it sits, and what it will do for the group.",
+   "fieldname": "plan_shared_project",
+   "fieldtype": "Long Text",
+   "label": "The Shared Project"
+  },
+  {
+   "description": "How the shared project will be run day to day, and what it costs the group to run.",
+   "fieldname": "plan_operations",
+   "fieldtype": "Long Text",
+   "label": "Operations"
+  },
+  {
+   "description": "Jobs, training, and what the shared project changes for the community around it.",
+   "fieldname": "plan_impact",
+   "fieldtype": "Long Text",
+   "label": "Social and Economic Impact"
   },
   {
    "fieldname": "section_break_members",
@@ -92,7 +204,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-11 00:00:00.000000",
+ "modified": "2026-09-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "GDB Bank",
  "name": "GDB Cluster",

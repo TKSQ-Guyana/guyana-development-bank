@@ -15,8 +15,23 @@ import {
   TextAreaField,
   TextField,
 } from '../components/apply/fields';
+import {
+  ClusterIdentity,
+  GroupDetails,
+  MembersTable,
+  PLAN_SECTIONS,
+  SharedPlan,
+} from '../components/apply/cluster';
 import { EMPTY_EID, isCompleteEid } from '../eid';
-import type { BankAccountRecord, Cluster, DcraRecord, LoanApplication, UseOfFundsRow } from '../types';
+import type {
+  BankAccountRecord,
+  Cluster,
+  ClusterPlan,
+  ClusterPlanSection,
+  DcraRecord,
+  LoanApplication,
+  UseOfFundsRow,
+} from '../types';
 import { encodeUseOfFunds, formatGyd, parseUseOfFunds } from '../utils';
 
 /** The guided application.
@@ -60,11 +75,30 @@ const SECTORS = [
  *  and how it is owned is the next question rather than the first one. */
 type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported';
 
-type StepId = 'consent' | 'route' | 'business' | 'operations' | 'finances' | 'funding' | 'evidence';
+type StepId =
+  | 'consent'
+  | 'route'
+  | 'group'
+  | 'members'
+  | 'plan'
+  | 'business'
+  | 'operations'
+  | 'finances'
+  | 'funding'
+  | 'evidence';
+
+/** The steps only a cluster application asks. They are filtered out entirely
+ *  for an applicant applying alone, rather than shown and skipped: a step that
+ *  appears in the rail and cannot be reached is a step somebody will phone
+ *  GDB about. */
+const CLUSTER_STEPS: StepId[] = ['group', 'members', 'plan'];
 
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
   { id: 'consent', title: 'Consent', blurb: 'Let GDB fetch the records this application needs' },
   { id: 'route', title: 'How you are applying', blurb: 'Who the loan is for, and what kind of business it is' },
+  { id: 'group', title: 'About your group', blurb: 'What the group does, and where it works' },
+  { id: 'members', title: 'Group members', blurb: 'Who is in the group' },
+  { id: 'plan', title: 'The shared plan', blurb: 'What the group is building together' },
   { id: 'business', title: 'Your business', blurb: 'Identity, what it does, and who it sells to' },
   { id: 'operations', title: 'Operations', blurb: 'How the work gets done' },
   { id: 'finances', title: 'Financial information', blurb: 'What the business earns, or expects to' },
@@ -94,12 +128,14 @@ interface Saved {
   useOfFunds: UseOfFundsRow[];
   step: StepId;
   draftName?: string;
+  clusterName?: string;
+  wantsFacilitator?: boolean | null;
+  facilitatorEid?: string;
 }
 
 export function Apply() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const storageKey = `gdb.apply.${user?.user ?? 'anon'}`;
 
   const [step, setStep] = useState<StepId>('consent');
   // null = not checked yet. Fetched once from the citizen's own profile, so a
@@ -121,7 +157,29 @@ export function Apply() {
   const [sections, setSections] = useState<Sections>({});
   const [useOfFunds, setUseOfFunds] = useState<UseOfFundsRow[]>([{ item: '', amount: 0 }]);
 
+  // The cluster this application is being filed for, once it exists, and the
+  // groups this citizen already heads. A person may lead several — each group
+  // applies separately, and naming one here is what makes this the group's
+  // application rather than their own.
   const [cluster, setCluster] = useState<Cluster | null>(null);
+  const [myClusters, setMyClusters] = useState<Cluster[]>([]);
+  const [chosenCluster, setChosenCluster] = useState('');
+  const [clusterName, setClusterName] = useState('');
+  const [wantsFacilitator, setWantsFacilitator] = useState<boolean | null>(null);
+  const [facilitatorEid, setFacilitatorEid] = useState(EMPTY_EID);
+  const [groupPurpose, setGroupPurpose] = useState('');
+  const [groupRegion, setGroupRegion] = useState('');
+  const [groupLocality, setGroupLocality] = useState('');
+  const [groupRegistered, setGroupRegistered] = useState('');
+  const [plan, setPlan] = useState<ClusterPlan>({
+    plan_executive_summary: '',
+    plan_how_formed: '',
+    plan_governance: '',
+    plan_market: '',
+    plan_shared_project: '',
+    plan_operations: '',
+    plan_impact: '',
+  });
   const [banks, setBanks] = useState<string[]>([]);
   const [bank, setBank] = useState('');
   const [accountNo, setAccountNo] = useState('');
@@ -152,6 +210,33 @@ export function Apply() {
   // Filing against the group is a consequence of the structure chosen, not a
   // separate switch that could disagree with it.
   const forCluster = structure === 'Cluster-supported';
+  const storageKey = `gdb.apply.${user?.user ?? 'anon'}`;
+
+  // Only the steps this route actually asks. A sole trader never sees the
+  // group screens at all.
+  const steps = useMemo(
+    () => STEPS.filter((s) => forCluster || !CLUSTER_STEPS.includes(s.id)),
+    [forCluster],
+  );
+
+  // A group's application is a DIFFERENT application, never the personal draft
+  // carried over. Switching route — or switching which group — drops the
+  // server draft so the next save opens a new one, and the case an underwriter
+  // reads is the one that was actually filled in for that group.
+  const lastTarget = useRef<string | null>(null);
+  useEffect(() => {
+    const target = forCluster ? `cluster:${chosenCluster || clusterName}` : 'own';
+    if (lastTarget.current !== null && lastTarget.current !== target) {
+      setDraft(null);
+      setMissing([]);
+    }
+    lastTarget.current = target;
+  }, [forCluster, chosenCluster, clusterName]);
+
+  // A step that has just been filtered away must not be the one on screen.
+  useEffect(() => {
+    if (!steps.some((s) => s.id === step)) setStep('route');
+  }, [steps, step]);
   const validCoApplicants = coApplicants.filter(isCompleteEid);
 
   const set = (key: string) => (v: string) => setSections((s) => ({ ...s, [key]: v }));
@@ -189,6 +274,9 @@ export function Apply() {
       // device's local draft — it is a record GDB keeps, not a form value.
       // A step id from before a wizard change (e.g. the old 'market' step)
       // would otherwise point nowhere in the current STEPS list.
+      setClusterName(s.clusterName ?? '');
+      setWantsFacilitator(s.wantsFacilitator ?? null);
+      setFacilitatorEid(s.facilitatorEid ?? EMPTY_EID);
       if (s.step && s.step !== 'consent' && STEPS.some((st) => st.id === s.step)) setStep(s.step);
       setRestored(true);
     } catch {
@@ -212,6 +300,9 @@ export function Apply() {
       useOfFunds,
       step,
       draftName: draft?.name,
+      clusterName,
+      wantsFacilitator,
+      facilitatorEid,
     };
     try {
       localStorage.setItem(storageKey, JSON.stringify(payload));
@@ -234,16 +325,25 @@ export function Apply() {
     step,
     draft,
     storageKey,
+    clusterName,
+    wantsFacilitator,
+    facilitatorEid,
   ]);
 
   // --- reference data -----------------------------------------------------
   useEffect(() => {
-    call<Cluster | null>('gdb_bank.api.my_cluster')
-      .then((c) => {
-        setCluster(c);
-        if (c?.loan_purpose) setPurpose((p) => p || c.loan_purpose || '');
+    call<Cluster[]>('gdb_bank.api.my_clusters')
+      .then((all) => {
+        const mine = (all ?? []).filter((c) => c.is_head);
+        setMyClusters(mine);
+        // Only pre-select when there is exactly one and no ambiguity about
+        // which group is meant. Two groups is a question for the applicant.
+        if (mine.length === 1) {
+          setCluster(mine[0]);
+          if (mine[0].loan_purpose) setPurpose((p) => p || mine[0].loan_purpose || '');
+        }
       })
-      .catch(() => setCluster(null));
+      .catch(() => setMyClusters([]));
     call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
     void loadMyAccounts();
     call<{ consent_version?: string }>('gdb_bank.profiles.my_profile')
@@ -446,9 +546,12 @@ export function Apply() {
     return saved;
   };
 
-  const index = STEPS.findIndex((s) => s.id === step);
-  const current = STEPS[index];
-  const isLast = index === STEPS.length - 1;
+  const index = Math.max(
+    0,
+    steps.findIndex((s) => s.id === step),
+  );
+  const current = steps[index];
+  const isLast = index === steps.length - 1;
 
   /** What this step still needs before it can be left. Returns null when the
    *  step is complete. Presentation only — the server re-checks everything. */
@@ -461,6 +564,33 @@ export function Apply() {
       if (!structure) return 'Tell us how you are applying.';
       if (structure === 'Partnership' && validCoApplicants.length === 0) {
         return "Give at least one partner's e-ID, or apply as a sole trader.";
+      }
+      if (forCluster) {
+        if (!chosenCluster && !clusterName.trim()) return 'Give your group a name.';
+        if (wantsFacilitator === null) return 'Tell us whether you would like a regional facilitator.';
+        if (wantsFacilitator && facilitatorEid !== EMPTY_EID && !isCompleteEid(facilitatorEid)) {
+          return "Finish the facilitator's e-ID, or clear it and GDB will attach one for your region.";
+        }
+      }
+    }
+    if (step === 'group') {
+      if (!groupPurpose.trim()) return 'Tell us what the group does.';
+      if (!groupRegion) return 'Tell us which region the group works in.';
+      if (!groupRegistered) return 'Tell us whether the group is registered.';
+    }
+    if (step === 'members') {
+      // One member besides the head. A "group" of one is an individual
+      // application, and filing it as a group's would put a facility in a
+      // name nobody else agreed to.
+      const others = (cluster?.members ?? []).filter((m) => !m.is_head);
+      if (others.length === 0) return 'Add at least one other member to the group.';
+    }
+    if (step === 'plan') {
+      if (!(plan.plan_executive_summary ?? '').trim()) {
+        return 'Write the executive summary — it is what an underwriter reads first.';
+      }
+      if (!(plan.plan_shared_project ?? '').trim()) {
+        return 'Describe the shared project the group is building.';
       }
     }
     if (step === 'business') {
@@ -482,6 +612,16 @@ export function Apply() {
     stage,
     structure,
     validCoApplicants.length,
+    forCluster,
+    chosenCluster,
+    clusterName,
+    wantsFacilitator,
+    facilitatorEid,
+    groupPurpose,
+    groupRegion,
+    groupRegistered,
+    cluster,
+    plan,
     businessName,
     dcra,
     sections,
@@ -501,6 +641,78 @@ export function Apply() {
     if (step === 'consent' && !consentAccepted) {
       if (!(await acceptConsent())) return;
     }
+
+    // Leaving the route step on the cluster path is what BRINGS THE GROUP INTO
+    // BEING: the head has named it and said whether they want a facilitator,
+    // which is everything a group needs to exist. The rest — what it does,
+    // who is in it, what it plans — is asked of a group that already has a
+    // name, because members are invited to something.
+    if (step === 'route' && forCluster) {
+      setBusy(true);
+      try {
+        const group = chosenCluster
+          ? await call<Cluster>('gdb_bank.api.cluster_view', { cluster: chosenCluster })
+          : cluster?.name === clusterName.trim()
+            ? cluster
+            : await call<Cluster>('gdb_bank.api.create_cluster', {
+                cluster_name: clusterName.trim(),
+                facilitator_eid: wantsFacilitator && isCompleteEid(facilitatorEid) ? facilitatorEid : '',
+                facilitator_requested: wantsFacilitator ? 1 : 0,
+              });
+        setCluster(group);
+        // A group picked from the list arrives with its own answers already
+        // in it; the screens ahead edit those rather than start blank.
+        setGroupPurpose((v) => v || group.group_purpose || '');
+        setGroupRegion((v) => v || group.region || '');
+        setGroupLocality((v) => v || group.locality || '');
+        setGroupRegistered((v) => v || group.is_registered || '');
+        setPlan((p) => ({ ...p, ...Object.fromEntries(
+          PLAN_SECTIONS.map((sec) => [sec.key, p[sec.key] || group.plan?.[sec.key] || '']),
+        ) } as ClusterPlan));
+        if (group.facilitator_eid && !isCompleteEid(facilitatorEid)) {
+          setFacilitatorEid(group.facilitator_eid);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not create your group');
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+    }
+
+    if (step === 'group' && cluster) {
+      setBusy(true);
+      try {
+        setCluster(
+          await call<Cluster>('gdb_bank.api.save_cluster_details', {
+            cluster: cluster.name,
+            group_purpose: groupPurpose,
+            region: groupRegion,
+            locality: groupLocality,
+            is_registered: groupRegistered,
+          }),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not save your group's details");
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+    }
+
+    if (step === 'plan' && cluster) {
+      setBusy(true);
+      try {
+        setCluster(
+          await call<Cluster>('gdb_bank.api.save_cluster_plan', { cluster: cluster.name, ...plan }),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save the shared plan');
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+    }
     // From the funding step onward there is enough to hold a server draft, and
     // from then on every move forward writes one.
     if (step === 'funding') {
@@ -514,13 +726,13 @@ export function Apply() {
       }
       setBusy(false);
     }
-    setStep(STEPS[Math.min(index + 1, STEPS.length - 1)].id);
+    setStep(steps[Math.min(index + 1, steps.length - 1)].id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const goBack = () => {
     setError(null);
-    setStep(STEPS[Math.max(index - 1, 0)].id);
+    setStep(steps[Math.max(index - 1, 0)].id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -576,7 +788,7 @@ export function Apply() {
           deciding whether to begin needs to see what the whole thing asks. */}
       <nav className="mb-6 overflow-x-auto">
         <ol className="flex min-w-max items-center">
-          {STEPS.map((s, i) => {
+          {steps.map((s, i) => {
             const done = i < index;
             const active = i === index;
             return (
@@ -626,7 +838,7 @@ export function Apply() {
       <div className="min-w-0">
         <header className="mb-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
-            Step {index + 1} of {STEPS.length}
+            Step {index + 1} of {steps.length}
           </p>
           <h2 className="mt-1 text-2xl font-bold text-slate-900">{current.title}</h2>
           <p className="mt-1 text-sm text-slate-500">{current.blurb}</p>
@@ -739,24 +951,19 @@ export function Apply() {
                       selected={structure === 'Partnership'}
                       onSelect={() => setStructure('Partnership')}
                     />
-                    <ChoiceCard
-                      title="Cluster-supported"
-                      body={
-                        cluster?.is_head
-                          ? `On behalf of ${cluster.name}.`
-                          : cluster
-                            ? `Only the head of ${cluster.name} can do this.`
-                            : 'You are not a member of a cluster.'
-                      }
-                      note={
-                        cluster?.is_head
-                          ? "The group's roster and every member's records become part of the case, and every member can see it."
-                          : undefined
-                      }
-                      disabled={!cluster?.is_head}
-                      selected={structure === 'Cluster-supported'}
-                      onSelect={() => setStructure('Cluster-supported')}
-                    />
+                    {/* Only a new venture may be cluster-supported. A
+                        business already trading applies on its own accounts;
+                        a group forms to build something that does not exist
+                        yet, which is what this route is for. */}
+                    {stage === 'New' && (
+                      <ChoiceCard
+                        title="Cluster-supported"
+                        body="You and other businesses applying as one group."
+                        note="One application, one Letter of Offer, and every member of the group signs it."
+                        selected={structure === 'Cluster-supported'}
+                        onSelect={() => setStructure('Cluster-supported')}
+                      />
+                    )}
                   </div>
 
                   {/* Partners are named by e-ID, never by mailbox — the e-ID is
@@ -802,22 +1009,99 @@ export function Apply() {
                     </div>
                   )}
 
-                  {structure === 'Cluster-supported' && cluster?.is_head && (
-                    <Notice tone="info">
-                      This application will be filed against <strong>{cluster.name}</strong>. Every
-                      active member can see it.
-                    </Notice>
+                  {/* The group is named here and nowhere else. Asking for it
+                      on a separate page and sending the applicant back would
+                      lose them the wizard they are halfway through. */}
+                  {forCluster && (
+                    <div className="rounded-lg bg-slate-50/80 p-4">
+                      <ClusterIdentity
+                        clusterName={clusterName}
+                        onName={setClusterName}
+                        wantsFacilitator={wantsFacilitator}
+                        onWantsFacilitator={setWantsFacilitator}
+                        facilitatorEid={facilitatorEid}
+                        onFacilitatorEid={setFacilitatorEid}
+                        existing={myClusters}
+                        chosen={chosenCluster}
+                        onChoose={setChosenCluster}
+                        locked={Boolean(cluster && cluster.name === clusterName.trim())}
+                      />
+                    </div>
                   )}
 
-                  {!cluster && (
+                  {forCluster && (
                     <Notice tone="info">
-                      Applying with a cluster? Create or join one under <strong>My cluster</strong>{' '}
-                      first, then come back &mdash; only a cluster head can apply for a group.
+                      This is the group&rsquo;s application, not yours. Every active member can see
+                      it, and every one of them signs the Letter of Offer before GDB releases a
+                      dollar.
                     </Notice>
                   )}
                 </Section>
               )}
             </>
+          )}
+
+          {/* ---------------------------------------------------- STEP: GROUP */}
+          {step === 'group' && (
+            <Section
+              letter="C1"
+              title="About your group"
+              blurb="What the group does, and where it works. The region decides which GDB regional facilitator can be attached to help you."
+            >
+              <GroupDetails
+                purpose={groupPurpose}
+                onPurpose={setGroupPurpose}
+                region={groupRegion}
+                onRegion={setGroupRegion}
+                locality={groupLocality}
+                onLocality={setGroupLocality}
+                registered={groupRegistered}
+                onRegistered={setGroupRegistered}
+              />
+              {cluster?.facilitator_name && (
+                <Notice tone="good">
+                  <strong>{cluster.facilitator_name}</strong> is attached to this group as its
+                  facilitator. They can help you write the shared plan, and they see nothing else.
+                </Notice>
+              )}
+              {cluster?.facilitator_requested && !cluster.facilitator && (
+                <Notice tone="info">
+                  GDB has your request for a facilitator. One will be attached for{' '}
+                  {groupRegion || 'your region'}.
+                </Notice>
+              )}
+            </Section>
+          )}
+
+          {/* -------------------------------------------------- STEP: MEMBERS */}
+          {step === 'members' && (
+            <Section
+              letter="C2"
+              title="Group members"
+              blurb="Add each member by their national e-ID. Everyone you add is invited — they join by accepting, signed in as themselves."
+            >
+              <MembersTable cluster={cluster} onChanged={setCluster} />
+              <Notice tone="info">
+                An e-ID that has never signed in to GDB is still a valid member. The invitation
+                waits for them, and attaches itself the first time they sign in.
+              </Notice>
+            </Section>
+          )}
+
+          {/* ----------------------------------------------------- STEP: PLAN */}
+          {step === 'plan' && (
+            <Section
+              letter="C3"
+              title="The shared plan"
+              blurb="The group's case, in its own words. This is what an underwriter reads before anything else."
+            >
+              <SharedPlan
+                plan={plan}
+                onChange={(key: ClusterPlanSection, value: string) =>
+                  setPlan((p) => ({ ...p, [key]: value }))
+                }
+              />
+            </Section>
           )}
 
           {/* ------------------------------------------------- STEP: BUSINESS */}

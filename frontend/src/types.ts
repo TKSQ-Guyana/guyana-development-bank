@@ -196,17 +196,78 @@ export interface ClusterCase {
   monthly_repayment?: number;
 }
 
+/** The seven questions the shared plan asks. Keyed to match the backend's
+ *  PLAN_SECTIONS exactly, so the two cannot drift. */
+export interface ClusterPlan {
+  plan_executive_summary: string | null;
+  plan_how_formed: string | null;
+  plan_governance: string | null;
+  plan_market: string | null;
+  plan_shared_project: string | null;
+  plan_operations: string | null;
+  plan_impact: string | null;
+}
+
+export type ClusterPlanSection = keyof ClusterPlan;
+
 export interface Cluster {
   name: string;
   region: string | null;
   sector: string | null;
   loan_purpose: string | null;
+  /** The single free-text plan this portal wrote before the plan was
+   *  sectioned. Still shown where it holds anything. */
   business_plan: string | null;
+  group_purpose: string | null;
+  locality: string | null;
+  is_registered: string | null;
+  /** Null while the facilitator's e-ID has no portal account yet — the e-ID
+   *  below still names them, exactly as an invitation does for a member. */
+  facilitator: string | null;
+  facilitator_eid: string | null;
+  facilitator_name: string | null;
+  facilitator_requested: boolean;
+  plan: ClusterPlan;
   head: string;
   is_head: boolean;
+  is_facilitator: boolean;
+  /** The head or the attached facilitator. Mirrors the server's own rule;
+   *  the server enforces it either way. */
+  can_edit_plan: boolean;
   viewer: string;
   members: ClusterMember[];
   applications: ClusterCase[];
+}
+
+/** One party's line on a cluster's Letter of Offer. */
+export interface OfferSignature {
+  name: string;
+  member: string | null;
+  member_eid: string | null;
+  member_name: string;
+  is_head: boolean;
+  signature_status: 'Pending' | 'Signed' | 'Declined';
+  signed_name: string | null;
+  signed_on: string | null;
+}
+
+/** Absent on an individual offer, which is accepted rather than signed. */
+export interface OfferExecution {
+  joint: boolean;
+  signed: number;
+  total: number;
+  outstanding: string[];
+  declined?: string[];
+  complete: boolean | null;
+}
+
+/** What `lookup_eid` answers: a name only for an e-ID that already holds a
+ *  portal account, and nothing else about that person. */
+export interface EidLookup {
+  eid: string;
+  registered: boolean;
+  name: string | null;
+  is_you?: boolean;
 }
 
 export interface ScheduleRow {
@@ -255,10 +316,28 @@ export interface LoanRow {
   posting_date: string | null;
 }
 
+/** One payment received against a facility. On a cluster's loan several
+ *  members pay into the same account, so the payer is part of the record. */
+export interface LoanPayment {
+  name: string;
+  posting_date: string;
+  amount_paid: number;
+  principal_amount_paid: number;
+  repayment_type: string;
+  /** Null for a receipt applied by the Bank from Collections rather than paid
+   *  through the portal. */
+  paid_by_name: string | null;
+  paid_by_eid: string | null;
+}
+
 export interface LoanAccount {
   application: string;
   loan: BookedLoan | null;
   schedule: ScheduleRow[];
+  /** Optional so an older cached payload still type-checks. */
+  payments?: LoanPayment[];
+  /** The group this facility belongs to, or null for a sole borrower's loan. */
+  cluster?: string | null;
   dues?: LoanDues;
   /** What lending says is still drawable. Server-side only for underwriters;
    *  null for everyone else. Never derive this on the client. */
@@ -371,6 +450,10 @@ export interface LoanOffer {
   responded_on: string | null;
   decline_reason: string | null;
   can_accept: boolean;
+  signatures: OfferSignature[];
+  execution: OfferExecution;
+  /** This viewer has an unsigned line on a cluster offer. */
+  can_sign: boolean;
 }
 
 /** What DCRA said about a registration number. `source` is load-bearing:
