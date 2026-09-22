@@ -61,6 +61,12 @@ export function ApplicantLayout() {
     navigate('/login');
   };
 
+  // Staff aren't applying for anything themselves, so the citizen rail
+  // (applications, payments, statements, cluster, ...) is noise here —
+  // their destinations are the "Bank" group below.
+  const isStaff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  const items = isStaff ? [] : NAV_ITEMS;
+
   const staffItems: SidebarItem[] = [];
   if (user?.is_underwriter) {
     staffItems.push({ to: '/review', label: 'Review queue', icon: <ReviewIcon /> });
@@ -78,7 +84,7 @@ export function ApplicantLayout() {
       <Sidebar
         variant="wide"
         brand={{ title: 'Guyana Development Bank', subtitle: 'Citizen portal' }}
-        items={NAV_ITEMS}
+        items={items}
         groups={groups}
         account={
           <div className="flex items-center gap-3 rounded-xl px-3 py-2">

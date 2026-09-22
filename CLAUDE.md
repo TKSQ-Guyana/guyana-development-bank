@@ -173,3 +173,61 @@ email; `temporary: false` on credentials; `directAccessGrantsEnabled`;
 Frontend gates: `npm run typecheck && npm run build` in `frontend/`.
 Backend sanity: `docker compose up -d --build backend`, wait for
 `Site … ready`, then exercise an endpoint (login + `gdb_bank.api.whoami`).
+
+---
+
+## Enterprise Architecture & Coding Standards
+
+> **CORE PRINCIPLE:** The frontend is an untrusted client. The backend is the enforcement boundary. Every financial state transition must be authorized, validated, auditable, idempotent where applicable, and executed within a well-defined consistency boundary.
+
+### 1. Frontend Architecture & State
+* **Structural Taxonomy:** Maintain a strict separation of concerns beyond just "features".
+  * `entities/`: Domain models and types (Applicant, Loan, Business).
+  * `features/`: Business capabilities (Applications, Finance, Identity).
+  * `widgets/`: Complex assembled UI (Application Summary, Navigation).
+  * `shared/`: Generic UI (Buttons, Cards), base API wrappers, configuration.
+* **Component Responsibility:** Component quality is measured by responsibility, state ownership, and testability—not strictly by line count. 
+* **State Boundaries:** Do not duplicate server state in client state.
+  * **React Query:** Owns server state (loan status, profiles, documents).
+  * **Zustand:** Owns temporary UI/workflow state (current wizard step, themes).
+  * **React Hook Form + Zod:** Use for complex wizards/forms. Do not dump every keystroke into Zustand.
+* **Client-Side Security:** NEVER store PII or sensitive financial data in `localStorage`, `sessionStorage`, `IndexedDB`, or URL query parameters (e.g., `?nin=123`). Do not send PII to analytics or `console.log`.
+
+### 2. Backend Architecture & Frappe Rules
+* **Layered Boundaries:** Separate concerns into API Controllers (routing, payload parsing), Services/Use Cases (business logic, transaction boundaries), and Repositories (complex Frappe ORM queries).
+* **Security vs. Domain:** Authorization policies (e.g., `_require_underwriter`) belong in `security/` or `infrastructure/` modules, not in core business `domain/` modules.
+* **Frappe Lifecycle (`doc.save` vs `db_set`):**
+  * **Business State:** ALWAYS use `doc.save()` or a controlled domain method. This guarantees Frappe's audit logging, validation, and webhooks fire.
+  * **System State:** `doc.db_set()` bypasses validation and audit hooks. It is ONLY allowed for exceptional, non-business operational updates (e.g., `last_seen`, `processing_lock`).
+* **Raw SQL:** Raw SQL writes to business data are strictly prohibited. Raw SQL reads are allowed only when the ORM is inefficient, but they require strict parameterization, review, and least-privilege access.
+
+### 3. Financial Controls & Integrity
+* **Idempotency (Mandatory):** All state-changing financial APIs (submit, approve, disburse, repay) must enforce idempotency using an `Idempotency-Key` header to prevent duplicate transactions on network retries.
+* **Separation of Duties (Maker ≠ Checker):** The person who creates or reviews an application cannot be the same person who approves or disburses it. This must be structurally enforced by the backend.
+* **Server-Side Drafts:** Form drafts must use server-side persistence with **Optimistic Concurrency** (e.g., `If-Match: 17`) to prevent race conditions if an applicant has multiple tabs open.
+* **External API Resilience:** Government APIs (e.g., DCRA) must be wrapped in timeouts, retries, and circuit breakers. An external API timeout must yield a `VERIFICATION_PENDING` state for manual review, never a business rejection.
+
+### 4. Security & Authentication
+* **Authentication:** Transition to OIDC Authorization Code Flow with PKCE. Strongly consider a **BFF (Backend For Frontend)** to handle token management, CSRF, and rate limiting, keeping access tokens completely out of the browser.
+* **Authorization (Prevent BOLA/IDOR):** Never trust client-supplied IDs. `GET /applications/123` must strictly verify that the authenticated user owns or has role-based access to resource `123`.
+* **Document Security:** Never trust user-supplied filenames. Enforce MIME type validation (magic numbers), strict size limits, virus scanning, and authorized signed URLs for downloads.
+
+### 5. Observability & Auditing
+* **Technical Logs vs. Business Audit:** 
+  * *Technical logs* capture API requests, latency, and errors using Request IDs. **Do not log PII.**
+  * *Business audit trails* must be tamper-resistant and capture: *Who? What changed? Old value? New value? When? Why? Which workflow transition?*
+* **Error Taxonomy:** Never expose stack traces, SQL queries, or Keycloak internals to the frontend. Use standardized error payloads (e.g., `{"code": "LOAN_INVALID_STATE"}`) mapped to appropriate HTTP status codes (400, 401, 403, 404, 409, 422).
+
+### 6. Forbidden Patterns
+**DO NOT:**
+* Put business logic in React components.
+* Trust frontend roles for backend authorization.
+* Store PII in client storage or URLs.
+* Expose stack traces or internal DB hostnames.
+* Perform raw SQL business writes.
+* Bypass workflow transitions or use `db_set` for business data.
+* Hardcode secrets or commit `.env` files.
+* Perform non-idempotent financial operations.
+* Call external APIs without timeouts.
+* Silently swallow exceptions.
+ Dev_V3

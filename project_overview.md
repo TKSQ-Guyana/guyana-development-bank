@@ -28,12 +28,6 @@ Launch product: zero-interest GDB lending
 
 Currency: GYD only 
 
-Launch maximum: G$3,000,000 per borrower/product, from configuration 
-
-Interest: Nil 
-
-Collateral: None for the launch product, from configuration 
-
  
 
 The maximum is not an entitlement. The Underwriter may approve a lower amount based on evidence, repayment capacity, plan readiness and policy. 

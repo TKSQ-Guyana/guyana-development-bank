@@ -40,6 +40,31 @@ JSON takes no comments, so they are recorded here.
    only way in — otherwise `citizen@example.gy` would also be accepted as a
    login, and the portal would have two spellings of one identity.
 
+## Troubleshooting: "Could not reach the sign-in service"
+
+The portal shows this when the backend's password-grant call to Keycloak
+cannot connect — not a credentials problem, a networking one. Confirm with:
+
+```
+docker inspect guyana-development-bank-keycloak-1 --format '{{json .NetworkSettings.Networks}}'
+```
+
+If that prints `{}`, the keycloak container is attached to **no Docker
+network** — it drifted off `guyana-development-bank_default` without being
+removed, so `docker compose ps` still lists it as `Up` and its logs show it
+serving fine, but `backend` can't resolve the `keycloak` DNS name and
+`docker port` shows no published `8086` either. Compose does not reattach a
+running container's network on `up` unless the container is recreated, so a
+stale container silently breaks e-ID login while everything else looks
+healthy. Fix: `docker compose up -d keycloak` (recreates it, does not touch
+the realm data in the `keycloak-data` volume). Confirmed working again when
+the network list is non-empty and this returns `200`:
+
+```
+docker compose exec -T backend curl -s -o /dev/null -w '%{http_code}\n' \
+  http://keycloak:8080/realms/gdb-citizen/.well-known/openid-configuration
+```
+
 ## What this is not
 
 This realm authenticates an e-ID **that somebody provisioned**; it does not

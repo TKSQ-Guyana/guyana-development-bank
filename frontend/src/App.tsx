@@ -39,6 +39,14 @@ function RequireUnderwriter({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** An underwriter has no loans of their own, so the citizen dashboard has
+ *  nothing for them — land them on the queue they actually work from. */
+function Index() {
+  const { user } = useAuth();
+  if (user?.is_underwriter) return <Navigate to="/review" replace />;
+  return <Dashboard />;
+}
+
 /** The books are Finance's, not the underwriter's and not the disbursement
  *  officer's. Mirrored server-side in api._require_finance — this only
  *  decides what to render. */
@@ -70,7 +78,7 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the
                 list because that is what the sidebar points at; starting a new
                 one is a deliberate step from there. */}

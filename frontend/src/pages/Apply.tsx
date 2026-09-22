@@ -922,13 +922,15 @@ export function Apply() {
                             </div>
                           ) : null}
                         </dl>
-                        <p className="mt-2 text-[11px] text-slate-400">
-                          {dcraRecord.source === 'dcra'
-                            ? 'Confirmed by the DCRA register.'
-                            : dcraRecord.source === 'gdb_history'
-                              ? 'From your earlier GDB application — GDB will verify it against DCRA.'
-                              : 'Sandbox register — for testing only.'}
-                        </p>
+                        {dcraRecord.source === 'dcra' ? (
+                          <p className="mt-2 text-[11px] text-slate-400">
+                            Confirmed by the DCRA register.
+                          </p>
+                        ) : dcraRecord.source === 'gdb_history' ? (
+                          <p className="mt-2 text-[11px] text-slate-400">
+                            From your earlier GDB application — GDB will verify it against DCRA.
+                          </p>
+                        ) : null}
                         {dcraRecord.status && dcraRecord.status !== 'Active' && (
                           <div className="mt-2">
                             <Notice tone="warn">
