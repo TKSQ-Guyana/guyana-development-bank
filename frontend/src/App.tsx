@@ -12,6 +12,7 @@ import { Portfolio } from './pages/Finance/Portfolio';
 import { Ledger } from './pages/Finance/Ledger';
 import { RuleProposals } from './pages/Finance/RuleProposals';
 import { Dashboard } from './pages/Dashboard';
+import { Landing } from './pages/Landing';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { Payments } from './pages/Payments';
@@ -31,6 +32,34 @@ function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
   return <>{children}</>;
+}
+
+/**
+ * The applicant shell — and the one place that decides what "/" is.
+ *
+ * "/" means two different pages to two different people: the public landing
+ * page to somebody who has not signed in, and their own dashboard to somebody
+ * who has. Deciding it HERE, in the layout wrapper, rather than moving the
+ * dashboard to "/dashboard", is what keeps every existing `to="/"` in the
+ * sidebar, the breadcrumbs and the post-action redirects pointing at the
+ * right thing for the person who clicks it.
+ *
+ * Rendering <Landing /> in the layout's place (with no <Outlet />) is what
+ * stops the child index route underneath it from rendering at all — so a
+ * signed-out visitor at "/" gets the front door, and anyone reaching deeper
+ * without a session still gets sent to sign in and brought back.
+ */
+function ApplicantShell() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  if (loading) {
+    return <p className="p-8 text-center text-slate-500">Loading…</p>;
+  }
+  if (!user) {
+    if (location.pathname === '/') return <Landing />;
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  return <ApplicantLayout />;
 }
 
 function RequireUnderwriter({ children }: { children: ReactNode }) {
@@ -71,13 +100,7 @@ export function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route
-            element={
-              <RequireAuth>
-                <ApplicantLayout />
-              </RequireAuth>
-            }
-          >
+          <Route element={<ApplicantShell />}>
             <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the
                 list because that is what the sidebar points at; starting a new

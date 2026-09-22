@@ -12,10 +12,57 @@
   --color-brand-dark: #1e3a8a;
   --color-brand-light: #dbeafe;
   --color-brand-text: #1e40af;
+
+  /* ------------------------------------------------------------------ *
+   * PUBLIC SITE PALETTE — the landing page and sign-in.
+   *
+   * A third palette, deliberately. Everything above dresses the signed-in
+   * application; these tokens dress the two pages a citizen sees BEFORE
+   * they have an account, which were designed as a government programme
+   * front door rather than as banking software. `gdb-gold` (#fcd116) is the
+   * flag's yellow and stays what it is; `gdb-goldleaf` is the deeper
+   * ceremonial gold the public pages rule and underline with, and the two
+   * are not interchangeable.
+   * ------------------------------------------------------------------ */
+  --color-gdb-ink: #160042;
+  --color-gdb-indigo: #0504aa;
+  --color-gdb-goldleaf: #d4af37;
+
+  --color-gdb-page: #f3f3ef;
+  --color-gdb-paper: #fafaf7;
+  --color-gdb-mist: #f9f9f7;
+  --color-gdb-cream: #fbf4dd;
+  --color-gdb-pill: #f6ecc9;
+  --color-gdb-lav: #f1f2fb;
+  --color-gdb-rail: #f2f1ed;
+  --color-gdb-line: #e6e2da;
+  --color-gdb-border: #dedcd6;
+  --color-gdb-lavline: #dadbe9;
+
+  /* The Golden Arrowhead's own five bands, for the ribbon across the top. */
+  --color-flag-green: #009e49;
+  --color-flag-gold: #fcd116;
+  --color-flag-black: #101a16;
+  --color-flag-red: #ce1126;
+
+  /* Three families, each with one job: Manrope sets headlines, DM Sans sets
+   * running text, JetBrains Mono sets the small stamped labels (eyebrows,
+   * datelines, citations). Loaded from Google Fonts in index.html. */
+  --font-display: Manrope, ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 body {
   @apply text-slate-900 antialiased;
   background: linear-gradient(180deg, #f3f5fc 0%, #eaf0fb 100%);
   background-attachment: fixed;
+}
+
+/* The public pages paint their own background over the app's gradient, and
+ * they run the full height of the document — so the gradient must not show
+ * through on over-scroll. Each sets `bg-*` on its own root; this only stops
+ * the fixed attachment from bleeding past it. */
+body:has(.gdb-public) {
+  background: none;
 }

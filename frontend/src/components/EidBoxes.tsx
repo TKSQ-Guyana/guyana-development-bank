@@ -19,7 +19,32 @@ interface EidBoxesProps {
   invalid?: boolean;
   describedBy?: string;
   autoFocus?: boolean;
+  /**
+   * Which palette to wear. `app` is the signed-in application's; `public` is
+   * the sign-in page's, which is typeset as a government front door and would
+   * show the app's brand blue as a foreign colour on a cream card.
+   *
+   * ONLY the skin changes. The digit filtering, the auto-advance, the paste
+   * handling and the shape itself are the contract with Keycloak and are the
+   * same control either way — a variant that could alter those would be a
+   * second e-ID field, not a second look.
+   */
+  variant?: 'app' | 'public';
 }
+
+/** Per-variant skins. Keyed identically so a missing state in one is obvious. */
+const SKINS = {
+  app: {
+    box: 'rounded-md px-2 py-2 text-[15px] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:text-slate-400',
+    border: 'border-slate-300',
+    dash: 'text-slate-400',
+  },
+  public: {
+    box: 'rounded-xl bg-white px-2 py-[13px] text-[16px] text-gdb-ink placeholder:text-gdb-ink/35 focus:border-transparent focus:outline-2 focus:outline-offset-1 focus:outline-gdb-indigo disabled:bg-gdb-rail disabled:text-gdb-ink/40',
+    border: 'border-gdb-border',
+    dash: 'text-gdb-ink/35',
+  },
+} as const;
 
 export function EidBoxes({
   value,
@@ -28,7 +53,9 @@ export function EidBoxes({
   invalid = false,
   describedBy,
   autoFocus = false,
+  variant = 'app',
 }: EidBoxesProps) {
+  const skin = SKINS[variant];
   // Three parts out of the combined value. Anything that is not exactly three
   // dash-separated segments reads as empty rather than as a partial guess — a
   // value the control cannot render is better shown blank than as two boxes of
@@ -102,8 +129,8 @@ export function EidBoxes({
       aria-describedby={describedBy}
       aria-label={`e-ID digits, group ${index + 1} of 3`}
       placeholder={placeholder}
-      className={`${grow} min-w-0 rounded-md border px-2 py-2 text-center text-[15px] tabular-nums tracking-[0.04em] focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:bg-slate-100 disabled:text-slate-400 ${
-        invalid ? 'border-red-400' : 'border-slate-300'
+      className={`${grow} min-w-0 border text-center tabular-nums tracking-[0.04em] ${skin.box} ${
+        invalid ? 'border-red-400' : skin.border
       }`}
     />
   );
@@ -114,11 +141,11 @@ export function EidBoxes({
           evenly: three equal boxes for a 3-then-4-then-4 value reads oddly
           once you notice the later boxes have more room per digit. */}
       {box(0, 'flex-[3]', 'XXX')}
-      <span className="text-lg font-light text-slate-400" aria-hidden="true">
+      <span className={`text-lg font-light ${skin.dash}`} aria-hidden="true">
         −
       </span>
       {box(1, 'flex-[4]', 'XXXX')}
-      <span className="text-lg font-light text-slate-400" aria-hidden="true">
+      <span className={`text-lg font-light ${skin.dash}`} aria-hidden="true">
         −
       </span>
       {box(2, 'flex-[4]', 'XXXX')}

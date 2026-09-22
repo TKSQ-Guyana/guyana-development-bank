@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guyana Development Bank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,700;9..40,800&family=JetBrains+Mono:wght@500;700;800&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#160042; --indigo:#0504AA; --gold:#D4AF37;
+  --page:#F3F3EF; --card:#FFFFFF; --mist:#F9F9F7;
+  --cream:#FBF4DD; --pill:#F6ECC9; --lav:#F1F2FB;
+  --line:#E6E2DA; --lav-line:#DADBE9;
+  --gutter:80px; --pad:72px; --r:32px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{background:var(--page);color:var(--ink);font-family:"DM Sans",system-ui,sans-serif;font-size:16px}
+a{color:inherit;text-decoration:none}
+strong{font-weight:800}
+
+/* ---------- shared atoms ---------- */
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+.eyebrow{display:flex;align-items:center;gap:16px}
+.eyebrow i{display:block;width:48px;height:2px;background:var(--gold);flex:none}
+.eyebrow span{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:15px;letter-spacing:.12em;color:var(--indigo)}
+h2.display{font-family:Manrope,sans-serif;font-weight:800;font-size:68px;line-height:1.08;letter-spacing:-.02em}
+h2.display .alt{color:var(--indigo)}
+.meta{font-family:"JetBrains Mono",monospace;font-weight:500;font-size:14px;letter-spacing:.02em;line-height:1.4;color:rgba(22,0,66,.5)}
+.btn-gold{display:inline-flex;align-items:center;gap:14px;background:var(--gold);color:var(--ink);
+  border-radius:12px;padding:20px 26px 20px 30px;font-weight:800;font-size:17px;line-height:1.2;border:0;cursor:pointer}
+.btn-gold svg{flex:none}
+.link-ind{color:var(--indigo);font-weight:800;font-size:17px}
+.link-ind svg{vertical-align:-2px;margin-left:8px}
+.rule{height:1px;background:var(--line);border:0}
+
+/* placeholder-aware images */
+.ph{position:relative;overflow:hidden;background:
+  linear-gradient(135deg,#E9E7F2 0%,#DEDCEA 55%,#E6E3EF 100%)}
+.ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.ph::after{content:attr(data-ph);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;color:rgba(22,0,66,.32);text-align:center;padding:12px}
+.ph img{z-index:1}
+.ph.contain{background:none}
+.ph.contain img{object-fit:contain}
+.ph.contain::after{font-size:9px}
+/* white-background crest sitting on a tint: drop the box out */
+.ph.blend img{mix-blend-mode:multiply}
+/* white-background crest sitting on ink: give it a chip instead */
+.ph.chip{background:#fff;border-radius:8px;padding:3px}
+.ph.chip img{position:static;width:100%;height:100%}
+
+/* ---------- government banner ---------- */
+.flag{display:flex;height:6px}
+.flag i{display:block}
+.flag i:nth-child(1){flex:554;background:#009E49}
+.flag i:nth-child(2){flex:111;background:#FFFFFF}
+.flag i:nth-child(3){flex:332;background:#FCD116}
+.flag i:nth-child(4){flex:111;background:#101A16}
+.flag i:nth-child(5){flex:332;background:#CE1126}
+.govbar{background:#fff;display:flex;align-items:center;gap:20px;padding:14px var(--gutter)}
+.govbar .arms{width:42px;height:40px;flex:none}
+.govbar p{font-size:15px;line-height:1.4;color:rgba(22,0,66,.8);flex:1}
+.govbar .mof{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:13px;letter-spacing:.1em;color:var(--indigo)}
+
+/* ---------- site header ---------- */
+.site-header{background:#fff;display:flex;align-items:center;padding:18px var(--gutter)}
+.brand{display:flex;align-items:center;gap:18px}
+.brand .mark{width:56px;height:56px;border-radius:18px;background:var(--ink);display:grid;place-items:center;flex:none}
+.brand h1{font-family:Manrope,sans-serif;font-weight:800;font-size:20px;letter-spacing:-.01em;line-height:1.2}
+.brand .sub{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:11px;letter-spacing:.1em;
+  color:rgba(22,0,66,.62);margin-top:4px}
+.site-header .spacer{flex:1}
+.site-header .btn-gold{padding:16px 22px 16px 24px;font-size:16px;border-radius:11px;gap:12px}
+
+/* ---------- layout ---------- */
+main{padding:24px var(--gutter) 80px;display:flex;flex-direction:column;gap:24px}
+.card{background:var(--card);border-radius:var(--r);padding:80px var(--pad)}
+
+/* ---------- hero ---------- */
+.hero{display:flex;gap:88px;align-items:center;padding:96px var(--pad)}
+.hero .copy{flex:1;min-width:0}
+.hero h2{font-family:Manrope,sans-serif;font-weight:800;font-size:80px;line-height:1.02;letter-spacing:-.025em;margin-top:34px}
+.hero h2 .alt{color:var(--indigo)}
+.hero .bar{height:6px;border-radius:999px;background:var(--gold);margin-top:24px}
+.hero .intro{font-size:20px;line-height:1.72;color:rgba(22,0,66,.8);margin-top:34px}
+.hero .intro strong{color:var(--indigo)}
+.hero .actions{display:flex;align-items:center;gap:28px;margin-top:44px}
+.credential{width:356px;flex:none;background:var(--lav);border-radius:24px;padding:34px;display:flex;flex-direction:column;gap:26px}
+.credential .logos{display:flex;align-items:center;gap:22px}
+.credential .logos .sep{width:1px;height:48px;background:var(--lav-line)}
+.credential p{font-size:16px;line-height:1.68;color:rgba(22,0,66,.82)}
+.credential p strong{color:var(--ink)}
+.credential .status{display:flex;flex-direction:column;gap:12px}
+.credential .row{display:flex;align-items:center;gap:11px}
+.credential .row b{font-weight:800;font-size:16px;color:rgba(22,0,66,.85)}
+.credential .link-ind{font-size:15px;line-height:1.45}
+
+/* ---------- president ---------- */
+.president .body{display:flex;gap:72px;align-items:flex-start;margin-top:56px}
+.rail{width:320px;flex:none;display:flex;flex-direction:column;gap:22px}
+.rail .portrait{height:500px;border-radius:24px}
+.rail .name{font-weight:800;font-size:19px;line-height:1.35}
+.rail .role{font-size:15px;line-height:1.5;color:rgba(22,0,66,.62);margin-top:5px}
+.rail .notice{background:var(--pill);border-radius:14px;padding:16px 18px;display:flex;gap:13px;align-items:flex-start}
+.rail .notice span{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:11px;letter-spacing:.08em;
+  line-height:1.52;color:rgba(22,0,66,.82)}
+.quotes{flex:1;min-width:0;display:flex;flex-direction:column;gap:44px}
+.quote .dateline{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:12px;letter-spacing:.12em;color:var(--gold)}
+.quote blockquote{border-left:3px solid var(--gold);padding-left:26px;margin-top:24px;
+  font-family:Manrope,sans-serif;font-weight:700;font-size:34px;line-height:1.32;letter-spacing:-.015em}
+.quote .caveat{background:var(--mist);border-radius:14px;padding:22px 24px;margin-top:24px;
+  font-size:15px;line-height:1.7;color:rgba(22,0,66,.76)}
+.quote .source{margin-top:24px}
+.quote .source .cite{font-family:"JetBrains Mono",monospace;font-weight:500;font-size:12px;line-height:1.55;color:rgba(22,0,66,.5)}
+.quote .source a{display:inline-flex;align-items:center;gap:8px;margin-top:10px;
+  font-family:"JetBrains Mono",monospace;font-weight:800;font-size:12px;letter-spacing:.1em;color:var(--indigo)}
+
+/* ---------- purposes ---------- */
+.split{display:flex;gap:80px;align-items:flex-start}
+.split .lede{width:660px;flex:none}
+.split .aside{flex:1;min-width:0;padding-top:46px;font-size:19px;line-height:1.72;color:rgba(22,0,66,.82)}
+.split h2.display{margin-top:30px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:56px 40px;margin-top:96px}
+.purpose{border-top:2px solid var(--gold);padding-top:22px}
+.purpose .n{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:15px;letter-spacing:.12em;color:var(--indigo)}
+.purpose h3{font-family:Manrope,sans-serif;font-weight:800;font-size:24px;line-height:1.26;margin-top:16px}
+.purpose p{font-size:16px;line-height:1.68;color:rgba(22,0,66,.78);margin-top:16px}
+.purposes .meta{margin-top:88px}
+
+/* ---------- terms ---------- */
+.terms h2.display{margin-top:30px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border:1px solid var(--line);
+  border-radius:16px;overflow:hidden;margin-top:88px}
+.term{padding:36px 32px;border-left:1px solid var(--line)}
+.term:first-child{border-left:0}
+.term .lbl{font-size:16px;line-height:1.4;color:rgba(22,0,66,.62)}
+.term .val{min-height:92px;display:flex;align-items:flex-end;padding-top:24px}
+.term .val b{font-family:Manrope,sans-serif;font-weight:800;font-size:30px;line-height:1.12;letter-spacing:-.02em;color:var(--indigo)}
+.term .accent{width:40px;height:3px;background:var(--gold);margin-top:18px}
+.term p{font-size:15px;line-height:1.66;color:rgba(22,0,66,.76);margin-top:18px}
+.safeguards{display:flex;flex-direction:column;gap:16px;margin-top:56px}
+.safe{display:flex;background:var(--cream);border-radius:10px;overflow:hidden}
+.safe .bar{width:4px;background:var(--gold);flex:none}
+.safe .in{display:flex;align-items:center;gap:18px;padding:22px 32px 22px 26px}
+.safe p{font-size:16px;line-height:1.64;color:rgba(22,0,66,.86)}
+.terms .meta{margin-top:52px}
+
+/* ---------- sectors ---------- */
+.sectors h2.display{margin-top:0}
+.sectors .split .lede{width:660px}
+.sector-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:88px}
+.sector{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
+.sector .photo{aspect-ratio:352/234}
+.sector .badge{position:absolute;left:18px;bottom:18px;z-index:2;background:var(--ink);color:#fff;border-radius:100px;
+  padding:6px 11px;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:10px;letter-spacing:.06em}
+.sector .content{padding:24px 26px;display:flex;flex-direction:column;justify-content:space-between;gap:22px;flex:1}
+.sector .amt{font-weight:800;font-size:19px;letter-spacing:-.01em;color:var(--indigo)}
+.sector h3{font-weight:800;font-size:17px;line-height:1.35;margin-top:8px}
+.sector p{font-size:15px;line-height:1.68;color:rgba(22,0,66,.76);margin-top:8px}
+.sector .go{display:inline-flex;align-items:center;gap:9px;font-family:"JetBrains Mono",monospace;
+  font-weight:800;font-size:13px;letter-spacing:.09em;color:var(--indigo)}
+.cta-cell{display:flex;flex-direction:column;justify-content:flex-end;gap:26px;padding-bottom:24px}
+.cta-cell p{font-size:17px;line-height:1.7;color:rgba(22,0,66,.82)}
+.cta-cell .btn-gold{align-self:flex-start;font-size:16px;padding:19px 24px 19px 28px}
+.cta-cell .link-ind{font-size:15px}
+.sectors .meta{margin-top:56px}
+
+/* ---------- footer ---------- */
+footer{background:var(--ink);color:#fff;padding:88px var(--gutter) 44px}
+footer .top{display:flex;gap:80px;align-items:flex-start}
+footer .identity{width:380px;flex:none;display:flex;flex-direction:column;gap:20px}
+footer .identity h3{font-family:Manrope,sans-serif;font-weight:800;font-size:22px;letter-spacing:-.01em;line-height:1.3}
+footer .identity p{font-size:16px;line-height:1.68;color:rgba(255,255,255,.7)}
+footer .identity .logos{display:flex;align-items:center;gap:16px}
+footer .identity .cap{font-size:15px;line-height:1.6;color:rgba(255,255,255,.7)}
+footer nav{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:40px}
+footer nav h4{font-family:"JetBrains Mono",monospace;font-weight:800;font-size:13px;letter-spacing:.1em;color:var(--gold);line-height:1.2}
+footer nav ul{list-style:none;margin-top:20px;display:flex;flex-direction:column;gap:14px}
+footer nav a{font-size:16px;line-height:1.5;color:rgba(255,255,255,.8)}
+footer .divider{height:1px;background:rgba(255,255,255,.16);margin:44px 0}
+footer .bottom{display:flex;align-items:center;gap:24px}
+footer .bottom .l{flex:1;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:13px;letter-spacing:.02em;color:rgba(255,255,255,.6)}
+footer .bottom .r{display:flex;align-items:center;gap:11px;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:13px;letter-spacing:.02em;color:rgba(255,255,255,.6)}
+
+@media (max-width:1280px){
+  :root{--gutter:40px;--pad:48px}
+  .hero h2{font-size:64px}
+  h2.display{font-size:54px}
+  .split .lede{width:auto;flex:1}
+  .quote blockquote{font-size:28px}
+}
+@media (max-width:980px){
+  .hero,.president .body,.split{flex-direction:column;gap:48px}
+  .credential,.rail,.split .lede{width:100%}
+  .grid3,.sector-grid{grid-template-columns:1fr 1fr}
+  .strip{grid-template-columns:1fr 1fr}
+  .term{border-top:1px solid var(--line)}
+  .term:nth-child(-n+2){border-top:0}
+  .term:nth-child(odd){border-left:0}
+  footer .top{flex-direction:column}
+  footer nav{grid-template-columns:1fr 1fr;width:100%}
+}
+@media (max-width:680px){
+  :root{--gutter:20px;--pad:28px;--r:20px}
+  .hero h2{font-size:44px}
+  h2.display{font-size:38px}
+  .quote blockquote{font-size:24px;padding-left:18px}
+  .grid3,.sector-grid,.strip{grid-template-columns:1fr}
+  .term{border-left:0;border-top:1px solid var(--line)}
+  .term:first-child{border-top:0}
+  footer nav{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ GOVERNMENT BANNER ============ -->
+<div class="flag"><i></i><i></i><i></i><i></i><i></i></div>
+<div class="govbar">
+  <div class="ph contain arms" data-ph="ARMS"><img src="assets/coat-of-arms.png" alt="Coat of arms of Guyana" onerror="this.remove()"></div>
+  <p>The official website of the Government of the Co-operative Republic of Guyana</p>
+  <div class="mof">MINISTRY OF FINANCE</div>
+</div>
+
+<!-- ============ HEADER ============ -->
+<header class="site-header">
+  <a class="brand" href="#">
+    <span class="mark">
+      <svg width="26" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9.5L12 4l9 5.5"/><path d="M5 10v8"/><path d="M9.5 10v8"/><path d="M14.5 10v8"/><path d="M19 10v8"/><path d="M3.2 20.5h17.6"/>
+      </svg>
+    </span>
+    <span>
+      <h1>Guyana Development Bank</h1>
+      <div class="sub">BUILDING GUYANA'S NEXT CHAPTER</div>
+    </span>
+  </a>
+  <div class="spacer"></div>
+  <a class="btn-gold" href="#">Sign in
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#160042" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg>
+  </a>
+</header>
+
+<main>
+
+  <!-- ============ HERO ============ -->
+  <section class="card hero">
+    <div class="copy">
+      <div class="eyebrow"><i></i><span>A PROPOSED NATIONAL PROGRAMME FOR GUYANESE ENTERPRISE</span></div>
+      <h2>Prosperity<br>starts with<br><span class="alt">your business.</span></h2>
+      <div class="bar"></div>
+      <p class="intro">A bank built to raise incomes, leave decisions with the people doing the work, start new businesses and back the small and medium enterprises Guyana runs on. Up to <strong>G$3M</strong> a loan, at <strong>0% interest</strong>, with <strong>no collateral</strong>.</p>
+      <div class="actions">
+        <a class="btn-gold" href="#">Sign in
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#160042" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="link-ind" href="#">See the terms in full
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <aside class="credential">
+      <div class="logos">
+        <div class="ph contain" style="width:63px;height:60px" data-ph="ARMS"><img src="assets/coat-of-arms.png" alt="Coat of arms of Guyana" onerror="this.remove()"></div>
+        <span class="sep"></span>
+        <div class="ph contain blend" style="width:60px;height:60px" data-ph="MOF"><img src="assets/ministry-of-finance.png" alt="Ministry of Finance logo" onerror="this.remove()"></div>
+      </div>
+      <p>A proposed programme of the <strong>Government of Guyana</strong>, through the <strong>Ministry of Finance</strong>.</p>
+      <hr class="rule" style="background:var(--lav-line)">
+      <div class="status">
+        <div class="row">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#160042" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>
+          <b>The bank is not yet open.</b>
+        </div>
+        <a class="link-ind" href="#">Where the programme stands today
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+        </a>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ============ PRESIDENT ============ -->
+  <section class="card president" style="padding:88px var(--pad)">
+    <div class="eyebrow"><i></i><span>THE PRESIDENT ON THE GUYANA DEVELOPMENT BANK</span></div>
+
+    <div class="body">
+      <div class="rail">
+        <div class="ph portrait" data-ph="PORTRAIT"><img src="assets/president-portrait.jpg" alt="H.E. Dr. Mohamed Irfaan Ali, President of the Co-operative Republic of Guyana" onerror="this.remove()"></div>
+        <div>
+          <div class="name">H.E. Dr. Mohamed Irfaan Ali</div>
+          <div class="role">President of the Co-operative Republic of Guyana</div>
+        </div>
+        <div class="notice">
+          <svg width="16" height="18" viewBox="0 0 24 24" fill="none" stroke="#160042" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px">
+            <path d="M4.5 9.5H8l8-4.5v14L8 14.5H4.5A1.5 1.5 0 0 1 3 13v-2a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8 14.8l1 4.7h2.4l-1-4.7"/><path d="M19 9.6a3 3 0 0 1 0 4.8"/>
+          </svg>
+          <span>ANNOUNCED NATIONALLY · NOT OFFERED ON THIS PORTAL</span>
+        </div>
+      </div>
+
+      <div class="quotes">
+        <article class="quote">
+          <div class="dateline">7 JUNE 2026</div>
+          <blockquote>You don&rsquo;t have to own anything. You just have to have an idea that we will help you develop, that we will help you to nurture.</blockquote>
+          <div class="caveat">Announced nationally. This portal prepares an application for the direct G$3M financing only. The coaching and mentorship described alongside it are not offered here.</div>
+          <div class="source">
+            <div class="cite">H.E. Dr. Mohamed Irfaan Ali · Department of Public Information, Guyana · 7 June 2026</div>
+            <a href="#">READ THE SOURCE
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+            </a>
+          </div>
+        </article>
+
+        <hr class="rule">
+
+        <article class="quote">
+          <div class="dateline">17 DECEMBER 2025</div>
+          <blockquote>&hellip;will have access to an additional $7 million, on preferential interest rates, unlocking financing of up to $10 million.</blockquote>
+          <div class="caveat">Announced nationally in his address to the nation. The Department of Public Information's report of that address says micro businesses will be able to apply for up to $3 million in zero-collateral, zero-interest loans, and that the further $7 million comes through a co-investment mechanism. This portal offers the direct G$3M portion only. The co-investment tier is not available here.</div>
+          <div class="source">
+            <div class="cite">H.E. Dr. Mohamed Irfaan Ali · Department of Public Information, Guyana · 17 December 2025</div>
+            <a href="#">READ THE SOURCE
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+            </a>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 01 WHAT THE CAPITAL IS FOR ============ -->
+  <section class="card purposes">
+    <div class="split">
+      <div class="lede">
+        <div class="eyebrow"><i></i><span>WHY THIS BANK EXISTS</span></div>
+        <h2 class="display">What the capital<br><span class="alt">is for.</span></h2>
+      </div>
+      <div class="aside">A national programme, not a product on sale. It has five purposes, and all of them are about what happens outside this building: the workshops, the fields and the shopfronts that already keep the country running.</div>
+    </div>
+
+    <div class="grid3">
+      <div class="purpose">
+        <div class="n">01</div>
+        <h3>Building prosperity</h3>
+        <p>Growth you can feel where you live and work: the shops, the fields and the workshops of every region, not only the national accounts.</p>
+      </div>
+      <div class="purpose">
+        <div class="n">02</div>
+        <h3>Raising incomes</h3>
+        <p>A business that can take the next job, buy the next stock and pay a better wage. Higher earnings for the owner and for the people they employ are the point of the capital, not a side effect.</p>
+      </div>
+      <div class="purpose">
+        <div class="n">03</div>
+        <h3>Putting power in people's hands</h3>
+        <p>Decisions about what gets built stay with the person who knows the trade. The programme supplies the capital. It does not supply the plan, or the conditions a lender usually attaches.</p>
+      </div>
+      <div class="purpose">
+        <div class="n">04</div>
+        <h3>Bringing new businesses into being</h3>
+        <p>Capital for a first venture, not only for one with years of audited accounts behind it. A business that never starts employs nobody, buys from nobody and trains nobody.</p>
+      </div>
+      <div class="purpose">
+        <div class="n">05</div>
+        <h3>Standing behind small and medium enterprises</h3>
+        <p>Most working Guyanese earn their living in a small or medium enterprise. They are the reason this programme exists, not one segment of a lending book.</p>
+      </div>
+      <div></div>
+    </div>
+
+    <div class="meta">Guyana Development Bank &nbsp;·&nbsp; proposed programme terms &nbsp;·&nbsp; 27 August 2026</div>
+  </section>
+
+  <!-- ============ 02 WHAT GUYANA IS OFFERING ============ -->
+  <section class="card terms">
+    <div class="eyebrow"><i></i><span>THE PROPOSED TERMS</span></div>
+    <h2 class="display">What Guyana<br><span class="alt">is offering</span></h2>
+
+    <div class="strip">
+      <div class="term">
+        <div class="lbl">Per loan</div>
+        <div class="val"><b>G$3M</b></div>
+        <div class="accent"></div>
+        <p>The proposed maximum for a single GDB loan. It is not a promise of approval, and the funding is not in place yet.</p>
+      </div>
+      <div class="term">
+        <div class="lbl">Interest</div>
+        <div class="val"><b>0%</b></div>
+        <div class="accent"></div>
+        <p>You repay what you borrowed and nothing more. There is no arrangement fee and no cost to apply.</p>
+      </div>
+      <div class="term">
+        <div class="lbl">Security</div>
+        <div class="val"><b>No collateral</b></div>
+        <div class="accent"></div>
+        <p>Land, property or family wealth is not a condition of borrowing under this programme.</p>
+      </div>
+      <div class="term">
+        <div class="lbl">Above the cap</div>
+        <div class="val"><b>No co-financing</b></div>
+        <div class="accent"></div>
+        <p>Requests must stay at or below G$3M. Nothing larger can be arranged through this portal.</p>
+      </div>
+    </div>
+
+    <div class="safeguards">
+      <div class="safe"><span class="bar"></span><div class="in">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.25-.9.8-.9 1.45v.45"/><path d="M12 16.6h.01"/></svg>
+        <p>G$3M is a proposed ceiling, not an offer. Nobody is approved in advance, and the funding is not in place yet.</p>
+      </div></div>
+      <div class="safe"><span class="bar"></span><div class="in">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3l7.2 3v5.6c0 4.2-3 7.7-7.2 8.6C7.8 19.3 4.8 15.8 4.8 11.6V6L12 3z"/><path d="M9.2 12.1l2 2 3.7-3.9"/></svg>
+        <p>Applying is free. There is no fee at any stage, no one can move you up the queue, and anyone asking you to pay for help with your application is not acting for the Government of Guyana.</p>
+      </div></div>
+      <div class="safe"><span class="bar"></span><div class="in">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="10" cy="8" r="3.6"/><path d="M3.8 19.6c0-3.4 2.8-5.6 6.2-5.6 1.4 0 2.6.3 3.6.9"/><path d="M16.2 16.4l1.9 1.9 3.9-4.2"/></svg>
+        <p>A person decides. You can be guided through the preparation and your answers can be organised for you. Submitting, approving, declining and disbursing stay with a human underwriter at every step.</p>
+      </div></div>
+    </div>
+
+    <div class="meta">Guyana Development Bank &nbsp;·&nbsp; proposed programme terms &nbsp;·&nbsp; 27 August 2026</div>
+  </section>
+
+  <!-- ============ 03 FIND THE WORK YOU ALREADY DO ============ -->
+  <section class="card sectors">
+    <div class="split">
+      <div class="lede">
+        <h2 class="display">Find the work<br><span class="alt">you already do.</span></h2>
+      </div>
+      <div class="aside" style="padding-top:22px">Whatever trade you are in, the terms are the same. These are the five sectors the proposed programme is built around. Open one to see who it is meant for.</div>
+    </div>
+
+    <div class="sector-grid">
+      <article class="sector">
+        <div class="ph photo" data-ph="AGRICULTURE"><img src="assets/sector-agriculture.jpg" alt="Agriculture" onerror="this.remove()"></div>
+        <div class="content">
+          <div>
+            <div class="amt">Up to G$3M</div>
+            <h3>Agriculture</h3>
+            <p>Farmers, fishers, agro-processors and the suppliers who keep them working, in every region.</p>
+          </div>
+          <a class="go" href="#">PRIORITY SECTORS
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </article>
+
+      <article class="sector">
+        <div class="ph photo" data-ph="TOURISM"><img src="assets/sector-tourism.jpg" alt="Tourism and hospitality" onerror="this.remove()"></div>
+        <div class="content">
+          <div>
+            <div class="amt">Up to G$3M</div>
+            <h3>Tourism &amp; hospitality</h3>
+            <p>Guesthouses, tour operators, caterers and the small trades that visitors spend with.</p>
+          </div>
+          <a class="go" href="#">PRIORITY SECTORS
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </article>
+
+      <article class="sector">
+        <div class="ph photo" data-ph="MANUFACTURING"><img src="assets/sector-manufacturing.jpg" alt="Manufacturing" onerror="this.remove()"></div>
+        <div class="content">
+          <div>
+            <div class="amt">Up to G$3M</div>
+            <h3>Manufacturing</h3>
+            <p>Making here what the country has been buying from abroad: food, garments, furniture, building materials.</p>
+          </div>
+          <a class="go" href="#">PRIORITY SECTORS
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </article>
+
+      <article class="sector">
+        <div class="ph photo" data-ph="TECHNOLOGY"><img src="assets/sector-technology.jpg" alt="Technology and services" onerror="this.remove()"></div>
+        <div class="content">
+          <div>
+            <div class="amt">Up to G$3M</div>
+            <h3>Technology &amp; services</h3>
+            <p>Repair, logistics, professional and digital services. The businesses other businesses depend on.</p>
+          </div>
+          <a class="go" href="#">PRIORITY SECTORS
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </article>
+
+      <article class="sector">
+        <div class="ph photo" data-ph="ORANGE &amp; CARE"><img src="assets/sector-orange-care.jpg" alt="Orange and care economy" onerror="this.remove()"></div>
+        <div class="content">
+          <div>
+            <div class="amt">Up to G$3M</div>
+            <h3>Orange &amp; care economy</h3>
+            <p>Creative work, culture, childcare and care services: trades that employ neighbours and hold communities together.</p>
+          </div>
+          <a class="go" href="#">PRIORITY SECTORS
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </article>
+
+      <div class="cta-cell">
+        <p>Open a sector to see what it covers and who it is meant for. Or sign in and start putting your answers together.</p>
+        <a class="btn-gold" href="#">Sign in and start preparing
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#160042" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="link-ind" href="#">See what each sector covers
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0504AA" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="meta">Guyana Development Bank &nbsp;·&nbsp; proposed programme terms &nbsp;·&nbsp; 27 August 2026</div>
+  </section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="top">
+    <div class="identity">
+      <h3>Guyana Development Bank</h3>
+      <p>A proposed programme of the Government of Guyana, through the Ministry of Finance. The bank is not yet open.</p>
+      <div class="logos">
+        <div class="ph contain chip" style="width:48px;height:46px" data-ph=""><img src="assets/coat-of-arms.png" alt="Coat of arms of Guyana" onerror="this.remove()"></div>
+        <div class="ph contain chip" style="width:46px;height:46px" data-ph=""><img src="assets/ministry-of-finance.png" alt="Ministry of Finance logo" onerror="this.remove()"></div>
+      </div>
+      <div class="cap">Government of Guyana · Ministry of Finance</div>
+    </div>
+
+    <nav>
+      <div>
+        <h4>THE PROGRAMME</h4>
+        <ul><li><a href="#">Home</a></li><li><a href="#">About</a></li><li><a href="#">What you can borrow</a></li><li><a href="#">Priority sectors</a></li></ul>
+      </div>
+      <div>
+        <h4>APPLYING</h4>
+        <ul><li><a href="#">Who can apply</a></li><li><a href="#">Getting ready</a></li><li><a href="#">Other support</a></li></ul>
+      </div>
+      <div>
+        <h4>NEWS AND HELP</h4>
+        <ul><li><a href="#">Updates</a></li><li><a href="#">Media</a></li><li><a href="#">Questions</a></li></ul>
+      </div>
+      <div>
+        <h4>YOUR APPLICATION</h4>
+        <ul><li><a href="#">Sign in</a></li><li><a href="#">Create an account</a></li></ul>
+      </div>
+    </nav>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="bottom">
+    <div class="l">Guyana Development Bank / Guyana, built forward</div>
+    <div class="r">
+      <svg width="19" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:.8"><path d="M12 3l7.2 3v5.6c0 4.2-3 7.7-7.2 8.6C7.8 19.3 4.8 15.8 4.8 11.6V6L12 3z"/><path d="M9.2 12.1l2 2 3.7-3.9"/></svg>
+      Human decision at every lending step
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
