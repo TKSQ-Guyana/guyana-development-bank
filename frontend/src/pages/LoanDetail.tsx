@@ -306,36 +306,39 @@ export function LoanDetail() {
             </Card>
           )}
 
-          {user?.is_underwriter && reviewable && (
-            <Card className="border border-gdb-gold/60">
-              <CardLabel>Decision</CardLabel>
-              {error && (
-                <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
-                  {error}
-                </p>
-              )}
-              <textarea
-                rows={3}
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Remarks for the applicant (optional)"
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-              />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button disabled={busy} onClick={() => void review('approve')}>
-                  Approve
-                </Button>
-                <Button variant="danger" disabled={busy} onClick={() => void review('reject')}>
-                  Reject
-                </Button>
-              </div>
-            </Card>
-          )}
+          {/* The decision itself now lives beside Offer & conditions on the
+              right — the next step in the same workflow, not a sidebar
+              action severed from what it unlocks. See the "offer" Panel. */}
         </div>
 
         {/* ---------------------------------------------------------- RIGHT: tabs */}
         <div className="min-w-0 space-y-4">
-          <SegmentedControl options={[...STAFF_TABS]} value={tab} onChange={setTab} />
+          <SegmentedControl
+            options={STAFF_TABS.map((t) =>
+              // Decide lives inside this tab now (see the "offer" Panel
+              // below) — a dot here is the only thing telling an underwriter
+              // landing on Application that a decision is waiting, now that
+              // it is no longer a button sitting in the sidebar the whole
+              // time.
+              t.id === 'offer' && user?.is_underwriter && reviewable
+                ? {
+                    ...t,
+                    label: (
+                      <span className="inline-flex items-center gap-1.5">
+                        {t.label}
+                        <span
+                          className="h-1.5 w-1.5 rounded-full bg-gdb-gold"
+                          aria-label="Decision needed"
+                          title="Decision needed"
+                        />
+                      </span>
+                    ),
+                  }
+                : t,
+            )}
+            value={tab}
+            onChange={setTab}
+          />
 
           <Panel active={tab === 'application'}>
             <ApplicationSections sections={loan.sections} businessStage={loan.business_stage} />
@@ -362,6 +365,36 @@ export function LoanDetail() {
           </Panel>
 
           <Panel active={tab === 'offer'}>
+            {/* Decide here, right next to what a decision unlocks. Approving
+                is what turns this same tab into the offer and conditions
+                workspace below — same gates as before (is_underwriter,
+                reviewable, busy, error), just relocated from the sidebar. */}
+            {user?.is_underwriter && reviewable && (
+              <Card className="border border-gdb-gold/60">
+                <CardLabel>Decision</CardLabel>
+                {error && (
+                  <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                    {error}
+                  </p>
+                )}
+                <textarea
+                  rows={3}
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Remarks for the applicant (optional)"
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button disabled={busy} onClick={() => void review('approve')}>
+                    Approve
+                  </Button>
+                  <Button variant="danger" disabled={busy} onClick={() => void review('reject')}>
+                    Reject
+                  </Button>
+                </div>
+              </Card>
+            )}
+
             {loan.status === 'Approved' && name ? (
               <>
                 {user?.is_underwriter && <IssueOffer application={name} onIssued={bump} />}
@@ -369,11 +402,13 @@ export function LoanDetail() {
                 <Conditions key={`cp-${accountKey}`} application={name} onChange={bump} />
               </>
             ) : (
-              <Card>
-                <p className="text-sm text-slate-500">
-                  Available once the case is approved — nothing to offer or condition before then.
-                </p>
-              </Card>
+              !(user?.is_underwriter && reviewable) && (
+                <Card>
+                  <p className="text-sm text-slate-500">
+                    Available once the case is approved — nothing to offer or condition before then.
+                  </p>
+                </Card>
+              )
             )}
           </Panel>
 

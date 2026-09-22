@@ -12,10 +12,13 @@ import type { Whoami } from './types';
 interface AuthState {
   user: Whoami | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** Resolves to who just signed in, so the caller can route by role (an
+   *  underwriter has nowhere useful to land but the review queue) without
+   *  waiting a render cycle for context state to catch up. */
+  login: (email: string, password: string) => Promise<Whoami | null>;
   /** Sign in with a national e-ID (`123-4567-8901`) via Keycloak. */
-  loginWithEid: (eid: string, password: string) => Promise<void>;
-  signup: (fullName: string, email: string, password: string) => Promise<void>;
+  loginWithEid: (eid: string, password: string) => Promise<Whoami | null>;
+  signup: (fullName: string, email: string, password: string) => Promise<Whoami | null>;
   logout: () => Promise<void>;
 }
 
@@ -27,13 +30,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setUser(await call<Whoami>('gdb_bank.api.whoami'));
+      const whoami = await call<Whoami>('gdb_bank.api.whoami');
+      setUser(whoami);
+      return whoami;
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         setUser(null);
       } else {
         setUser(null);
       }
+      return null;
     } finally {
       setLoading(false);
     }
@@ -46,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       await apiLogin(email, password);
-      await refresh();
+      return refresh();
     },
     [refresh],
   );
@@ -56,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithEid = useCallback(
     async (eid: string, password: string) => {
       await apiEidLogin(eid, password);
-      await refresh();
+      return refresh();
     },
     [refresh],
   );
@@ -65,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (fullName: string, email: string, password: string) => {
       await call('gdb_bank.api.signup', { full_name: fullName, email, password });
       await apiLogin(email, password);
-      await refresh();
+      return refresh();
     },
     [refresh],
   );

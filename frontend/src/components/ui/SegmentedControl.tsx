@@ -1,5 +1,9 @@
+import type { ReactNode } from 'react';
+
 interface SegmentedControlProps<T extends string> {
-  options: { id: T; label: string }[];
+  // ReactNode (not just string) so a tab can carry a small badge — e.g. a
+  // dot marking a decision still waiting on it — without a second component.
+  options: { id: T; label: ReactNode }[];
   value: T;
   onChange: (value: T) => void;
 }

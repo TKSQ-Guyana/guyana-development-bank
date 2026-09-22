@@ -78,13 +78,14 @@ export function IssueOffer({
           />
         </label>
         <label className="text-sm">
-          <span className="mb-1 block text-slate-600">Term (blank = as applied)</span>
+          <span className="mb-1 block text-slate-600">Term in months (blank = as applied)</span>
           <input
             type="number"
             min={1}
             max={360}
             value={term}
             onChange={(e) => setTerm(e.target.value)}
+            placeholder="e.g. 12"
             className="w-full rounded-xl border border-slate-200 px-3 py-2"
           />
         </label>

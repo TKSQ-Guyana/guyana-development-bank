@@ -66,3 +66,16 @@ body {
 body:has(.gdb-public) {
   background: none;
 }
+
+/* Hides a scrollable element's own scrollbar chrome without touching
+ * `overflow`, so a rail like the application step nav keeps scrolling by
+ * touch, trackpad or drag — it just stops drawing the OS scrollbar track
+ * (which, in classic Windows scrollbar styling, renders as a thick grey bar
+ * with arrow buttons that reads as a stray control on a step indicator). */
+.scrollbar-none {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none; /* Chrome, Safari */
+}

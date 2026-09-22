@@ -352,11 +352,12 @@ export function Apply() {
   }, []);
 
   // Consent is the server's record, not the device's: a restored draft that
-  // points past it is sent back to ask, and a returning citizen who already
-  // agreed skips straight past the screen rather than answering again.
+  // points past it is sent back to ask. A returning citizen who already
+  // agreed is NOT skipped past the screen — every new application shows it
+  // again and asks for a deliberate Continue, even though the checkbox
+  // itself comes pre-checked from that earlier record.
   useEffect(() => {
     if (consentAccepted === false && step !== 'consent') setStep('consent');
-    if (consentAccepted === true && step === 'consent') setStep('route');
   }, [consentAccepted, step]);
 
   const selectAccount = (a: BankAccountRecord) => {
@@ -552,6 +553,15 @@ export function Apply() {
   );
   const current = steps[index];
   const isLast = index === steps.length - 1;
+
+  // The rail hides its own scrollbar (deliberately — see .scrollbar-none),
+  // which removes the one hint that there was more to scroll to. Without
+  // this, advancing past whatever fits the viewport leaves the active step
+  // sitting off-screen with nothing on screen moving to show it.
+  const activeStepRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    activeStepRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+  }, [index]);
 
   /** What this step still needs before it can be left. Returns null when the
    *  step is complete. Presentation only — the server re-checks everything. */
@@ -786,7 +796,7 @@ export function Apply() {
     <div>
       {/* Step rail. Every step is visible from the start, because an applicant
           deciding whether to begin needs to see what the whole thing asks. */}
-      <nav className="mb-6 overflow-x-auto">
+      <nav className="mb-6 overflow-x-auto scrollbar-none">
         <ol className="flex min-w-max items-center">
           {steps.map((s, i) => {
             const done = i < index;
@@ -794,6 +804,7 @@ export function Apply() {
             return (
               <li key={s.id} className="flex items-center">
                 <button
+                  ref={active ? activeStepRef : undefined}
                   type="button"
                   onClick={() => {
                     // Backwards only. Skipping ahead past an unanswered branch
@@ -1352,7 +1363,6 @@ export function Apply() {
                 value={val('permits_required')}
                 onChange={set('permits_required')}
                 placeholder="Any licence, permit or inspection your trade needs."
-                hint="If a permit is outstanding, say so — GDB would rather know now than at disbursement."
               />
             </Section>
           )}
@@ -1477,11 +1487,6 @@ export function Apply() {
                     inputMode="numeric"
                     value={term}
                     onChange={setTerm}
-                    hint={
-                      amount && Number(term) > 0
-                        ? `About ${formatGyd(Number(amount) / Number(term))} a month, before GDB sets the final schedule.`
-                        : 'Between 1 and 360 months.'
-                    }
                   />
                 </div>
                 <TextAreaField

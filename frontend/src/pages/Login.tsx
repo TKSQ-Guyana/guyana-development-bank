@@ -46,13 +46,20 @@ export function Login() {
 
   const from = (location.state as { from?: string } | null)?.from ?? '/';
 
+  // An underwriter has no loans of their own and nothing to resume at a
+  // stray deep link — land them on the queue they work from every time,
+  // even when `from` points at an application or loan page (whether from a
+  // bookmark or an earlier unauthenticated attempt to open one directly).
+  const landingFor = (whoami: { is_underwriter: boolean } | null) =>
+    whoami?.is_underwriter ? '/review' : from;
+
   const onEidSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setEidError(null);
     setEidBusy(true);
     try {
-      await loginWithEid(eid, eidPassword);
-      navigate(from, { replace: true });
+      const whoami = await loginWithEid(eid, eidPassword);
+      navigate(landingFor(whoami), { replace: true });
     } catch (err) {
       setEidError(err instanceof Error ? err.message : 'Sign-in failed');
     } finally {
@@ -65,8 +72,8 @@ export function Login() {
     setError(null);
     setBusy(true);
     try {
-      await login(email, password);
-      navigate(from, { replace: true });
+      const whoami = await login(email, password);
+      navigate(landingFor(whoami), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

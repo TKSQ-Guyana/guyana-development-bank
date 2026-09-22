@@ -12,6 +12,16 @@ import { formatAge, formatGyd, formatDate } from '../utils';
  *  before the Bank. */
 const STAGES: (LoanStage | 'All')[] = ['All', 'Review', 'Approved', 'Signing', 'Disbursed', 'Rejected'];
 
+type SortKey = 'age_desc' | 'age_asc' | 'amount_desc' | 'amount_asc' | 'evidence_first';
+
+const SORT_OPTIONS: { id: SortKey; label: string }[] = [
+  { id: 'age_desc', label: 'Oldest in stage first' },
+  { id: 'age_asc', label: 'Newest in stage first' },
+  { id: 'amount_desc', label: 'Amount: highest first' },
+  { id: 'amount_asc', label: 'Amount: lowest first' },
+  { id: 'evidence_first', label: 'Missing evidence first' },
+];
+
 /** When this case entered the stage it is in now, for the age column. The
  *  server does not (yet) timestamp a stage transition directly, so this reads
  *  the nearest fact it does timestamp: submission for a case still in Review,
@@ -25,6 +35,7 @@ function stageSince(loan: LoanApplication): string | null {
 
 export function Review() {
   const [stage, setStage] = useState<(typeof STAGES)[number]>('All');
+  const [sort, setSort] = useState<SortKey>('age_desc');
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,26 +58,61 @@ export function Review() {
 
   const rows = useMemo(() => {
     const filtered = stage === 'All' ? (loans ?? []) : (loans ?? []).filter((l) => l.stage === stage);
-    // Oldest-in-state first — that is the end of the queue a bank should be
-    // worried about, not the newest arrival.
     return [...filtered].sort((a, b) => {
-      const av = stageSince(a) ?? '';
-      const bv = stageSince(b) ?? '';
-      return av.localeCompare(bv);
+      switch (sort) {
+        case 'age_asc': {
+          // Newest arrival first — the opposite reading of the same stage
+          // clock the default view sorts by.
+          const av = stageSince(a) ?? '';
+          const bv = stageSince(b) ?? '';
+          return bv.localeCompare(av);
+        }
+        case 'amount_desc':
+          return b.loan_amount - a.loan_amount;
+        case 'amount_asc':
+          return a.loan_amount - b.loan_amount;
+        case 'evidence_first': {
+          const am = a.evidence_missing?.length ?? 0;
+          const bm = b.evidence_missing?.length ?? 0;
+          return bm - am;
+        }
+        case 'age_desc':
+        default: {
+          // Oldest-in-state first — that is the end of the queue a bank
+          // should be worried about, not the newest arrival.
+          const av = stageSince(a) ?? '';
+          const bv = stageSince(b) ?? '';
+          return av.localeCompare(bv);
+        }
+      }
     });
-  }, [loans, stage]);
+  }, [loans, stage, sort]);
 
   return (
     <div>
       <h1 className="mb-1 text-2xl font-bold">Application Review Queue</h1>
-      <p className="mb-6 text-sm text-slate-500">Every citizen loan application submitted to GDB, oldest in its stage first.</p>
+      <p className="mb-6 text-sm text-slate-500">Every citizen loan application submitted to GDB.</p>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           options={STAGES.map((s) => ({ id: s, label: counts[s] ? `${s} (${counts[s]})` : s }))}
           value={stage}
           onChange={setStage}
         />
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          Sort by
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
