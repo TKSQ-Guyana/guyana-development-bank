@@ -274,12 +274,9 @@ export function Applications() {
     call<LoanApplication[]>('gdb_bank.api.my_loans')
       .then((rows) => {
         setLoans(rows);
-        // Open what is waiting on this person, and nothing else — a page that
-        // opens everything is the page we are moving away from. One lone
-        // application has nothing to scan past, so it opens too.
-        const waiting = rows.filter((l) => attentionFor(l));
-        const seed = waiting.length ? waiting : rows.length === 1 ? rows : [];
-        setOpenIds(new Set(seed.map((l) => l.name)));
+        // Every row starts collapsed. The attentionFor badge still marks what is
+        // waiting on this person on the closed row; opening a card is the
+        // applicant's own choice, via the row or "Expand all".
       })
       .catch((err: Error) => setError(err.message));
   }, []);
