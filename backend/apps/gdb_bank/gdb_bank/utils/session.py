@@ -1,0 +1,134 @@
+"""Session, role and logging infrastructure for the portal.
+
+These are the impure, request-scoped helpers every layer needs: who is logged
+in, which staff role they hold, how to run a bank-side write as the system, and
+the app logger. They live below both api.py and services/ so neither has to own
+them, and so authorization stays out of the pure domain logic in services/.
+
+api.py re-imports these names, so `from gdb_bank.api import _session_user` (and
+the rest) keeps resolving for the sibling modules that already do that.
+"""
+
+import logging
+from contextlib import contextmanager
+
+import frappe
+from frappe import _
+
+from gdb_bank.utils.constants import (
+	DISBURSEMENT_ROLES,
+	FINANCE_ROLES,
+	STAFF_ROLES,
+	UNDERWRITER_ROLES,
+)
+
+
+def _logger() -> logging.Logger:
+	"""Frappe-native logging: rotating logs/gdb_bank.log at bench and site
+	level. Fetched lazily (frappe.logger caches per request-site) and pinned to
+	INFO — frappe's process default is ERROR and site config has no say."""
+	logger = frappe.logger("gdb_bank", allow_site=True)
+	logger.setLevel(logging.INFO)
+	return logger
+
+
+def _session_user() -> str:
+	user = frappe.session.user
+	if not user or user == "Guest":
+		frappe.throw(_("Please log in."), frappe.AuthenticationError)
+	return user
+
+
+def _is_underwriter(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & UNDERWRITER_ROLES)
+
+
+def _require_underwriter() -> str:
+	user = _session_user()
+	if not _is_underwriter(user):
+		_logger().warning(f"denied underwriter endpoint to {user}")
+		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_finance(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & FINANCE_ROLES)
+
+
+def _require_finance() -> str:
+	user = _session_user()
+	if not _is_finance(user):
+		_logger().warning(f"denied finance endpoint to {user}")
+		frappe.throw(_("Only GDB Finance may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_disbursement(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & DISBURSEMENT_ROLES)
+
+
+def _require_disbursement() -> str:
+	user = _session_user()
+	if not _is_disbursement(user):
+		_logger().warning(f"denied disbursement endpoint to {user}")
+		frappe.throw(
+			_("Only the GDB disbursement officer may do this."), frappe.PermissionError
+		)
+	return user
+
+
+def _is_staff(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
+
+
+def _require_staff() -> str:
+	"""Any GDB persona, but not the applicant. For bank-internal reading where
+	all three staff roles have a legitimate view and a citizen has none."""
+	user = _session_user()
+	if not _is_staff(user):
+		_logger().warning(f"denied staff endpoint to {user}")
+		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
+	return user
+
+
+def _eids(users) -> dict:
+	"""e-ID for each of these users, in one query.
+
+	The e-ID is how GDB staff identify an applicant — an email address is a
+	mailbox, not an identity, and two people can share one. Fetched in a batch
+	because every list view needs it for every row.
+	"""
+	wanted = {u for u in users if u}
+	if not wanted:
+		return {}
+	rows = frappe.get_all(
+		"User", filters={"name": ["in", list(wanted)]}, fields=["name", "gdb_eid"]
+	)
+	return {r.name: r.gdb_eid for r in rows}
+
+
+@contextmanager
+def _as_system():
+	"""Run a bank-side write as Administrator, handing the session back intact.
+
+	Elevation is unavoidable for these writes: lending creates Loan Demand and
+	repayment-schedule rows of its own downstream, so ignore_permissions on the
+	outer doc would not reach them, and frappe.has_permission only
+	short-circuits for Administrator.
+
+	The catch is that frappe.set_user() overwrites local.session.sid with the
+	username it is given (frappe/__init__.py), so set_user -> work ->
+	set_user(caller) leaves the caller holding a sid that no longer resolves:
+	their very next request is Guest and 403s. Capture the real sid and session
+	data, and put them back.
+	"""
+	caller = frappe.session.user
+	sid = frappe.session.sid
+	data = frappe.session.data
+	frappe.set_user("Administrator")
+	try:
+		yield caller
+	finally:
+		frappe.set_user(caller)
+		frappe.local.session.sid = sid
+		frappe.local.session.data = data

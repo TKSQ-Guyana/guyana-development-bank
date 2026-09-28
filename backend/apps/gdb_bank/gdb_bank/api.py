@@ -10,523 +10,57 @@ term_months, monthly_income, phone, status Submitted/Approved/Rejected) onto
 it. Portal-only facts live in gdb_* custom fields (see install.CUSTOM_FIELDS).
 """
 
-import logging
-from contextlib import contextmanager
-
 import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
-from frappe.utils import cint, flt, fmt_money, now_datetime, nowdate
+from frappe.utils import cint, flt, now_datetime, nowdate
 
-from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME
-
-UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
-
-# Reconciliation, the ledger, portfolio reporting and lending-rule proposals —
-# manages the books and the rules, never a credit decision and never a release.
-# Split out of what used to be one "Finance Officer" surface: FINANCE_ROLES is
-# this half, DISBURSEMENT_ROLES below is the other. Kept as "Finance Officer"
-# rather than renamed, so every existing grant on this role keeps working.
-FINANCE_ROLES = {"Finance Officer", "System Manager"}
-
-# Who may move money. Deliberately a different set from UNDERWRITER_ROLES and
-# from FINANCE_ROLES: an underwriter decides a loan, a finance officer manages
-# the books, and a disbursement officer pays it — three different questions,
-# three different roles. "The releaser is not the decider" is enforced a second
-# way in disburse_loan itself, which holds even for one person granted both.
-DISBURSEMENT_ROLES = {"Disbursement Officer", "System Manager"}
-
-# Every staff role the portal knows. Used where the question is "is this person
-# the applicant or the bank", not "may they do this particular thing".
-STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES | DISBURSEMENT_ROLES
-
-# lending status <-> portal status (lending has no draft/review distinction:
-# a fresh application is a submitted doc with status Open)
-STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
-STATUS_FROM_PORTAL = {v: k for k, v in STATUS_TO_PORTAL.items()}
-
-# The journey the applicant is actually on, in order. `status` alone cannot
-# express it: everything after the credit decision lives in other records —
-# whether an offer was issued and accepted (GDB Loan Offer), whether the
-# conditions precedent are worked off (GDB Loan Condition), and whether money
-# has left the bank (lending's Loan). An applicant looking at "Approved" for
-# three weeks while conditions are outstanding is being told nothing.
-#
-# Derived HERE and handed to the portal as one field, rather than reassembled
-# in the SPA: the client is a presentation layer, and three clients working out
-# the same ladder from four record types would be three chances to disagree
-# about what stage somebody's loan is at.
-PORTAL_STAGES = ("Draft", "Review", "Approved", "Signing", "Disbursed")
-
-# Customer-safe wording, per the programme spec's internal-state/applicant-
-# wording map: the applicant is never shown a raw database value, and always
-# sees the next thing that is true of their case.
-STAGE_LABELS = {
-	"Draft": "Not submitted yet",
-	"Review": "GDB is reviewing your application",
-	"Rejected": "Your application was not approved",
-	"Approved": "Approved — your offer is being prepared",
-	"Offer": "Your offer is ready",
-	"Declined": "You declined this offer",
-	"Expired": "This offer has expired",
-	# Not "complete these items": the conditions precedent are GDB's own checks
-	# and the applicant no longer sees the list, so a label telling them to
-	# clear it would point at nothing. If GDB needs something from them, an
-	# information request says so in its own words.
-	"Conditions": "GDB is completing its final checks before release",
-	"Release": "Payment is being arranged",
-	"Disbursed": "Your loan is active",
-}
-
-
-def _stage_context(names: list[str]) -> dict:
-	"""Offer, conditions and disbursement state for these applications.
-
-	One batch per record type rather than per application, because the citizen
-	dashboard and the staff queue both render whole lists. Read with get_all /
-	get_value, which do not apply permissions — the caller has already been
-	checked against the application itself, and these are facts about that same
-	case.
-	"""
-	ctx = {n: {} for n in names if n}
-	if not ctx:
-		return ctx
-
-	wanted = list(ctx)
-	# Latest offer per application. Ordered oldest-first so a re-issued offer
-	# overwrites the one it replaced.
-	for offer in frappe.get_all(
-		"GDB Loan Offer",
-		filters={"application": ["in", wanted], "docstatus": ["<", 2]},
-		fields=["application", "status", "name", "valid_until"],
-		order_by="creation asc",
-	):
-		ctx[offer.application]["offer_status"] = offer.status
-		ctx[offer.application]["offer"] = offer.name
-		ctx[offer.application]["offer_valid_until"] = offer.valid_until
-
-	# Counted in Python rather than with a SQL aggregate: Frappe refuses a
-	# function written as a string in `fields`, and the row count here is one
-	# per outstanding condition on the cases already on screen.
-	for cond in frappe.get_all(
-		"GDB Loan Condition",
-		filters={"application": ["in", wanted], "status": "Outstanding", "is_required": 1},
-		fields=["application"],
-	):
-		entry = ctx[cond.application]
-		entry["conditions_outstanding"] = cint(entry.get("conditions_outstanding")) + 1
-
-	for loan in frappe.get_all(
-		"Loan",
-		filters={"loan_application": ["in", wanted], "docstatus": ["<", 2]},
-		fields=["loan_application", "name", "status", "disbursed_amount"],
-	):
-		ctx[loan.loan_application].update(
-			loan=loan.name, loan_status=loan.status, disbursed_amount=flt(loan.disbursed_amount)
-		)
-	return ctx
-
-
-def _stage_for(status: str, ctx: dict) -> tuple:
-	"""(stage, label) for one application, from its status and what follows it.
-
-	Read top down: money that has moved outranks an accepted offer, which
-	outranks the decision that produced it. Anything before the decision is the
-	decision's own status.
-	"""
-	if status in ("Draft", "Rejected"):
-		return ("Draft" if status == "Draft" else "Rejected", STAGE_LABELS[status])
-	if status == "Submitted":
-		return ("Review", STAGE_LABELS["Review"])
-
-	# Approved from here on.
-	if flt(ctx.get("disbursed_amount")) > 0:
-		return ("Disbursed", STAGE_LABELS["Disbursed"])
-
-	offer_status = ctx.get("offer_status")
-	if offer_status == "Accepted":
-		if cint(ctx.get("conditions_outstanding")):
-			return ("Signing", STAGE_LABELS["Conditions"])
-		return ("Signing", STAGE_LABELS["Release"])
-	if offer_status in ("Declined", "Expired"):
-		return ("Approved", STAGE_LABELS[offer_status])
-	if offer_status == "Issued":
-		return ("Approved", STAGE_LABELS["Offer"])
-	return ("Approved", STAGE_LABELS["Approved"])
-
-LOAN_FIELDS = [
-	"name",
-	"gdb_owner",
-	"gdb_cluster",
-	"gdb_business_stage",
-	"gdb_dcra_number",
-	"gdb_business_name",
-	"applicant_name",
-	"loan_amount",
-	"gdb_purpose",
-	"repayment_periods",
-	"gdb_monthly_income",
-	"applicant_phone_number",
-	"status",
-	"gdb_remarks",
-	"gdb_reviewed_by",
-	"gdb_reviewed_on",
-	"rate_of_interest",
-	"repayment_amount",
-	"docstatus",
-	"creation",
-	"modified",
-] + [f[0] for f in APPLICATION_SECTIONS]
-
-# Portal key <-> Custom Field name. The portal contract drops the gdb_ prefix,
-# so `sections.target_market` is `gdb_target_market` on the doctype.
-SECTION_KEYS = {f[0][4:]: (f[0], f[2]) for f in APPLICATION_SECTIONS}
-
-# Which section block belongs to which kind of business. Switching stage clears
-# the other block rather than leaving a start-up carrying filed accounts, or a
-# trading business carrying forecasts.
-EXISTING_ONLY = (
-	"gdb_annual_revenue",
-	"gdb_cost_of_sales",
-	"gdb_operating_expenses",
-	"gdb_existing_obligations",
-	"gdb_cash_position",
+# The citizen-portal business logic now lives in services/, over a shared utils/
+# foundation (api -> services -> utils, one way). api.py keeps every
+# @frappe.whitelist() name so the URLs never move, and re-imports the helpers
+# below so `from gdb_bank.api import X` keeps resolving for the sibling modules
+# (collections, conditions, documents, identity, offers, permissions, profiles,
+# rules) that already import them from here.
+from gdb_bank.utils.constants import (  # noqa: F401  (re-exported for siblings)
+	LOAN_FIELDS,
+	STAFF_ROLES,
+	STATUS_FROM_PORTAL,
+	STATUS_TO_PORTAL,
 )
-NEW_ONLY = (
-	"gdb_expected_sales_volume",
-	"gdb_projected_revenue",
-	"gdb_projected_costs",
-	"gdb_initial_costs",
-	"gdb_expected_cash_position",
-	"gdb_assumptions",
+from gdb_bank.utils.formatters import _portal_dict, _stage_context
+from gdb_bank.utils.session import (  # noqa: F401  (re-exported for siblings)
+	_as_system,
+	_eids,
+	_is_disbursement,
+	_is_finance,
+	_is_staff,
+	_is_underwriter,
+	_logger,
+	_require_disbursement,
+	_require_finance,
+	_require_staff,
+	_require_underwriter,
+	_session_user,
 )
-
-
-def _blanked(fieldnames) -> dict:
-	"""Empty values for these fields, each of its own type."""
-	by_name = {f[0]: f[2] for f in APPLICATION_SECTIONS}
-	return {f: (0 if by_name.get(f) in ("Currency", "Int") else "") for f in fieldnames}
-
-
-def _section_values(sections) -> dict:
-	"""Section B-H answers, whitelisted against the table and coerced by type.
-
-	Anything the table does not name is DROPPED rather than written. This is
-	reached from a whitelisted endpoint, and handing an arbitrary dict to
-	doc.update() would let any caller set any field on the Loan Application —
-	including the permlevel-1 status this module is careful never to touch
-	outside review_loan.
-	"""
-	if not sections:
-		return {}
-	if isinstance(sections, str):
-		sections = frappe.parse_json(sections)
-	if not isinstance(sections, dict):
-		return {}
-
-	values = {}
-	for key, (fieldname, fieldtype) in SECTION_KEYS.items():
-		if key not in sections:
-			continue
-		raw = sections.get(key)
-		if fieldtype == "Currency":
-			values[fieldname] = flt(raw)
-		elif fieldtype == "Int":
-			values[fieldname] = cint(raw)
-		else:
-			values[fieldname] = (raw or "").strip() if isinstance(raw, str) else (raw or "")
-	return values
-
-
-def _logger() -> logging.Logger:
-	"""Frappe-native logging: rotating logs/gdb_bank.log at bench and site
-	level. Fetched lazily (frappe.logger caches per request-site) and pinned to
-	INFO — frappe's process default is ERROR and site config has no say."""
-	logger = frappe.logger("gdb_bank", allow_site=True)
-	logger.setLevel(logging.INFO)
-	return logger
-
-
-def _session_user() -> str:
-	user = frappe.session.user
-	if not user or user == "Guest":
-		frappe.throw(_("Please log in."), frappe.AuthenticationError)
-	return user
-
-
-def _is_underwriter(user: str | None = None) -> bool:
-	return bool(set(frappe.get_roles(user or frappe.session.user)) & UNDERWRITER_ROLES)
-
-
-def _require_underwriter() -> str:
-	user = _session_user()
-	if not _is_underwriter(user):
-		_logger().warning(f"denied underwriter endpoint to {user}")
-		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
-	return user
-
-
-def _is_finance(user: str | None = None) -> bool:
-	return bool(set(frappe.get_roles(user or frappe.session.user)) & FINANCE_ROLES)
-
-
-def _require_finance() -> str:
-	user = _session_user()
-	if not _is_finance(user):
-		_logger().warning(f"denied finance endpoint to {user}")
-		frappe.throw(_("Only GDB Finance may do this."), frappe.PermissionError)
-	return user
-
-
-def _is_disbursement(user: str | None = None) -> bool:
-	return bool(set(frappe.get_roles(user or frappe.session.user)) & DISBURSEMENT_ROLES)
-
-
-def _require_disbursement() -> str:
-	user = _session_user()
-	if not _is_disbursement(user):
-		_logger().warning(f"denied disbursement endpoint to {user}")
-		frappe.throw(
-			_("Only the GDB disbursement officer may do this."), frappe.PermissionError
-		)
-	return user
-
-
-def _is_staff(user: str | None = None) -> bool:
-	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
-
-
-def _require_staff() -> str:
-	"""Any GDB persona, but not the applicant. For bank-internal reading where
-	all three staff roles have a legitimate view and a citizen has none."""
-	user = _session_user()
-	if not _is_staff(user):
-		_logger().warning(f"denied staff endpoint to {user}")
-		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
-	return user
-
-
-def _eids(users) -> dict:
-	"""e-ID for each of these users, in one query.
-
-	The e-ID is how GDB staff identify an applicant — an email address is a
-	mailbox, not an identity, and two people can share one. Fetched in a batch
-	because every list view needs it for every row.
-	"""
-	wanted = {u for u in users if u}
-	if not wanted:
-		return {}
-	rows = frappe.get_all(
-		"User", filters={"name": ["in", list(wanted)]}, fields=["name", "gdb_eid"]
-	)
-	return {r.name: r.gdb_eid for r in rows}
-
-
-@contextmanager
-def _as_system():
-	"""Run a bank-side write as Administrator, handing the session back intact.
-
-	Elevation is unavoidable for these writes: lending creates Loan Demand and
-	repayment-schedule rows of its own downstream, so ignore_permissions on the
-	outer doc would not reach them, and frappe.has_permission only
-	short-circuits for Administrator.
-
-	The catch is that frappe.set_user() overwrites local.session.sid with the
-	username it is given (frappe/__init__.py), so set_user -> work ->
-	set_user(caller) leaves the caller holding a sid that no longer resolves:
-	their very next request is Guest and 403s. Capture the real sid and session
-	data, and put them back.
-	"""
-	caller = frappe.session.user
-	sid = frappe.session.sid
-	data = frappe.session.data
-	frappe.set_user("Administrator")
-	try:
-		yield caller
-	finally:
-		frappe.set_user(caller)
-		frappe.local.session.sid = sid
-		frappe.local.session.data = data
-
-
-def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict:
-	"""Normalize a lending Loan Application row to the stable portal shape.
-
-	`eids` is the batch from _eids() when this is one row of a list; a single
-	row looks its own up. Either way the applicant's e-ID travels with the
-	application, because that — not their mailbox — is who staff are looking at.
-
-	`ctx` is the same arrangement for _stage_context: the batch when this is one
-	row of a list, looked up per row otherwise.
-	"""
-	get = row.get if isinstance(row, dict) else lambda f: row.get(f)
-	owner = get("gdb_owner")
-	name = get("name")
-	if eids is None:
-		eids = _eids([owner])
-	if ctx is None:
-		ctx = _stage_context([name])
-	# A draft is the applicant's own workspace: it exists so evidence can be
-	# attached before submission, and lending has no status for it (a fresh
-	# application is `Open` the moment it is submitted). docstatus is what
-	# distinguishes them, so the portal reads that rather than inventing a
-	# status field lending would not maintain.
-	status = "Draft" if cint(get("docstatus")) == 0 else STATUS_TO_PORTAL.get(
-		get("status"), get("status")
-	)
-	case = ctx.get(name) or {}
-	stage, stage_label = _stage_for(status, case)
-	return {
-		"name": get("name"),
-		"applicant": get("gdb_owner"),
-		"applicant_eid": eids.get(owner),
-		"cluster": get("gdb_cluster"),
-		"business_stage": get("gdb_business_stage"),
-		"dcra_number": get("gdb_dcra_number"),
-		"business_name": get("gdb_business_name"),
-		"applicant_name": get("applicant_name"),
-		"loan_amount": get("loan_amount"),
-		"purpose": get("gdb_purpose"),
-		"term_months": get("repayment_periods"),
-		"monthly_income": get("gdb_monthly_income"),
-		"phone": get("applicant_phone_number"),
-		"status": status,
-		# Where the case actually is, and what to tell the applicant it means.
-		# See PORTAL_STAGES — `status` stays exactly as it was for every caller
-		# that already reads it.
-		"stage": stage,
-		"stage_label": stage_label,
-		"offer_status": case.get("offer_status"),
-		# Zero for the applicant, not merely hidden from their screen. The
-		# conditions precedent are GDB's internal pre-release checks (see
-		# conditions.list_conditions, staff-only), and a count served to a
-		# client that does not render it is still the client's to read. The
-		# stage above is computed from the real number before this line, so
-		# the applicant still learns that GDB is finishing its checks.
-		"conditions_outstanding": cint(case.get("conditions_outstanding")) if _is_staff() else 0,
-		"loan": case.get("loan"),
-		"disbursed_amount": flt(case.get("disbursed_amount")),
-		# Sections B-H as one nested block, so the form round-trips exactly
-		# what it sent and the underwriter's case view reads the same shape.
-		"sections": {key: get(fieldname) for key, (fieldname, _t) in SECTION_KEYS.items()},
-		"underwriter_remarks": get("gdb_remarks"),
-		"reviewed_by": get("gdb_reviewed_by"),
-		"reviewed_on": get("gdb_reviewed_on"),
-		"rate_of_interest": get("rate_of_interest"),
-		"monthly_repayment": get("repayment_amount"),
-		"creation": get("creation"),
-		"modified": get("modified"),
-	}
-
-
-def _get_or_create_customer(user: str) -> str:
-	"""One lending Customer per portal user, linked via the gdb_user field."""
-	customer = frappe.db.get_value("Customer", {"gdb_user": user})
-	if customer:
-		return customer
-
-	full_name = frappe.utils.get_fullname(user)
-	doc = frappe.get_doc(
-		{
-			"doctype": "Customer",
-			"customer_name": full_name,
-			"customer_type": "Individual",
-			"customer_group": frappe.db.get_value("Customer Group", "Individual")
-			or frappe.db.get_value("Customer Group", "All Customer Groups"),
-			"territory": frappe.db.get_value("Territory", "All Territories"),
-			"gdb_user": user,
-		}
-	).insert(ignore_permissions=True)
-	return doc.name
-
+from gdb_bank.services import (
+	application as application_service,
+	finance as finance_service,
+	user as user_service,
+)
+# Re-exported for siblings; _get_or_create_customer is also used by save_bank_details.
+from gdb_bank.services.application import _readable_application  # noqa: F401
+from gdb_bank.services.finance import repayment_plan  # noqa: F401
+from gdb_bank.services.user import _get_or_create_customer
 
 @frappe.whitelist(allow_guest=True)
 def signup(full_name: str, email: str, password: str):
 	"""Citizen self-registration: creates a Website User with the Citizen role."""
-	from frappe.utils import validate_email_address
-
-	full_name = (full_name or "").strip()
-	email = (email or "").strip().lower()
-	if not full_name:
-		frappe.throw(_("Full name is required."))
-	validate_email_address(email, throw=True)
-	if frappe.db.exists("User", email):
-		frappe.throw(_("An account with this email already exists. Please log in."))
-
-	user = frappe.get_doc(
-		{
-			"doctype": "User",
-			"email": email,
-			"first_name": full_name,
-			"user_type": "Website User",
-			"send_welcome_email": 0,
-			"enabled": 1,
-		}
-	).insert(ignore_permissions=True)
-	user.add_roles("Citizen")
-
-	from frappe.utils.password import update_password
-
-	update_password(user.name, password)
-	frappe.db.commit()
-	_logger().info(f"citizen signup: {user.name}")
-	return {"user": user.name, "full_name": user.full_name}
+	return user_service.signup(full_name, email, password)
 
 
 @frappe.whitelist()
 def whoami():
-	user = _session_user()
-	return {
-		"user": user,
-		"full_name": frappe.utils.get_fullname(user),
-		# The e-ID this login is bound to, when they signed in that way. The
-		# portal shows it back so an applicant can see which identity the
-		# application will be filed under before they submit it.
-		"eid": frappe.db.get_value("User", user, "gdb_eid"),
-		"roles": frappe.get_roles(user),
-		"is_underwriter": _is_underwriter(user),
-		# Separate capability, separate flag. The SPA gates the money pages on
-		# this, and the server gates the endpoints behind them on the same role
-		# — neither trusts the other's answer.
-		"is_finance": _is_finance(user),
-		# Release authority, split out from is_finance: finance manages the
-		# books and proposes rules, the disbursement officer pays. See
-		# DISBURSEMENT_ROLES and disburse_loan's second, per-case gate.
-		"is_disbursement": _is_disbursement(user),
-	}
-
-
-# Guyana. Applicants type their number the way they say it — 600 1234, or
-# 592-600-1234 — and lending's applicant_phone_number is a Phone field, which
-# Frappe refuses without a country code. Refusing the application over that
-# would be the form failing the applicant for answering an OPTIONAL question
-# correctly, and the message Frappe raises names a desk fieldname nobody on
-# this side of the counter has ever seen. So normalise here instead: the only
-# country GDB lends in is the one whose code we can supply.
-GUYANA_DIAL_CODE = "+592"
-
-
-def _normalised_phone(phone: str | None) -> str:
-	"""A phone in the E.164 shape Frappe's Phone field will accept, or "".
-
-	Never throws. A number this cannot make sense of is dropped rather than
-	held against the applicant — it is an optional field, and an underwriter
-	with no phone number is better off than an applicant who cannot apply.
-	"""
-	raw = (phone or "").strip()
-	if not raw:
-		return ""
-
-	plus = raw.startswith("+")
-	digits = "".join(c for c in raw if c.isdigit())
-	if not digits:
-		return ""
-	if plus:
-		return f"+{digits}"
-	# Typed with the country code but no plus — the commonest shape by far.
-	if digits.startswith("592"):
-		return f"+{digits}"
-	return f"{GUYANA_DIAL_CODE}{digits}"
+	return user_service.whoami(_session_user())
 
 
 def _cluster_for(user: str, cluster: str | None) -> str:
@@ -566,107 +100,6 @@ def _cluster_for(user: str, cluster: str | None) -> str:
 	return cluster
 
 
-def _validated(
-	loan_amount,
-	purpose: str,
-	term_months,
-	monthly_income=None,
-	phone: str | None = None,
-	cluster: str | None = None,
-	business_stage: str | None = None,
-	dcra_number: str | None = None,
-	business_name: str | None = None,
-	sections=None,
-	user: str | None = None,
-) -> dict:
-	"""Check what the applicant typed, and answer the fields to write.
-
-	Shared by the draft save and the one-shot apply, so that a draft cannot hold
-	anything a submitted application would have refused.
-	"""
-	user = user or _session_user()
-
-	loan_amount = flt(loan_amount)
-	term_months = cint(term_months)
-	purpose = (purpose or "").strip()
-	if loan_amount <= 0:
-		frappe.throw(_("Loan amount must be greater than zero."))
-	if not (1 <= term_months <= 360):
-		frappe.throw(_("Term must be between 1 and 360 months."))
-	if not purpose:
-		frappe.throw(_("Purpose is required."))
-
-	cluster = _cluster_for(user, cluster)
-
-	# Existing vs new business is a real fork, not a label: an existing trading
-	# business is expected to name its DCRA registration, a start-up has none
-	# to give. Enforce that here so an underwriter never sees "Existing" with
-	# nothing behind it.
-	business_stage = (business_stage or "").strip().title()
-	if business_stage and business_stage not in ("Existing", "New"):
-		frappe.throw(_("Business stage must be Existing or New."))
-	dcra_number = (dcra_number or "").strip().upper()
-	business_name = (business_name or "").strip()
-	if business_stage == "Existing" and not dcra_number:
-		frappe.throw(_("Give the DCRA registration number of your existing business."))
-	if business_stage == "New":
-		# A start-up has no registration yet, so never carry one over.
-		dcra_number = ""
-	if business_stage and not business_name:
-		frappe.throw(_("Business name is required."))
-
-	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
-	if not product:
-		frappe.throw(_("Loan Product is not configured. Contact the administrator."))
-
-	values = {
-		"applicant_type": "Customer",
-		"applicant": _get_or_create_customer(user),
-		"applicant_name": frappe.utils.get_fullname(user),
-		"applicant_email_address": user,
-		"applicant_phone_number": _normalised_phone(phone),
-		"company": frappe.db.get_value("Loan Product", product, "company"),
-		"posting_date": nowdate(),
-		"loan_product": product,
-		"loan_amount": loan_amount,
-		"is_term_loan": 1,
-		"repayment_method": "Repay Over Number of Periods",
-		"repayment_periods": term_months,
-		"status": "Open",
-		"gdb_owner": user,
-		"gdb_purpose": purpose,
-		"gdb_monthly_income": flt(monthly_income) if monthly_income else 0,
-		"gdb_cluster": cluster,
-		"gdb_business_stage": business_stage,
-		"gdb_dcra_number": dcra_number,
-		"gdb_business_name": business_name,
-	}
-	values.update(_section_values(sections))
-	# The stage decides which financial block is meaningful, so switching it
-	# clears the other one. Same reasoning as dropping the DCRA number above:
-	# a start-up must never carry filed accounts, and a trading business must
-	# never be decided on forecasts it did not make.
-	if business_stage == "Existing":
-		values.update(_blanked(NEW_ONLY))
-	elif business_stage == "New":
-		values.update(_blanked(EXISTING_ONLY))
-	return values
-
-
-def _own_draft(name: str, user: str):
-	"""A draft the caller owns, or a clear refusal."""
-	row = frappe.db.get_value(
-		"Loan Application", name, ["name", "gdb_owner", "docstatus"], as_dict=True
-	)
-	if not row:
-		frappe.throw(_("Loan Application {0} not found.").format(name))
-	if row.gdb_owner != user:
-		frappe.throw(_("You may only edit your own application."), frappe.PermissionError)
-	if cint(row.docstatus) != 0:
-		frappe.throw(_("{0} has already been submitted to GDB.").format(name))
-	return row
-
-
 @frappe.whitelist()
 def save_application(
 	loan_amount,
@@ -681,19 +114,9 @@ def save_application(
 	sections=None,
 	name: str | None = None,
 ):
-	"""Create or update the applicant own DRAFT application.
-
-	A draft exists so evidence can be attached before the application is made:
-	a document shelf needs something to hang off, and asking a citizen to
-	submit first and substantiate afterwards inverts the order the Bank needs
-	them in. It is the resume point too — a session that drops on a Region 9
-	phone connection loses nothing already saved.
-
-	Nothing here is before the Bank: all_loans excludes drafts, and only
-	submit_application moves one across.
-	"""
-	user = _session_user()
-	values = _validated(
+	"""Create or update the applicant's own DRAFT application."""
+	return application_service.save_application(
+		_session_user(),
 		loan_amount,
 		purpose,
 		term_months,
@@ -704,66 +127,21 @@ def save_application(
 		dcra_number=dcra_number,
 		business_name=business_name,
 		sections=sections,
-		user=user,
+		name=name,
 	)
-
-	if name:
-		_own_draft(name, user)
-		doc = frappe.get_doc("Loan Application", name)
-		doc.update(values)
-	else:
-		doc = frappe.get_doc(dict(doctype="Loan Application", **values))
-	doc.flags.ignore_permissions = True
-	doc.save()
-	frappe.db.commit()
-	_logger().info(f"draft application {doc.name} saved by {user}")
-	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
 
 
 @frappe.whitelist()
 def submit_application(name: str):
-	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
-
-	Documents used to gate this call. They no longer do: an applicant on a
-	Region 9 phone connection who cannot scan a business plan today should
-	still be able to put their case in front of the Bank, and asking for the
-	paperwork is a conversation the underwriter can have — `request_information`
-	exists for exactly that. The expected-document list is still computed and
-	still shown on both sides of the desk, so nobody decides a thin file
-	without knowing it is thin.
-
-	What is outstanding at the moment of submission goes in the log, because a
-	case that arrived incomplete is a fact about the case and not just about
-	the screen it was typed on.
-	"""
-	user = _session_user()
-	_own_draft(name, user)
-
-	from gdb_bank.documents import missing_evidence
-
-	outstanding = missing_evidence(name)
-
-	doc = frappe.get_doc("Loan Application", name)
-	doc.flags.ignore_permissions = True
-	doc.submit()
-	frappe.db.commit()
-	_logger().info(
-		f"loan application {name} submitted by {user} for {doc.loan_amount}"
-		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")
-	)
-	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))
+	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking."""
+	return application_service.submit_application(_session_user(), name)
 
 
 @frappe.whitelist()
 def discard_application(name: str):
 	"""Abandon a draft. Only ever a draft — once submitted it is the Bank record
 	of what was asked for, and withdrawal is a decision rather than a delete."""
-	user = _session_user()
-	_own_draft(name, user)
-	frappe.delete_doc("Loan Application", name, ignore_permissions=True)
-	frappe.db.commit()
-	_logger().info(f"draft application {name} discarded by {user}")
-	return {"discarded": name}
+	return application_service.discard_application(_session_user(), name)
 
 
 @frappe.whitelist()
@@ -782,12 +160,11 @@ def apply_loan(
 	"""Save and submit in one call, for an applicant with evidence already filed.
 
 	Kept because it is the published contract (docs/openapi.yaml, the Postman
-	collection), and because a returning applicant whose identity documents are
-	already on their profile has nothing left to attach. It is the two steps
-	back to back, gate included: it cannot submit what save_application would
-	not have saved, or what submit_application would have refused.
+	collection). It is the two steps back to back, gate included: it cannot
+	submit what save_application would not have saved.
 	"""
-	draft = save_application(
+	return application_service.apply_loan(
+		_session_user(),
 		loan_amount,
 		purpose,
 		term_months,
@@ -799,7 +176,6 @@ def apply_loan(
 		business_name=business_name,
 		sections=sections,
 	)
-	return submit_application(draft["name"])
 
 
 def _is_shared_with(row, user: str) -> bool:
@@ -817,39 +193,12 @@ def _is_shared_with(row, user: str) -> bool:
 @frappe.whitelist()
 def my_loans():
 	"""The logged-in citizen's applications, newest first."""
-	user = _session_user()
-	# Every cluster this citizen is in, not one: a member of two groups must
-	# see both heads' applications, and `_is_shared_with` below decides which
-	# of the rows fetched are actually theirs to read.
-	heads = {
-		frappe.db.get_value("GDB Cluster", cluster, "head") for cluster in _clusters_of(user)
-	}
-	owners = list({user} | {head for head in heads if head})
-	rows = frappe.get_all(
-		"Loan Application",
-		filters={"gdb_owner": ["in", owners], "docstatus": ["<", 2]},
-		fields=LOAN_FIELDS,
-		order_by="creation desc",
-	)
-	eids = _eids([r.gdb_owner for r in rows])
-	mine = [r for r in rows if r.gdb_owner == user or _is_shared_with(r, user)]
-	ctx = _stage_context([r.name for r in mine])
-	return [_portal_dict(r, eids, ctx) for r in mine]
+	return application_service.my_loans(_session_user())
 
 
 @frappe.whitelist()
 def loan_detail(name: str):
-	user = _session_user()
-	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
-	if not row:
-		frappe.throw(_("Loan Application {0} not found.").format(name))
-	# Staff of either kind may read a case; only their own endpoints let them
-	# act on it. A draft, though, is nobody's but the applicant's — see
-	# all_loans.
-	if row.gdb_owner != user and not (_is_staff(user) and cint(row.docstatus) == 1):
-		if not _is_shared_with(row, user):
-			frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
-	return _portal_dict(row)
+	return application_service.loan_detail(_session_user(), name)
 
 
 def _evidence_missing_map(rows) -> dict:
@@ -1731,221 +1080,13 @@ def cluster_view(cluster: str):
 # --------------------------------------------------------------------------
 
 
-LOAN_ACCOUNT_FIELDS = [
-	"name",
-	"status",
-	"loan_amount",
-	"disbursed_amount",
-	"total_payment",
-	"total_amount_paid",
-	"total_principal_paid",
-	"monthly_repayment_amount",
-	"rate_of_interest",
-	"repayment_periods",
-	"company",
-]
-
-
-def _readable_application(name: str, user: str):
-	"""The application row, if this user is allowed to see it."""
-	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
-	if not row:
-		frappe.throw(_("Loan Application {0} not found.").format(name))
-	if row.gdb_owner != user and not _is_staff(user) and not _is_shared_with(row, user):
-		frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
-	return row
-
-
 @frappe.whitelist()
 def loan_account(application: str):
 	"""Booked loan, repayment schedule and what is left to pay.
 
 	Returns loan: None while the application is still with the underwriter.
 	"""
-	user = _session_user()
-	row = _readable_application(application, user)
-
-	loan = frappe.db.get_value(
-		"Loan", {"loan_application": application}, LOAN_ACCOUNT_FIELDS, as_dict=True
-	)
-	if not loan:
-		return {"application": application, "loan": None, "schedule": [], "next_due": None}
-
-	# Whether this facility belongs to a group, said plainly rather than
-	# inferred from how many people happen to have paid so far. The first
-	# payment into a cluster loan needs attributing just as much as the tenth.
-	cluster = row.get("gdb_cluster") or None
-
-	schedule = []
-	sched = frappe.db.get_value(
-		"Loan Repayment Schedule", {"loan": loan.name, "status": "Active"}, "name"
-	)
-	if sched:
-		schedule = frappe.get_all(
-			"Repayment Schedule",
-			filters={"parent": sched},
-			fields=["payment_date", "principal_amount", "interest_amount", "total_payment", "balance_loan_amount"],
-			order_by="idx asc",
-		)
-
-	# What is owed is lending's answer, never ours. lending.api.get_due_details
-	# is the same computation, but it gates on a Loan role no citizen holds and
-	# writes into frappe.response instead of returning — so call the function
-	# underneath it and relay lending's own keys unchanged.
-	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
-
-	amounts = calculate_amounts(loan.name, nowdate())
-	dues = {
-		"overdue_penalty_amount": amounts.get("penalty_amount"),
-		"overdue_interest_amount": amounts.get("interest_amount"),
-		"overdue_principal_amount": amounts.get("payable_principal_amount"),
-		"principal_outstanding": amounts.get("pending_principal_amount"),
-		"overdue_total_amount": amounts.get("payable_amount"),
-		"applicable_future_interest": amounts.get("unaccrued_interest"),
-		"unbooked_interest": amounts.get("unbooked_interest"),
-		"oldest_due_date": amounts.get("due_date"),
-		"overdue_charges": amounts.get("total_charges_payable"),
-		"written_off_amount": amounts.get("written_off_amount"),
-		"excess_amount_paid": amounts.get("excess_amount_paid"),
-	}
-
-	# What is still drawable is lending's answer too, and only the bank is shown
-	# it. get_disbursal_amount nets off adjustments, refunds and write-offs,
-	# honours a Line of Credit limit and returns 0 while a secured loan is in
-	# security shortfall - none of which a loan_amount - disbursed_amount
-	# subtraction would catch. Elevated because it gates on a Loan permission
-	# portal roles do not hold, and it takes a row lock (for_update), so it is
-	# computed only for the underwriter who is about to act on it.
-	disbursable = None
-	if _is_staff(user):
-		from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
-			get_disbursal_amount,
-		)
-
-		with _as_system():
-			# Returns (disbursal_amount, pending_principal_amount) — unpack it;
-			# flt() on the raw tuple silently yields 0.0.
-			disbursable = flt(get_disbursal_amount(loan.name)[0])
-
-	return {
-		"application": application,
-		"loan": loan,
-		"schedule": schedule,
-		"dues": dues,
-		"disbursable": disbursable,
-		"cluster": cluster,
-		"payments": _repayment_history(loan.name),
-	}
-
-
-def _repayment_history(loan: str) -> list[dict]:
-	"""Every payment received against this facility, newest first.
-
-	`gdb_paid_by` has been stamped on each portal repayment since the endpoint
-	was written, and until now nothing ever read it back. On a CLUSTER facility
-	that omission mattered: one loan carries the whole group, several members
-	may pay into it, and a single `total_amount_paid` cannot tell any of them —
-	or the head answering for it — who has actually paid. The figure was there
-	and the contributions behind it were not.
-
-	Submitted repayments only (docstatus 1). A cancelled repayment is money
-	that did not stay received, and showing it as a payment would overstate
-	what the group has put in.
-
-	Nothing here computes money: every figure is lending's own row.
-	"""
-	rows = frappe.get_all(
-		"Loan Repayment",
-		filters={"against_loan": loan, "docstatus": 1},
-		fields=[
-			"name",
-			"posting_date",
-			"amount_paid",
-			"principal_amount_paid",
-			"repayment_type",
-			"gdb_paid_by",
-		],
-		order_by="posting_date desc, creation desc",
-	)
-	names = _eids([r.gdb_paid_by for r in rows if r.gdb_paid_by])
-	for row in rows:
-		payer = row.pop("gdb_paid_by", None)
-		# Who paid, as a person rather than a mailbox — the e-ID is how GDB
-		# names anybody else in this bank. A receipt applied from Collections
-		# has no portal payer at all, and says so.
-		row["paid_by_name"] = frappe.utils.get_fullname(payer) if payer else None
-		row["paid_by_eid"] = names.get(payer) if payer else None
-	return rows
-
-
-
-def repayment_plan(loan_name: str, amount) -> dict:
-	"""How a payment of this size against this loan should be posted.
-
-	Which of lending's twenty repayment types applies depends on what is
-	currently due, and lending is the one that knows. A Normal Repayment is
-	capped at the amount demanded so far (validate_normal_repayment on the
-	product), so paying ahead of schedule has to go in as an Advance Payment or
-	lending rejects it. Nothing here computes money — the due figures and the
-	ceiling are all lending's own numbers.
-
-	Shared by the portal payment box and the bank collections file, so a
-	payment is decided the same way however it reaches GDB. Returns `error` as
-	a message rather than throwing, because a bank file needs to report a bad
-	row and carry on rather than abandon the batch.
-	"""
-	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
-
-	amount = flt(amount)
-	amounts = calculate_amounts(loan_name, nowdate(), "Normal Repayment") or {}
-	due_now = flt(amounts.get("payable_amount"))
-	outstanding = (
-		flt(amounts.get("pending_principal_amount"))
-		+ flt(amounts.get("interest_amount"))
-		+ flt(amounts.get("penalty_amount"))
-	)
-
-	error = None
-	if amount <= 0:
-		error = _("Enter an amount greater than zero.")
-	elif amount > outstanding > 0:
-		error = _("Amount exceeds the {0} outstanding on this loan.").format(fmt_money(outstanding))
-
-	return {
-		"repayment_type": "Normal Repayment" if due_now and amount <= due_now else "Advance Payment",
-		"due_now": due_now,
-		"outstanding": outstanding,
-		"error": error,
-	}
-
-
-def _may_repay(application: str, user: str):
-	"""The borrower side of a facility: who may pay it FROM THE PORTAL.
-
-	Reading a case and paying it are not the same right, and _readable_application
-	answers the first. Staff pass that check — they must, to review and to
-	release — and for a while that meant an underwriter could post a repayment
-	against a citizen's loan from the borrower's own payment box. Money the Bank
-	never received would have appeared on the ledger as the borrower's payment.
-
-	So this is a separate question with a narrower answer: the applicant, or a
-	member of the cluster whose head raised the facility. Bank-side receipts have
-	their own door — collections.apply_receipt, which starts from a Bank
-	Transaction, i.e. from money that actually arrived.
-	"""
-	row = frappe.db.get_value("Loan Application", application, LOAN_FIELDS, as_dict=True)
-	if not row:
-		frappe.throw(_("Loan Application {0} not found.").format(application))
-	if row.gdb_owner == user or _is_shared_with(row, user):
-		return row
-	if _is_staff(user):
-		_logger().warning(f"denied staff repayment on {application} to {user}")
-		frappe.throw(
-			_("GDB staff cannot record a payment on a borrower's behalf here. Apply the "
-			  "receipt from Collections instead."),
-			frappe.PermissionError,
-		)
-	frappe.throw(_("You may only pay your own loan."), frappe.PermissionError)
+	return application_service.loan_account(_session_user(), application)
 
 
 @frappe.whitelist()
@@ -1954,50 +1095,9 @@ def make_repayment(application: str, amount):
 
 	Any member of the cluster may pay the group's facility — the ledger records
 	who made the payment, not only whose facility it is. GDB staff may not: see
-	_may_repay.
+	finance._may_repay.
 	"""
-	user = _session_user()
-	_may_repay(application, user)
-
-	amount = flt(amount)
-	if amount <= 0:
-		frappe.throw(_("Enter an amount greater than zero."))
-
-	loan = frappe.db.get_value(
-		"Loan", {"loan_application": application}, ["name", "company", "status"], as_dict=True
-	)
-	if not loan:
-		frappe.throw(_("No loan has been booked for {0} yet.").format(application))
-	if loan.status not in ("Disbursed", "Partially Disbursed", "Active"):
-		frappe.throw(_("Loan {0} is not open for repayment (status {1}).").format(loan.name, loan.status))
-
-	plan = repayment_plan(loan.name, amount)
-	if plan["error"]:
-		frappe.throw(plan["error"])
-	repayment_type = plan["repayment_type"]
-
-	# Posting a repayment is a bank operation: lending's path writes Loan Demand
-	# and the repayment schedule, which no citizen may touch. This endpoint has
-	# already established who is allowed to pay this loan, so the ledger write
-	# runs as the system and the record keeps the name of whoever asked.
-	with _as_system() as caller:
-		doc = frappe.get_doc(
-			{
-				"doctype": "Loan Repayment",
-				"against_loan": loan.name,
-				"company": loan.company,
-				"posting_date": nowdate(),
-				"repayment_type": repayment_type,
-				"amount_paid": amount,
-				"gdb_paid_by": caller,
-			}
-		)
-		doc.insert()
-		doc.submit()
-		frappe.db.commit()
-
-	_logger().info(f"repayment {doc.name}: {amount} ({repayment_type}) on {loan.name} by {user}")
-	return loan_account(application)
+	return finance_service.make_repayment(_session_user(), application, amount)
 
 
 # --------------------------------------------------------------------------
