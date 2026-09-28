@@ -124,7 +124,9 @@ function formatValue(value: string | number | null | undefined, type?: FieldType
   return String(value);
 }
 
-function isBlank(value: string | number | null | undefined): boolean {
+/** A money field left empty is stored as 0, so 0 there means "not given". */
+function isBlank(value: string | number | null | undefined, type?: FieldType): boolean {
+  if (type === 'currency' && Number(value) === 0) return true;
   return value === null || value === undefined || value === '';
 }
 
@@ -141,7 +143,7 @@ export function ApplicationSections({
   businessStage: string | null;
 }) {
   const visible = SECTIONS.filter((s) => !s.onlyFor || s.onlyFor === businessStage);
-  const hasAny = visible.some((s) => s.fields.some((f) => !isBlank(sections[f.key])));
+  const hasAny = visible.some((s) => s.fields.some((f) => !isBlank(sections[f.key], f.type)));
 
   return (
     <Card>
@@ -162,7 +164,7 @@ export function ApplicationSections({
       {hasAny && (
         <div className="space-y-6">
           {visible.map((section) => {
-            const filled = section.fields.filter((f) => !isBlank(sections[f.key]));
+            const filled = section.fields.filter((f) => !isBlank(sections[f.key], f.type));
             return (
               <section key={section.letter} className="border-t border-slate-100 pt-4 first:border-0 first:pt-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -180,7 +182,7 @@ export function ApplicationSections({
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     {section.fields.map((f) => {
                       const raw = sections[f.key];
-                      if (isBlank(raw)) return null;
+                      if (isBlank(raw, f.type)) return null;
                       if (f.type === 'table') {
                         const rows = parseUseOfFunds(raw);
                         return (

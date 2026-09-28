@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { call } from '../api';
 import { DocumentShelf } from './DocumentShelf';
-import type { Cluster } from '../types';
+import type { Cluster, MemberProfileSummary } from '../types';
+import { formatDate, formatGyd } from '../utils';
 
 /** The people behind a cluster application, for GDB staff.
  *
@@ -16,7 +17,29 @@ import type { Cluster } from '../types';
  *  returns `profile` only to staff); this component is only ever rendered for
  *  staff in the first place.
  */
-export function ClusterMembers({ cluster }: { cluster: string }) {
+/** What the member declared on their personal financials step, at a glance. */
+function DeclaredFinancialsLine({ profile }: { profile: MemberProfileSummary | null }) {
+  if (!profile?.financials_updated_on) {
+    return <p className="mt-1 text-xs font-medium text-amber-700">Personal financials not declared yet</p>;
+  }
+  const figures = [
+    ['Income', profile.monthly_income],
+    ['Other income', profile.other_monthly_income],
+    ['Expenses', profile.monthly_expenses],
+    ['Loan repayments', profile.monthly_loan_repayments],
+    ['Debts', profile.total_debts],
+    ['Savings', profile.savings],
+  ] as const;
+  return (
+    <p className="mt-1 text-xs text-slate-600">
+      {profile.employment_status}
+      {figures.map(([label, value]) => ` · ${label} ${formatGyd(value ?? 0)}`).join('')}
+      {` · ${profile.dependents ?? 0} dependents · declared ${formatDate(profile.financials_updated_on)}`}
+    </p>
+  );
+}
+
+export function ClusterMembers({ cluster, application }: { cluster: string; application: string }) {
   const [data, setData] = useState<Cluster | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -62,6 +85,7 @@ export function ClusterMembers({ cluster }: { cluster: string }) {
                     ? ` · ${m.profile.phone || m.profile.verified_phone}`
                     : ''}
                 </p>
+                {m.member_status === 'Active' && <DeclaredFinancialsLine profile={m.profile} />}
               </div>
               {m.member && (
                 <button
@@ -76,8 +100,8 @@ export function ClusterMembers({ cluster }: { cluster: string }) {
 
             {m.member && open === m.member && (
               <DocumentShelf
+                application={application}
                 applicant={m.member}
-                canUpload={false}
                 title={`${m.member_name} — documents`}
               />
             )}

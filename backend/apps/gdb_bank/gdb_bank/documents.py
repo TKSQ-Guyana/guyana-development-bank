@@ -31,47 +31,23 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
-from gdb_bank.api import (
-	_is_staff,
-	_logger,
-	_readable_application,
-	_require_underwriter,
-	_session_user,
+from gdb_bank.services.application import _readable_application
+from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, required_types: public rules)
+	ALLOWED_EXTENSIONS,
+	DOCTYPE,
+	DOCUMENT_TYPES,
+	MAX_FILE_BYTES,
+	OPEN,
+	PERSONAL_EVIDENCE,
+	PERSONAL_TYPES,
+	RECEIVED,
+	REPLACED,
+	REQUEST_DOCTYPE,
+	REVIEWED,
+	missing_evidence,
+	required_types,
 )
-
-DOCTYPE = "GDB Applicant Document"
-REQUEST_DOCTYPE = "GDB Information Request"
-
-# The typed shelf. THIS LIST AND THE document_type OPTIONS IN
-# gdb_applicant_document.json ARE ONE CONTRACT — a type here that the doctype
-# does not know is a row that fails to insert, with a validation error naming a
-# field the applicant never saw.
-DOCUMENT_TYPES = (
-	"Identity",
-	"Proof of Address",
-	"Financials",
-	"Business Plan",
-	"Bank Statement",
-	"Quotation",
-	"Other",
-)
-
-# Documents about the person rather than the venture. They are kept against the
-# applicant with no application, so a returning applicant does not photograph
-# their ID card again for a second loan — the ask-once rule in the delivery
-# plan, applied where it is cheapest to honour.
-PERSONAL_TYPES = ("Identity", "Proof of Address")
-
-# PDF only, and small enough to arrive over a phone connection in Region 9.
-# Both are enforced in validate_attachment, which runs on Frappe's own upload
-# path — so the limit holds even for a caller that never touches this module.
-ALLOWED_EXTENSIONS = (".pdf",)
-MAX_FILE_BYTES = 10 * 1024 * 1024
-
-OPEN = "Open"
-RECEIVED = "Received"
-REPLACED = "Replaced"
-REVIEWED = ("Accepted", "Rejected")
+from gdb_bank.utils.session import _is_staff, _logger, _require_underwriter, _session_user
 
 DOCUMENT_FIELDS = [
 	"name",
@@ -106,70 +82,14 @@ REQUEST_FIELDS = [
 ]
 
 
-def _settings() -> dict:
+def _settings(types: tuple = DOCUMENT_TYPES) -> dict:
 	"""What the upload control needs, from the server that enforces it."""
 	return {
-		"types": list(DOCUMENT_TYPES),
+		"types": list(types),
 		"personal_types": list(PERSONAL_TYPES),
 		"accepts": ",".join(ALLOWED_EXTENSIONS),
 		"max_bytes": MAX_FILE_BYTES,
 	}
-
-
-def required_types(business_stage: str | None) -> tuple:
-	"""What the Bank EXPECTS on the shelf for this application.
-
-	Expected, not required: submission is no longer gated on any of it (see
-	api.submit_application). This list is what the shelf prompts the applicant
-	for and what tells an underwriter, at a glance, that a case arrived thin.
-
-	Identity always. Beyond that the two business stages are different
-	propositions and need different evidence: an existing trading business is
-	asked for its financials, a start-up for the plan it intends to trade on.
-	Asking a start-up for accounts it cannot have would be a form nobody can
-	complete honestly.
-	"""
-	base = ("Identity",)
-	stage = (business_stage or "").strip().title()
-	if stage == "Existing":
-		return base + ("Financials",)
-	if stage == "New":
-		return base + ("Business Plan",)
-	return base
-
-
-def _held_types(application: str | None, applicant: str) -> set:
-	"""Document types this applicant has on file for this case.
-
-	Counts personal documents held against the person as well as documents
-	filed on the case itself — an identity document is an identity document
-	whichever application it first arrived with.
-	"""
-	rows = frappe.get_all(
-		DOCTYPE,
-		filters={
-			"applicant": applicant,
-			"status": ["!=", REPLACED],
-			"file_url": ["is", "set"],
-		},
-		fields=["document_type", "application"],
-	)
-	return {
-		r.document_type
-		for r in rows
-		if r.application == application or (not r.application and r.document_type in PERSONAL_TYPES)
-	}
-
-
-def missing_evidence(application: str) -> list:
-	"""Expected document types not yet on the shelf. Advisory — it blocks nothing."""
-	row = frappe.db.get_value(
-		"Loan Application", application, ["gdb_owner", "gdb_business_stage"], as_dict=True
-	)
-	if not row:
-		return []
-	held = _held_types(application, row.gdb_owner)
-	return [t for t in required_types(row.gdb_business_stage) if t not in held]
 
 
 @frappe.whitelist()
@@ -212,12 +132,16 @@ def new_document(document_type: str, application: str | None = None, request: st
 	if document_type not in DOCUMENT_TYPES:
 		frappe.throw(_("{0} is not a document type GDB accepts.").format(document_type))
 
-	if application:
-		_own_application(application, user)
-	elif document_type not in PERSONAL_TYPES:
+	if document_type in PERSONAL_TYPES:
+		# About the person, so it follows them rather than one case — which is
+		# also how a group's member files theirs from the head's application.
+		application = None
+	elif not application:
 		frappe.throw(
 			_("A {0} document belongs to an application. Say which one.").format(document_type)
 		)
+	else:
+		_own_application(application, user)
 
 	if request:
 		ask = frappe.db.get_value(
@@ -340,22 +264,21 @@ def confirm_document(name: str):
 
 @frappe.whitelist()
 def list_documents(application: str | None = None, applicant: str | None = None):
-	"""The shelf: documents on this case, plus the applicant's personal ones.
+	"""One person's shelf: their documents on this case, plus their personal ones.
 
-	Readable by whoever may read the case — the applicant and GDB staff. Staff
-	may also ask for one person's shelf by `applicant`, which is how a cluster
-	member's own documents reach the underwriter reading the head's case.
+	Whose shelf is the reader's own — on a group's case a member sees theirs,
+	never the head's. Staff read the applicant's, or one member's by `applicant`.
 	"""
 	user = _session_user()
+	staff = _is_staff(user)
+	if applicant and applicant != user and not staff:
+		frappe.throw(_("You may only read your own documents."), frappe.PermissionError)
+
+	owner, case_owner = applicant or user, None
 	if application:
-		row = _readable_application(application, user)
-		owner = row.gdb_owner
-	elif applicant and applicant != user:
-		if not _is_staff(user):
-			frappe.throw(_("You may only read your own documents."), frappe.PermissionError)
-		owner = applicant
-	else:
-		owner = user
+		case_owner = _readable_application(application, user).gdb_owner
+		if staff and not applicant:
+			owner = case_owner
 
 	rows = frappe.get_all(
 		DOCTYPE, filters={"applicant": owner}, fields=DOCUMENT_FIELDS, order_by="creation asc"
@@ -366,10 +289,12 @@ def list_documents(application: str | None = None, applicant: str | None = None)
 		if r.application == application
 		or (not r.application and r.document_type in PERSONAL_TYPES)
 	]
+	member = case_owner is not None and owner != case_owner
 	return {
 		"documents": shelf,
-		"missing": missing_evidence(application) if application else [],
-		"settings": _settings(),
+		"missing": missing_evidence(application, owner) if application else [],
+		"can_upload": owner == user,
+		"settings": _settings(PERSONAL_TYPES if member else DOCUMENT_TYPES),
 	}
 
 

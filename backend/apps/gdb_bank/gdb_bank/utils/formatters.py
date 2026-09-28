@@ -108,16 +108,32 @@ def _stage_for(status: str, ctx: dict) -> tuple:
 	if flt(ctx.get("disbursed_amount")) > 0:
 		return ("Disbursed", STAGE_LABELS["Disbursed"])
 
+	# An issued Letter of Offer IS the signing step; it stays there, with the
+	# next thing to happen as its label, until money moves.
 	offer_status = ctx.get("offer_status")
+	if offer_status == "Issued":
+		return ("Signing", STAGE_LABELS["Offer"])
 	if offer_status == "Accepted":
 		if cint(ctx.get("conditions_outstanding")):
 			return ("Signing", STAGE_LABELS["Conditions"])
 		return ("Signing", STAGE_LABELS["Release"])
 	if offer_status in ("Declined", "Expired"):
 		return ("Approved", STAGE_LABELS[offer_status])
-	if offer_status == "Issued":
-		return ("Approved", STAGE_LABELS["Offer"])
 	return ("Approved", STAGE_LABELS["Approved"])
+
+
+# A group member reads the head's case, but not the head's own contact number
+# or income; and no citizen is told which officer decided a case.
+_APPLICANT_ONLY = ("phone", "monthly_income")
+_STAFF_ONLY = ("reviewed_by",)
+
+
+def _for_viewer(case: dict, user: str) -> dict:
+	"""A portal case as `user` may see it: the same shape, private values blanked."""
+	if _is_staff(user):
+		return case
+	hidden = _STAFF_ONLY + (() if case.get("applicant") == user else _APPLICANT_ONLY)
+	return {key: (None if key in hidden else value) for key, value in case.items()}
 
 
 def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict:

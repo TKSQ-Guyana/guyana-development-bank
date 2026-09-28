@@ -17,6 +17,7 @@ from frappe.utils import flt, fmt_money, nowdate
 from gdb_bank.utils.constants import LOAN_FIELDS
 from gdb_bank.utils.session import _as_system, _is_staff, _logger
 from gdb_bank.services.application import loan_account
+from gdb_bank.services.cluster import _is_shared_with
 
 
 def repayment_plan(loan_name: str, amount) -> dict:
@@ -73,8 +74,6 @@ def _may_repay(application: str, user: str):
 	their own door — collections.apply_receipt, which starts from a Bank
 	Transaction, i.e. from money that actually arrived.
 	"""
-	from gdb_bank.api import _is_shared_with
-
 	row = frappe.db.get_value("Loan Application", application, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(application))

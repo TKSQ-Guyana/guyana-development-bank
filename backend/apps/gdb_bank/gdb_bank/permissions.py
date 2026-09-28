@@ -8,18 +8,13 @@ the right rows here — the framework does the filtering, not the portal.
 
 import frappe
 
-
-def _is_staff(user: str) -> bool:
-	from gdb_bank.api import STAFF_ROLES
-
-	return user == "Administrator" or bool(set(frappe.get_roles(user)) & STAFF_ROLES)
+from gdb_bank.services.cluster import _clusters_of
+from gdb_bank.utils.session import _is_staff
 
 
 def _visible_applications(user: str) -> list[str]:
 	"""Applications this citizen may see: their own, plus the head's
 	application for every cluster they belong to."""
-	from gdb_bank.api import _clusters_of
-
 	names = frappe.get_all("Loan Application", filters={"gdb_owner": user}, pluck="name")
 
 	for cluster in _clusters_of(user):

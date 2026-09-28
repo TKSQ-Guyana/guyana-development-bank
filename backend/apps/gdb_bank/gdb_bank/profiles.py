@@ -23,7 +23,8 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from gdb_bank.api import _is_staff, _logger, _session_user
+from gdb_bank.utils.session import _is_staff, _logger, _session_user
+from gdb_bank.utils.constants import PERSONAL_FINANCIAL_FIELDS, PERSONAL_FINANCIAL_REQUIRED
 
 DOCTYPE = "GDB Citizen Profile"
 
@@ -61,7 +62,12 @@ VERIFIED_FIELDS = (
 CONSENT_FIELDS = ("consent_version", "consent_accepted_on")
 
 PROFILE_FIELDS = (
-	("name", "user", "eid", "full_name", "updated_on") + DECLARED_FIELDS + VERIFIED_FIELDS + CONSENT_FIELDS
+	("name", "user", "eid", "full_name", "updated_on")
+	+ DECLARED_FIELDS
+	+ VERIFIED_FIELDS
+	+ CONSENT_FIELDS
+	+ PERSONAL_FINANCIAL_FIELDS
+	+ ("financials_updated_on",)
 )
 
 
@@ -184,11 +190,34 @@ def save_profile(**kwargs):
 
 	if not values:
 		frappe.throw(_("Nothing to save."))
-	values["updated_on"] = now_datetime()
-	frappe.db.set_value(DOCTYPE, name, values)
+	# Through the document, so the region is normalised and checked and the
+	# change is versioned — never a raw write of whatever arrived.
+	doc = frappe.get_doc(DOCTYPE, name)
+	doc.update(values)
+	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"profile updated by {user}: {', '.join(sorted(values))}")
 	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_personal_financials(**kwargs):
+	"""The applicant declares their own finances — asked of every individual on a
+	group's case. Saved through the document, so each change is versioned."""
+	user = _session_user()
+	meta = frappe.get_meta(DOCTYPE)
+	values = {field: kwargs.get(field) for field in PERSONAL_FINANCIAL_FIELDS}
+
+	missing = [meta.get_label(f) for f in PERSONAL_FINANCIAL_REQUIRED if values[f] in (None, "")]
+	if missing:
+		frappe.throw(_("Please fill in: {0}").format(", ".join(_(label) for label in missing)))
+
+	doc = frappe.get_doc(DOCTYPE, _ensure(user))
+	doc.update({**values, "financials_updated_on": now_datetime()})
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"personal financials saved by {user}")
+	return frappe.db.get_value(DOCTYPE, doc.name, list(PROFILE_FIELDS), as_dict=True)
 
 
 @frappe.whitelist()

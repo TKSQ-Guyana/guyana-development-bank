@@ -1,0 +1,194 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { call } from '../../api';
+import { useAuth } from '../../auth';
+import { ApplicationSections } from '../../components/ApplicationSections';
+import { DocumentShelf } from '../../components/DocumentShelf';
+import { InformationRequests } from '../../components/InformationRequests';
+import { LoanAccount } from '../../components/LoanAccount';
+import { OfferPanel } from '../../components/OfferPanel';
+import { Button } from '../../components/ui/Button';
+import { Card, CardLabel } from '../../components/ui/Card';
+import { Fold } from '../../components/ui/Fold';
+import { StageBadge, Stepper } from '../../components/ui/Stepper';
+import type { LoanApplication } from '../../types';
+import { formatDate, formatGyd } from '../../utils';
+import { YourPartCard } from '../personal-financials/YourPartCard';
+
+/** The applicant's own case — or a group member's view of the head's — laid
+ *  out by stage: what to act on now comes first, and once the application is
+ *  sent it folds away underneath as reference. */
+export function ApplicantCaseView({
+  loan,
+  backTo,
+  onChange,
+}: {
+  loan: LoanApplication;
+  backTo: string;
+  /** Re-read the case after anything that can move its stage. */
+  onChange: () => void;
+}) {
+  const { user } = useAuth();
+  const [accountKey, setAccountKey] = useState(0);
+  const [missing, setMissing] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mine = loan.applicant === user?.user;
+  const groupMember = Boolean(loan.cluster) && !mine;
+  const { stage } = loan;
+  const decided = stage === 'Approved' || stage === 'Rejected';
+
+  const refresh = () => {
+    setAccountKey((k) => k + 1);
+    onChange();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await call('gdb_bank.api.submit_application', { name: loan.name });
+      onChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shelf = (
+    <DocumentShelf
+      key={`docs-${accountKey}`}
+      application={loan.name}
+      onChange={setMissing}
+      title="Documents on this application"
+    />
+  );
+  const offer = <OfferPanel key={`offer-${accountKey}`} application={loan.name} onExecuted={refresh} />;
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <Link to={backTo} className="text-sm font-medium text-brand hover:underline">
+        ← Back
+      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{loan.name}</h1>
+        <StageBadge stage={stage} />
+      </div>
+
+      <Card>
+        <Stepper stage={stage} label={loan.stage_label} />
+      </Card>
+
+      {error && (
+        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {error}
+        </p>
+      )}
+
+      {groupMember && <YourPartCard application={loan.name} />}
+
+      {stage === 'Draft' ? (
+        <>
+          <ApplicationDetails loan={loan} />
+          {mine && shelf}
+          {mine && (
+            <Card>
+              <h2 className="mb-2 font-semibold">Not yet submitted</h2>
+              <p className="mb-3 text-sm text-slate-600">
+                {missing && missing.length > 0
+                  ? `You can submit now. GDB will ask for your ${missing.join(', ')} during review.`
+                  : 'Everything GDB expects is attached. Submit when you are ready.'}
+              </p>
+              <Button disabled={busy} onClick={() => void submit()}>
+                {busy ? 'Submitting…' : 'Submit application'}
+              </Button>
+            </Card>
+          )}
+        </>
+      ) : (
+        <>
+          <InformationRequests key={`req-${accountKey}`} application={loan.name} onChange={refresh} />
+          {stage === 'Review' && mine && shelf}
+          {decided && <Decision loan={loan} />}
+          {/* A declined or lapsed offer stays readable beside the decision. */}
+          {stage === 'Approved' && loan.offer_status && offer}
+          {stage === 'Signing' && offer}
+          {stage === 'Disbursed' && (
+            <>
+              <LoanAccount key={accountKey} application={loan.name} canPay />
+              <Fold title="Letter of Offer">{offer}</Fold>
+            </>
+          )}
+
+          <Fold title="Application details">
+            <ApplicationDetails loan={loan} />
+            {mine && stage !== 'Review' && shelf}
+            {!decided && loan.reviewed_on && <Decision loan={loan} />}
+          </Fold>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 border-b border-slate-100 py-2 text-sm last:border-0">
+      <span className="text-slate-500">{label}</span>
+      <span className="text-right font-medium text-slate-800">{value}</span>
+    </div>
+  );
+}
+
+/** What was applied for. A group member is sent neither the head's phone nor
+ *  income, and a group case has no single applicant income to show. */
+function ApplicationDetails({ loan }: { loan: LoanApplication }) {
+  return (
+    <>
+      <Card>
+        <Row
+          label="Applicant"
+          value={
+            <>
+              {loan.applicant_name}
+              <span className="ml-2 font-mono text-xs text-slate-500">{loan.applicant_eid ?? 'no e-ID on file'}</span>
+            </>
+          }
+        />
+        {loan.cluster && <Row label="Group" value={loan.cluster} />}
+        <Row label="Loan amount" value={formatGyd(loan.loan_amount)} />
+        <Row label="Term" value={`${loan.term_months} months`} />
+        {!loan.cluster && loan.monthly_income > 0 && (
+          <Row label="Monthly income" value={formatGyd(loan.monthly_income)} />
+        )}
+        {loan.phone && <Row label="Phone" value={loan.phone} />}
+        <Row label="Started on" value={formatDate(loan.creation)} />
+        <div className="py-2 text-sm">
+          <span className="text-slate-500">Purpose</span>
+          <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
+        </div>
+      </Card>
+      {loan.stage !== 'Draft' && (
+        <ApplicationSections sections={loan.sections} businessStage={loan.business_stage} />
+      )}
+    </>
+  );
+}
+
+/** GDB's credit decision, as the applicant is told it: no officer named. */
+function Decision({ loan }: { loan: LoanApplication }) {
+  return (
+    <Card>
+      <CardLabel>GDB decision</CardLabel>
+      <p className="mt-1 font-semibold text-slate-900">
+        {loan.status === 'Rejected' ? 'Not approved' : 'Approved'}
+        {loan.reviewed_on ? ` · ${formatDate(loan.reviewed_on)}` : ''}
+      </p>
+      {loan.underwriter_remarks && (
+        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{loan.underwriter_remarks}</p>
+      )}
+    </Card>
+  );
+}

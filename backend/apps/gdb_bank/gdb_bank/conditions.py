@@ -18,12 +18,13 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from gdb_bank.api import (
+from gdb_bank.services.application import _readable_application
+from gdb_bank.utils.session import (
 	_as_system,
 	_logger,
-	_readable_application,
 	_require_staff,
 	_require_underwriter,
+	_require_underwriter_or_disbursement,
 )
 
 CONDITION_FIELDS = [
@@ -157,13 +158,13 @@ def add_condition(application: str, description: str, is_required=1):
 
 @frappe.whitelist()
 def verify_condition(name: str, status: str, note: str | None = None):
-	"""Staff mark a condition met or waived. Underwriter/officer only.
+	"""Staff mark a condition met or waived. Underwriter or disbursement officer.
 
 	A waiver is deliberately as visible as a pass: same record, same
 	attribution, different word. Nobody should be able to make a condition
 	disappear quietly.
 	"""
-	staff = _require_underwriter()
+	staff = _require_underwriter_or_disbursement()
 	status = (status or "").strip().title()
 	if status not in (OPEN, *SETTLED):
 		frappe.throw(_("Status must be Outstanding, Met or Waived."))

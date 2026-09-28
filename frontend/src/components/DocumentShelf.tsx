@@ -13,14 +13,17 @@ import { formatDate } from '../utils';
  *                      file readable by exactly the people who may read the row
  *    confirm_document  the row is stamped with what arrived
  *
- *  Same component both sides of the desk. The applicant uploads and replaces;
- *  an underwriter reads and marks each item Accepted or Rejected. What is
- *  missing is the server's answer (`missing`), never worked out here. It is
- *  ADVISORY: nothing on this shelf blocks a submission any more, so the
- *  banner prompts, it does not refuse.
+ *  Same component both sides of the desk. The server decides whose shelf this
+ *  is, whether the reader may upload to it (`can_upload`) and which types it
+ *  takes — on a group's case a member gets their own shelf, personal types
+ *  only. What is missing is the server's answer too, and it is ADVISORY.
  */
 
 const DOCTYPE = 'GDB Applicant Document';
+
+// `Financials` is the business's accounts; the stored value predates the split.
+const LABELS: Record<string, string> = { Financials: 'Business Financials' };
+const label = (type: string) => LABELS[type] ?? type;
 
 const STATUS_STYLE: Record<string, string> = {
   Received: 'bg-slate-100 text-slate-700',
@@ -38,18 +41,18 @@ function sizeLabel(bytes: number | null): string {
 export function DocumentShelf({
   application,
   applicant,
-  canUpload,
+  only,
   onChange,
   title = 'Documents',
 }: {
   /** Omit for a personal shelf (identity, proof of address). */
   application?: string;
+  /** Show and accept a single document type — a focused step's one upload. */
+  only?: string;
   /** Staff only: read one named person's shelf — a cluster member's own
    *  documents, reached from the head's case. The server refuses this for
    *  anyone but staff, so passing it is not what grants it. */
   applicant?: string;
-  /** The applicant's own view. Staff read the shelf; they never fill it. */
-  canUpload: boolean;
   /** Called with the server's list of still-missing required types. */
   onChange?: (missing: string[]) => void;
   title?: string;
@@ -68,17 +71,20 @@ export function DocumentShelf({
         applicant,
       });
       setShelf(data);
+      const types = only ? [only] : data.settings.types;
+      // Offer what is still missing first.
       setType(
         (current) =>
-          current ||
-          (data.settings.types.includes('Bank Statement') ? 'Bank Statement' : data.settings.types[0]) ||
+          (types.includes(current) && current) ||
+          data.missing.find((t) => types.includes(t)) ||
+          types[0] ||
           '',
       );
       onChange?.(data.missing);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load documents');
     }
-  }, [application, applicant, onChange]);
+  }, [application, applicant, only, onChange]);
 
   useEffect(() => {
     void load();
@@ -176,9 +182,11 @@ export function DocumentShelf({
 
   if (!shelf) return null;
 
+  const canUpload = shelf.can_upload;
   const maxMb = Math.round(shelf.settings.max_bytes / 1024 / 1024);
-  const live = shelf.documents.filter((d) => d.status !== 'Replaced');
-  const replaced = shelf.documents.filter((d) => d.status === 'Replaced');
+  const documents = only ? shelf.documents.filter((d) => d.document_type === only) : shelf.documents;
+  const live = documents.filter((d) => d.status !== 'Replaced');
+  const replaced = documents.filter((d) => d.status === 'Replaced');
 
   return (
     <div className="mt-4 rounded-xl bg-white p-6 shadow">
@@ -200,7 +208,7 @@ export function DocumentShelf({
           banner was dropped per product ask. */}
       {!canUpload && shelf.missing.length > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Not on file: <strong>{shelf.missing.join(', ')}</strong>
+          Not on file: <strong>{shelf.missing.map(label).join(', ')}</strong>
         </p>
       )}
 
@@ -214,7 +222,7 @@ export function DocumentShelf({
             <li key={d.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-800">
-                  {d.document_type}
+                  {label(d.document_type)}
                   <span
                     className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
                       STATUS_STYLE[d.status] ?? 'bg-slate-100 text-slate-700'
@@ -285,7 +293,7 @@ export function DocumentShelf({
 
       {canUpload && (
         <div className="flex flex-wrap items-end gap-3 border-t border-slate-200 pt-4">
-          <label className="text-sm">
+          <label className={only ? 'hidden' : 'text-sm'}>
             <span className="mb-1 block text-slate-500">Document type</span>
             <select
               value={type}
@@ -294,7 +302,7 @@ export function DocumentShelf({
             >
               {shelf.settings.types.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {label(t)}
                 </option>
               ))}
             </select>
@@ -325,7 +333,7 @@ export function DocumentShelf({
           <ul className="mt-2 space-y-1">
             {replaced.map((d) => (
               <li key={d.name}>
-                {d.document_type} · {d.file_name} · {formatDate(d.uploaded_on)}
+                {label(d.document_type)} · {d.file_name} · {formatDate(d.uploaded_on)}
               </li>
             ))}
           </ul>

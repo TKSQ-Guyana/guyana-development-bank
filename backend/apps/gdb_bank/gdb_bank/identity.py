@@ -40,31 +40,17 @@ revoked token with a 401, and it is the same call Frappe's own OAuth path makes
 (`frappe/utils/oauth.py::get_info_via_oauth`).
 """
 
-import logging
 import os
-import re
 
 import frappe
 import requests
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
-# 3 / 4 / 4 — the e-ID's own grouping. DASHES INCLUDED: the SPA joins its three
-# boxes with '-' and submits that combined string as the Keycloak username, so
-# this is the stored form too. Mirrored in frontend/src/eid.ts.
-EID_PART_LENGTHS = (3, 4, 4)
-EID_SHAPE = re.compile(r"^\d{3}-\d{4}-\d{4}$")
-
-# The custom field on User that carries the link (install.USER_CUSTOM_FIELDS).
-EID_FIELD = "gdb_eid"
+from gdb_bank.utils.eid import EID_FIELD, EID_SHAPE, normalize_eid
+from gdb_bank.utils.session import _is_disbursement, _is_finance, _is_underwriter, _logger
 
 _HTTP_TIMEOUT = 10
-
-
-def _logger() -> logging.Logger:
-	logger = frappe.logger("gdb_bank", allow_site=True)
-	logger.setLevel(logging.INFO)
-	return logger
 
 
 def _conf(key: str, env: str) -> str:
@@ -115,19 +101,6 @@ def keycloak_settings(population: str = CITIZEN) -> dict | None:
 		"userinfo_url": f"{oidc}/userinfo",
 	}
 
-
-def normalize_eid(value: str | None) -> str:
-	"""Accept what a human might paste — spaces, en/em dashes, bare digits —
-	and answer the one canonical `123-4567-8901`. Anything that is not twelve
-	digits comes back unchanged so the caller's shape check can reject it."""
-	raw = (value or "").strip()
-	if not raw:
-		return ""
-	digits = re.sub(r"\D", "", raw)
-	if len(digits) != sum(EID_PART_LENGTHS):
-		return raw
-	a, b, c = EID_PART_LENGTHS
-	return f"{digits[:a]}-{digits[a : a + b]}-{digits[a + b : a + b + c]}"
 
 
 @frappe.whitelist(allow_guest=True)
@@ -240,14 +213,8 @@ def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict |
 	# programme reaching people who are not online yet.
 	# A cluster that named this e-ID as its facilitator waits the same way, and
 	# is attached here for the same reason.
-	from gdb_bank.api import (
-		_is_disbursement,
-		_is_finance,
-		_is_underwriter,
-		link_pending_facilitator,
-		link_pending_invitations,
-	)
 	from gdb_bank.profiles import record_identity_claims
+	from gdb_bank.services.cluster import link_pending_facilitator, link_pending_invitations
 
 	if claims:
 		record_identity_claims(user, eid, claims)

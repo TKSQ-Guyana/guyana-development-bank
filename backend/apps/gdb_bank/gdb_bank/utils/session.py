@@ -77,6 +77,27 @@ def _require_disbursement() -> str:
 	return user
 
 
+def _require_underwriter_or_disbursement() -> str:
+	"""Either of the two staff personas with a stake in release readiness.
+
+	The underwriter owns the credit decision; the disbursement officer is the
+	one actually refused `disburse_loan` while a required condition sits
+	Outstanding (see `conditions.outstanding`). Both may therefore clear the
+	checklist — the officer is not just reading a gate somebody else holds the
+	key to, they hold it too. Booking and disbursement themselves stay behind
+	`_require_disbursement` alone; this only widens who may tick the
+	pre-conditions, not who may move money.
+	"""
+	user = _session_user()
+	if not (_is_underwriter(user) or _is_disbursement(user)):
+		_logger().warning(f"denied underwriter-or-disbursement endpoint to {user}")
+		frappe.throw(
+			_("Only a GDB underwriter or disbursement officer may do this."),
+			frappe.PermissionError,
+		)
+	return user
+
+
 def _is_staff(user: str | None = None) -> bool:
 	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
 

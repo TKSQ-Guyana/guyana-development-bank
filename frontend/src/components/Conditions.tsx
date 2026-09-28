@@ -13,9 +13,13 @@ import { formatDate } from '../utils';
  *  which is a question they can answer. `conditions.list_conditions` enforces
  *  the same rule on the server; this is the mirror, not the control.
  *
- *  Staff can mark a condition Met or Waived. A waiver reads as loudly as a
- *  pass — same attribution, different word — because a condition that can
- *  disappear quietly is not a control.
+ *  The underwriter or the disbursement officer can mark a condition Met or
+ *  Waived — the same two roles `conditions.verify_condition` accepts on the
+ *  server, because the officer is the one actually refused `disburse_loan`
+ *  while a required condition sits open, not just a spectator to a gate
+ *  somebody else holds. A waiver reads as loudly as a pass — same
+ *  attribution, different word — because a condition that can disappear
+ *  quietly is not a control.
  *
  *  An underwriter can also add one. The standard conditions come from the
  *  Letter of Offer, which is right for what the offer said and not enough for
@@ -67,12 +71,16 @@ export function Conditions({
 
   useEffect(load, [load]);
 
-  // Readable by every staff persona, writable only by the underwriter: the
-  // disbursement officer is refused release while a condition is outstanding,
-  // so they have to be able to see which one. An applicant gets nothing — the
+  // Readable by every staff persona; writable below by the underwriter and
+  // the disbursement officer (see mayVerify). An applicant gets nothing — the
   // load above fails for them, and this is the second line of the same rule.
   const staff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
   if (!staff || !list) return null;
+
+  // Mirrors the server's conditions.verify_condition gate: underwriter or
+  // disbursement officer. Not is_finance — reconciliation/books is a
+  // different role from the officer who is actually refused release.
+  const mayVerify = Boolean(user?.is_underwriter || user?.is_disbursement);
 
   const mark = async (name: string, status: string) => {
     setBusy(name);
@@ -144,7 +152,7 @@ export function Conditions({
                   {c.status} by {c.verified_by} · {formatDate(c.verified_on)}
                 </p>
               )}
-              {user?.is_underwriter && (
+              {mayVerify && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {c.status !== 'Met' && (
                     <button

@@ -21,16 +21,11 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, fmt_money, formatdate, getdate, now_datetime, nowdate
 
-from gdb_bank.api import (
-	LOAN_FIELDS,
-	STATUS_TO_PORTAL,
-	_as_system,
-	_logger,
-	_readable_application,
-	_require_underwriter,
-	_session_user,
-)
+from gdb_bank.services.application import _readable_application
+from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_TO_PORTAL
+from gdb_bank.utils.session import _as_system, _logger, _require_underwriter, _session_user
 from gdb_bank.install import LOAN_PRODUCT_NAME
+from gdb_bank.services.notification import notify
 
 OFFER_FIELDS = [
 	"name",
@@ -334,7 +329,8 @@ def issue_offer(
 		# submit: a signature line is part of the agreement as issued, not
 		# something added to a submitted document afterwards. Signing only ever
 		# fills a line in that already stands.
-		for line in _roster_for(application):
+		lines = _roster_for(application)
+		for line in lines:
 			offer.append("signatures", line)
 		offer.insert()
 		# Freeze the wording onto the record before it is submitted, so what the
@@ -342,6 +338,9 @@ def issue_offer(
 		offer.agreement_text = _agreement_text(offer)
 		offer.save()
 		offer.submit()
+		# Everyone who must sign: each member on a group's offer, else the applicant.
+		for party in [line["member"] for line in lines if line["member"]] or [row.gdb_owner]:
+			notify(party, _("Your Letter of Offer is ready to sign"), f"/loans/{application}", from_user=staff)
 		frappe.db.commit()
 
 	_logger().info(f"offer {offer.name} issued on {application} by {staff} for {amount}")

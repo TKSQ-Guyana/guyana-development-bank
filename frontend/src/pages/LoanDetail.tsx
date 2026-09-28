@@ -12,11 +12,12 @@ import { InformationRequests } from '../components/InformationRequests';
 import { IssueOffer } from '../components/IssueOffer';
 import { LoanAccount } from '../components/LoanAccount';
 import { OfferPanel } from '../components/OfferPanel';
+import { ApplicantCaseView } from '../features/applications/ApplicantCaseView';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardLabel } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { StageBadge, Stepper } from '../components/ui/Stepper';
+import { StageBadge } from '../components/ui/Stepper';
 import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
@@ -90,7 +91,6 @@ export function LoanDetail() {
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
   const reviewable = loan.status === 'Submitted';
-  const isDraft = loan.status === 'Draft';
   const mine = loan.applicant === user?.user;
   const isStaff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
   // A staff account applying for their own loan reads this the way any
@@ -99,125 +99,11 @@ export function LoanDetail() {
   const workspace = isStaff && !mine;
   const backTo = user?.is_underwriter ? '/review' : user?.is_disbursement ? '/disbursements' : '/apply';
 
-  const submitDraft = async () => {
-    if (!name) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setLoan(await call<LoanApplication>('gdb_bank.api.submit_application', { name }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not submit');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const bump = () => setAccountKey((k) => k + 1);
 
-  // ------------------------------------------------------------------------
-  // Applicant's own case — a personal record, read top to bottom. Everyone
-  // who is not staff-reviewing-somebody-else lands here: the applicant, and a
-  // cluster member reading the head's facility.
-  // ------------------------------------------------------------------------
+  // The applicant's own case — or a group member reading the head's.
   if (!workspace) {
-    return (
-      <div className="mx-auto max-w-3xl">
-        <Link to={backTo} className="text-sm font-medium text-brand hover:underline">
-          ← Back
-        </Link>
-        <div className="mt-2 mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">{loan.name}</h1>
-          <StageBadge stage={loan.stage} />
-        </div>
-
-        <Card className="mb-4">
-          <Stepper stage={loan.stage} label={loan.stage_label} />
-        </Card>
-
-        <Card>
-          <Row
-            label="Applicant"
-            value={
-              <>
-                {loan.applicant_name}
-                <span className="ml-2 font-mono text-xs text-slate-500">
-                  {loan.applicant_eid ?? 'no e-ID on file'}
-                </span>
-              </>
-            }
-          />
-          <Row label="Loan amount" value={formatGyd(loan.loan_amount)} />
-          <Row label="Term" value={`${loan.term_months} months`} />
-          <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
-          <Row label="Phone" value={loan.phone || '—'} />
-          <Row label="Submitted on" value={formatDate(loan.creation)} />
-          <div className="py-2 text-sm">
-            <span className="text-slate-500">Purpose</span>
-            <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
-          </div>
-        </Card>
-
-        {!isDraft && (
-          <div className="mt-4">
-            <ApplicationSections sections={loan.sections} businessStage={loan.business_stage} />
-          </div>
-        )}
-
-        {name && (
-          <DocumentShelf
-            key={`docs-${accountKey}`}
-            application={name}
-            canUpload={mine}
-            onChange={setMissing}
-            title="Documents on this application"
-          />
-        )}
-
-        {isDraft && mine && (
-          <div className="mt-4 rounded-xl border border-gdb-gold/60 bg-white p-6 shadow">
-            <h2 className="mb-2 font-semibold">Not yet submitted</h2>
-            <p className="mb-3 text-sm text-slate-600">
-              {missing && missing.length > 0
-                ? `You can submit now. GDB will ask for your ${missing.join(', ')} during review — attaching it above first usually means a faster decision.`
-                : 'Everything GDB expects is attached. Submit when you are ready — an underwriter reviews it next.'}
-            </p>
-            <Button disabled={busy} onClick={() => void submitDraft()}>
-              {busy ? 'Submitting…' : 'Submit application'}
-            </Button>
-          </div>
-        )}
-
-        {name && loan.status !== 'Draft' && (
-          <InformationRequests key={`req-${accountKey}`} application={name} onChange={bump} />
-        )}
-
-        {loan.status === 'Approved' && name && (
-          <OfferPanel key={`offer-${accountKey}`} application={name} onExecuted={bump} />
-        )}
-
-        {/* No conditions-precedent checklist here. Clearing a condition is
-            GDB's own verification work — the applicant can neither tick one
-            off nor act on most of them — so the list lives in the staff case
-            workspace only. What the applicant is asked to supply reaches them
-            as an information request, which is a question they can answer. */}
-
-        {loan.status === 'Approved' && name && (
-          <LoanAccount key={accountKey} application={name} canPay />
-        )}
-
-        {(loan.underwriter_remarks || loan.reviewed_by) && (
-          <div className="mt-4 rounded-xl bg-white p-6 shadow">
-            <h2 className="mb-2 font-semibold">Underwriter review</h2>
-            {loan.underwriter_remarks && (
-              <p className="mb-2 whitespace-pre-wrap text-sm text-slate-700">{loan.underwriter_remarks}</p>
-            )}
-            <p className="text-xs text-slate-500">
-              {loan.reviewed_by} · {formatDate(loan.reviewed_on)}
-            </p>
-          </div>
-        )}
-      </div>
-    );
+    return <ApplicantCaseView loan={loan} backTo={backTo} onChange={load} />;
   }
 
   // ------------------------------------------------------------------------
@@ -349,7 +235,6 @@ export function LoanDetail() {
               <DocumentShelf
                 key={`docs-${accountKey}`}
                 application={name}
-                canUpload={false}
                 onChange={setMissing}
                 title="Documents on this application"
               />
@@ -361,7 +246,7 @@ export function LoanDetail() {
 
           <Panel active={tab === 'verification'}>
             <ApplicantProfile user={loan.applicant} />
-            {loan.cluster && <ClusterMembers cluster={loan.cluster} />}
+            {loan.cluster && name && <ClusterMembers cluster={loan.cluster} application={name} />}
           </Panel>
 
           <Panel active={tab === 'offer'}>

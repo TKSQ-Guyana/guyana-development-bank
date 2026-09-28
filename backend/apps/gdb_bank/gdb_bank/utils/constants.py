@@ -54,7 +54,7 @@ STAGE_LABELS = {
 	"Review": "GDB is reviewing your application",
 	"Rejected": "Your application was not approved",
 	"Approved": "Approved — your offer is being prepared",
-	"Offer": "Your offer is ready",
+	"Offer": "Your Letter of Offer is ready to sign",
 	"Declined": "You declined this offer",
 	"Expired": "This offer has expired",
 	# Not "complete these items": the conditions precedent are GDB's own checks
@@ -112,6 +112,19 @@ NEW_ONLY = (
 	"gdb_expected_cash_position",
 	"gdb_assumptions",
 )
+
+# One person's own finances, declared on their GDB Citizen Profile. Asked of
+# every individual on a group's case; staff read them from the cluster roster.
+PERSONAL_FINANCIAL_MONEY = (
+	"monthly_income",
+	"other_monthly_income",
+	"monthly_expenses",
+	"monthly_loan_repayments",
+	"total_debts",
+	"savings",
+)
+PERSONAL_FINANCIAL_FIELDS = ("employment_status", *PERSONAL_FINANCIAL_MONEY, "dependents")
+PERSONAL_FINANCIAL_REQUIRED = ("employment_status", "monthly_income", "monthly_expenses")
 
 # Guyana. Applicants type their number the way they say it — 600 1234, or
 # 592-600-1234 — and lending's applicant_phone_number is a Phone field, which

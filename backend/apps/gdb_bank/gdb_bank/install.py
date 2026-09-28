@@ -590,28 +590,29 @@ LENDING_READ_DOCTYPES = ("Loan", "Loan Repayment", "Loan Disbursement", "Loan De
 
 
 def ensure_lending_reports_read():
-	"""Let the disbursement officer read the portfolio without writing to it."""
+	"""Let Finance and the disbursement officer read the portfolio without writing
+	to it. The disbursement officer also reads back every Loan they book, so a
+	holder of that role alone must have this — not only one who also has Finance."""
 	from frappe.permissions import add_permission, update_permission_property
 
 	for doctype in LENDING_READ_DOCTYPES:
 		if not frappe.db.exists("DocType", doctype):
 			continue
-		if not frappe.db.exists(
-			"Custom DocPerm", {"parent": doctype, "role": ACCOUNTS_READER_ROLE}
-		):
-			add_permission(doctype, ACCOUNTS_READER_ROLE, 0)
-		for ptype, value in (
-			("read", 1),
-			("report", 1),
-			("create", 0),
-			("write", 0),
-			("delete", 0),
-			("submit", 0),
-			("cancel", 0),
-			("amend", 0),
-			("export", 0),
-		):
-			update_permission_property(doctype, ACCOUNTS_READER_ROLE, 0, ptype, value)
+		for role in (ACCOUNTS_READER_ROLE, DISBURSEMENT_ROLE):
+			if not frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": role}):
+				add_permission(doctype, role, 0)
+			for ptype, value in (
+				("read", 1),
+				("report", 1),
+				("create", 0),
+				("write", 0),
+				("delete", 0),
+				("submit", 0),
+				("cancel", 0),
+				("amend", 0),
+				("export", 0),
+			):
+				update_permission_property(doctype, role, 0, ptype, value)
 
 	_grant_reports(LENDING_REPORTS)
 	frappe.db.commit()

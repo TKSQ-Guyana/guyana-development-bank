@@ -18,7 +18,7 @@ Endpoints: POST /api/method/gdb_bank.rules.<name>
 import frappe
 from frappe import _
 
-from gdb_bank.api import _logger, _require_finance
+from gdb_bank.utils.session import _logger, _require_finance
 
 DOCTYPE = "GDB Lending Rule Proposal"
 

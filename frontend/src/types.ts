@@ -106,6 +106,8 @@ export interface DocumentShelf {
   /** Required document types not yet on file. Empty means submittable — the
    *  server says so, the form never works it out. */
   missing: string[];
+  /** This reader's own shelf, so they may add to it. The server decides. */
+  can_upload: boolean;
   settings: DocumentSettings;
 }
 
@@ -124,7 +126,21 @@ export interface InformationRequest {
   responded_on: string | null;
 }
 
-export interface MemberProfileSummary {
+/** A person's own finances, declared on their profile. Money is G$ per month. */
+export interface DeclaredFinancials {
+  employment_status: string | null;
+  monthly_income: number | null;
+  other_monthly_income: number | null;
+  monthly_expenses: number | null;
+  monthly_loan_repayments: number | null;
+  total_debts: number | null;
+  savings: number | null;
+  dependents: number | null;
+  /** Set once they have been saved — the member's step is done. */
+  financials_updated_on: string | null;
+}
+
+export interface MemberProfileSummary extends DeclaredFinancials {
   user: string;
   phone: string | null;
   region: string | null;
@@ -161,7 +177,7 @@ export interface ClusterInvitation {
 
 /** The applicant's own details, in two blocks that are never merged: what the
  *  e-ID directory asserted, and what they declared themselves. */
-export interface CitizenProfile {
+export interface CitizenProfile extends DeclaredFinancials {
   name: string;
   user: string;
   eid: string | null;

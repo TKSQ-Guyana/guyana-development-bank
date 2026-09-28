@@ -1942,7 +1942,7 @@ export function Apply() {
                   title="Your documents"
                   blurb="Attach what you have. You can also submit now and send the rest when GDB asks."
                 >
-                  <DocumentShelf application={draft.name} canUpload onChange={setMissing} />
+                  <DocumentShelf application={draft.name} onChange={setMissing} />
                 </Section>
               )}
 

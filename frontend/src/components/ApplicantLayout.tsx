@@ -13,6 +13,7 @@ import {
   TrainingIcon,
 } from './ui/icons';
 import { useAuth } from '../auth';
+import { NotificationBell } from '../features/notifications/NotificationBell';
 
 const NAV_ITEMS: SidebarItem[] = [
   { to: '/', label: 'Dashboard', icon: <DashboardIcon />, end: true },
@@ -109,6 +110,7 @@ export function ApplicantLayout() {
             <h1 className="text-lg font-bold text-slate-900">{moduleTitle(pathname)}</h1>
           </div>
           <div className="flex items-center gap-2 text-sm">
+            <NotificationBell />
             {user?.eid && (
               /* Gold, and only here: the specification reserves it for a
                  verified agency stamp. A purple dot inside it was the theme

@@ -5,12 +5,8 @@ account).
 Storage is the official frappe/lending app's Loan Application doctype; this
 layer maps the stable portal contract onto it and enforces what a draft may
 hold and who may read a case. The whitelisted endpoints in gdb_bank.api are thin
-wrappers that hand in the session user.
-
-Cluster membership stays the cluster capability's concern (api.py), so the three
-helpers this needs — `_cluster_for`, `_clusters_of`, `_is_shared_with` — are
-imported function-locally where used, never at module load, so no import cycle
-forms.
+wrappers that hand in the session user. Who shares a group's case is the
+cluster service's rule.
 """
 
 import frappe
@@ -25,8 +21,10 @@ from gdb_bank.utils.constants import (
 	NEW_ONLY,
 	SECTION_KEYS,
 )
-from gdb_bank.utils.formatters import _normalised_phone, _portal_dict, _stage_context
+from gdb_bank.utils.formatters import _for_viewer, _normalised_phone, _portal_dict, _stage_context
 from gdb_bank.utils.session import _as_system, _eids, _is_staff, _logger, _session_user
+from gdb_bank.services.cluster import _cluster_for, _clusters_of, _is_shared_with
+from gdb_bank.services.evidence import missing_evidence
 from gdb_bank.services.user import _get_or_create_customer
 
 
@@ -84,10 +82,6 @@ def _validated(
 	Shared by the draft save and the one-shot apply, so that a draft cannot hold
 	anything a submitted application would have refused.
 	"""
-	# Cluster membership is the cluster capability's rule and lives in api.py;
-	# reach it call-time so this module never imports api at load.
-	from gdb_bank.api import _cluster_for
-
 	user = user or _session_user()
 
 	loan_amount = flt(loan_amount)
@@ -239,9 +233,6 @@ def submit_application(user: str, name: str):
 	the screen it was typed on.
 	"""
 	_own_draft(name, user)
-
-	from gdb_bank.documents import missing_evidence
-
 	outstanding = missing_evidence(name)
 
 	doc = frappe.get_doc("Loan Application", name)
@@ -307,8 +298,6 @@ def my_loans(user: str):
 	# Every cluster this citizen is in, not one: a member of two groups must
 	# see both heads' applications, and `_is_shared_with` below decides which
 	# of the rows fetched are actually theirs to read.
-	from gdb_bank.api import _clusters_of, _is_shared_with
-
 	heads = {
 		frappe.db.get_value("GDB Cluster", cluster, "head") for cluster in _clusters_of(user)
 	}
@@ -322,12 +311,10 @@ def my_loans(user: str):
 	eids = _eids([r.gdb_owner for r in rows])
 	mine = [r for r in rows if r.gdb_owner == user or _is_shared_with(r, user)]
 	ctx = _stage_context([r.name for r in mine])
-	return [_portal_dict(r, eids, ctx) for r in mine]
+	return [_for_viewer(_portal_dict(r, eids, ctx), user) for r in mine]
 
 
 def loan_detail(user: str, name: str):
-	from gdb_bank.api import _is_shared_with
-
 	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(name))
@@ -337,13 +324,11 @@ def loan_detail(user: str, name: str):
 	if row.gdb_owner != user and not (_is_staff(user) and cint(row.docstatus) == 1):
 		if not _is_shared_with(row, user):
 			frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
-	return _portal_dict(row)
+	return _for_viewer(_portal_dict(row), user)
 
 
 def _readable_application(name: str, user: str):
 	"""The application row, if this user is allowed to see it."""
-	from gdb_bank.api import _is_shared_with
-
 	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(name))

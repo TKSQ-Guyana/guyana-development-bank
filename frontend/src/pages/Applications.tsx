@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { call } from '../api';
+import { useAuth } from '../auth';
 import { Card } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { StageBadge, Stepper } from '../components/ui/Stepper';
 import { ArrowRightIcon, ChevronDownIcon, ClusterIcon, PlusIcon } from '../components/ui/icons';
-import type { Cluster as ClusterType, ClusterInvitation, LoanApplication } from '../types';
+import type { CitizenProfile, ClusterInvitation, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
 
 /** Closed cases: money fully drawn, or a decision that went the other way.
@@ -14,23 +15,43 @@ const CLOSED_STAGES = new Set(['Disbursed', 'Rejected']);
 
 type Filter = 'all' | 'live' | 'past';
 
+/** Mine = applications a person made alone; Clusters = their groups' ones.
+ *  Kept in the URL (?view=clusters) so a notification can link straight to it. */
+type View = 'mine' | 'clusters';
+
 /** The one thing this case is waiting on the APPLICANT for, or nothing.
  *  A row is collapsed by default, so whatever surfaces on the closed row has
  *  to be the fact that would make someone open it — not a summary of the case.
  *  Anything the Bank owns (sitting in the review queue, say) is not an action
  *  and is deliberately not flagged: a badge that means "wait" trains people to
  *  ignore the badge that means "act". */
-function attentionFor(loan: LoanApplication): { tag: string; note: string } | null {
+interface Attention {
+  tag: string;
+  note: string;
+  /** Where the row's button goes instead of the case, when the task has its own page. */
+  action?: { to: string; label: string };
+}
+
+function attentionFor(loan: LoanApplication, owesFinancials = false): Attention | null {
   if (loan.offer_status === 'Issued') {
+    return loan.cluster
+      ? { tag: 'Offer to sign', note: 'Your group’s Letter of Offer is ready. Open the case to sign it.' }
+      : {
+          tag: 'Offer waiting',
+          note: 'Your Letter of Offer is ready. Open the case to read it, then accept or decline.',
+        };
+  }
+  if (owesFinancials) {
     return {
-      tag: 'Offer waiting',
-      note: 'Your Letter of Offer is ready. Open the case to read it, then accept or decline.',
+      tag: 'Add your financials',
+      note: 'Your part in this group application: your personal financials.',
+      action: { to: `/loans/${loan.name}/my-financials`, label: 'Add your financials' },
     };
   }
   if (loan.stage === 'Draft') {
     return {
       tag: 'Not submitted',
-      note: 'This is still your own draft — the Bank cannot see it until you submit it. Nothing is lost in the meantime.',
+      note: 'This is still a draft — the Bank cannot see it until it is submitted. Nothing is lost in the meantime.',
     };
   }
   if (loan.conditions_outstanding > 0) {
@@ -56,14 +77,15 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
  *  there is no interactive element nested inside the button. */
 function ApplicationRow({
   loan,
+  attention,
   open,
   onToggle,
 }: {
   loan: LoanApplication;
+  attention: Attention | null;
   open: boolean;
   onToggle: () => void;
 }) {
-  const attention = attentionFor(loan);
   const bodyId = `case-${loan.name}`;
 
   return (
@@ -93,7 +115,7 @@ function ApplicationRow({
           </div>
           <p className="mt-0.5 truncate text-xs text-slate-400">
             {loan.name}
-            {loan.cluster ? ' · group application' : ''} · started {formatDate(loan.creation)}
+            {loan.cluster ? ` · ${loan.cluster}` : ''} · started {formatDate(loan.creation)}
           </p>
         </div>
 
@@ -160,10 +182,10 @@ function ApplicationRow({
 
           <div className="mt-5 border-t border-slate-100 pt-4">
             <Link
-              to={`/loans/${loan.name}`}
+              to={attention?.action?.to ?? `/loans/${loan.name}`}
               className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
             >
-              {loan.stage === 'Draft' ? 'Continue this application' : 'Open case'}
+              {attention?.action?.label ?? (loan.stage === 'Draft' ? 'Continue this application' : 'Open case')}
               <ArrowRightIcon className="h-4 w-4" />
             </Link>
           </div>
@@ -173,127 +195,112 @@ function ApplicationRow({
   );
 }
 
-/** The cluster entry point. It lives here rather than on the sidebar so a
- *  citizen has one place for everything they have applied for, alone or with a
- *  group. Pending invitations surface here too: `Invitations` only renders on
- *  /cluster for someone who is not yet in one, so without this an invitee who
- *  never thinks to visit that page would never learn they were asked.
- *  The panel itself stays one line — it is a doorway, not a second report. */
-function ClusterPanel() {
-  const [cluster, setCluster] = useState<ClusterType | null | undefined>(undefined);
-  const [invites, setInvites] = useState<ClusterInvitation[]>([]);
+/** An invitation to a group, answered right here. */
+function InvitationCard({
+  invite,
+  onAnswered,
+}: {
+  invite: ClusterInvitation;
+  onAnswered: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    call<ClusterType | null>('gdb_bank.api.my_cluster')
-      .then(setCluster)
-      .catch(() => setCluster(null));
-    call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
-      .then(setInvites)
-      .catch(() => setInvites([]));
-  }, []);
+  const answer = async (accept: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await call('gdb_bank.api.respond_to_invitation', { cluster: invite.name, accept: accept ? 1 : 0 });
+      onAnswered();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not record your answer');
+      setBusy(false);
+    }
+  };
 
-  // Say nothing until the answer is in, rather than flashing "no cluster".
-  if (cluster === undefined) return null;
+  const facts = [invite.region, invite.sector].filter(Boolean).join(' · ');
 
   return (
-    <section className="space-y-3">
-      <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400">My cluster</h3>
-
-      {/* An invitation is the one thing here somebody must answer, so it keeps
-          its full card while everything else collapses to a line. */}
-      {invites.length > 0 && (
-        <Card className="border border-gdb-gold/60">
-          <p className="text-base font-semibold text-slate-800">
-            You have been invited to {invites.length === 1 ? 'a cluster' : `${invites.length} clusters`}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {invites.map((i) => i.cluster_name || i.name).join(', ')} — answer before the head applies
-            for the group.
-          </p>
-          <Link
-            to="/cluster"
-            className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
-          >
-            Answer the invitation
-            <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-        </Card>
+    <Card className="border border-gdb-gold/60">
+      <p className="text-base font-semibold text-slate-800">
+        {invite.head_name} invited you to join {invite.cluster_name || invite.name}
+      </p>
+      <p className="mt-1 text-sm text-slate-500">
+        {facts ? `${facts} · ` : ''}invited {formatDate(invite.invited_on)}
+      </p>
+      {error && (
+        <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {error}
+        </p>
       )}
-
-      {cluster ? (
-        <Link
-          to="/cluster"
-          className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm transition-colors hover:border-brand/40 hover:bg-slate-50/80 sm:px-5"
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void answer(true)}
+          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
         >
-          <ClusterIcon className="h-5 w-5 flex-none text-brand" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="truncate text-sm font-semibold text-slate-900">{cluster.name}</span>
-              {cluster.is_head && (
-                <span className="rounded-full bg-gdb-gold/40 px-2 py-0.5 text-[11px] font-semibold text-brand-dark">
-                  You are the head
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 truncate text-xs text-slate-400">
-              {[cluster.region, cluster.sector].filter(Boolean).join(' · ') || 'Cluster'} ·{' '}
-              {cluster.members.length} member{cluster.members.length === 1 ? '' : 's'} ·{' '}
-              {cluster.applications.length} application
-              {cluster.applications.length === 1 ? '' : 's'}
-            </p>
-          </div>
-          <ArrowRightIcon className="h-4 w-4 flex-none text-slate-400" />
-        </Link>
-      ) : (
-        <Link
-          to="/cluster"
-          className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 px-4 py-3.5 transition-colors hover:border-brand hover:bg-white sm:px-5"
+          Join the group
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void answer(false)}
+          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
         >
-          <ClusterIcon className="h-5 w-5 flex-none text-slate-300" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-700">Start or join a cluster</p>
-            <p className="mt-0.5 text-xs text-slate-400">
-              A group applies together — the head applies for the group, every member keeps their own
-              record.
-            </p>
-          </div>
-          <ArrowRightIcon className="h-4 w-4 flex-none text-slate-400" />
-        </Link>
-      )}
-    </section>
+          Decline
+        </button>
+      </div>
+    </Card>
   );
 }
 
 export function Applications() {
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const view: View = params.get('view') === 'clusters' ? 'clusters' : 'mine';
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
+  const [invites, setInvites] = useState<ClusterInvitation[]>([]);
+  const [financialsDone, setFinancialsDone] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
+  const load = useCallback(() => {
     call<LoanApplication[]>('gdb_bank.api.my_loans')
-      .then((rows) => {
-        setLoans(rows);
-        // Every row starts collapsed. The attentionFor badge still marks what is
-        // waiting on this person on the closed row; opening a card is the
-        // applicant's own choice, via the row or "Expand all".
-      })
+      .then(setLoans)
+      .catch((err: Error) => setError(err.message));
+    call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
+      .then(setInvites)
+      .catch((err: Error) => setError(err.message));
+    call<CitizenProfile>('gdb_bank.profiles.my_profile')
+      .then((p) => setFinancialsDone(Boolean(p.financials_updated_on)))
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  const { live, past, needsAction } = useMemo(() => {
+  // A member (not the head) owes their personal financials on each group case.
+  const attention = (loan: LoanApplication) =>
+    attentionFor(loan, Boolean(loan.cluster) && loan.applicant !== user?.user && !financialsDone);
+
+  useEffect(load, [load]);
+
+  const setView = (next: View) =>
+    setParams(next === 'clusters' ? { view: 'clusters' } : {}, { replace: true });
+
+  const { own, group } = useMemo(() => {
     const all = loans ?? [];
-    return {
-      live: all.filter((l) => !CLOSED_STAGES.has(l.stage)),
-      past: all.filter((l) => CLOSED_STAGES.has(l.stage)),
-      needsAction: all.filter((l) => attentionFor(l)).length,
-    };
+    return { own: all.filter((l) => !l.cluster), group: all.filter((l) => l.cluster) };
   }, [loans]);
 
+  const inView = view === 'clusters' ? group : own;
+  const live = inView.filter((l) => !CLOSED_STAGES.has(l.stage));
+  const past = inView.filter((l) => CLOSED_STAGES.has(l.stage));
+  const needsAction = inView.filter((l) => attention(l)).length;
   // Still-moving cases first whichever filter is on: what is live is what the
   // applicant came to check.
   const shown = filter === 'live' ? live : filter === 'past' ? past : [...live, ...past];
   const allOpen = shown.length > 0 && shown.every((l) => openIds.has(l.name));
+  const clustersWaiting = invites.length > 0 || group.some((l) => attention(l));
 
   function toggle(name: string) {
     setOpenIds((prev) => {
@@ -309,25 +316,13 @@ export function Applications() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">My applications</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {loans && loans.length > 0 ? (
-              <>
-                {loans.length} application{loans.length === 1 ? '' : 's'}
-                {needsAction > 0 ? (
-                  <>
-                    {' · '}
-                    <span className="font-semibold text-amber-700">
-                      {needsAction} waiting on you
-                    </span>
-                  </>
-                ) : (
-                  ' · nothing waiting on you'
-                )}
-              </>
+            {needsAction > 0 ? (
+              <span className="font-semibold text-amber-700">{needsAction} waiting on you</span>
             ) : (
               'Everything you have applied for, and where each one stands today.'
             )}
@@ -342,26 +337,67 @@ export function Applications() {
         </Link>
       </div>
 
+      <SegmentedControl<View>
+        value={view}
+        onChange={setView}
+        options={[
+          { id: 'mine', label: `Mine (${own.length})` },
+          {
+            id: 'clusters',
+            label: (
+              <span className="inline-flex items-center gap-1.5">
+                Clusters ({group.length})
+                {clustersWaiting && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-gdb-gold" aria-label="Something is waiting on you" />
+                )}
+              </span>
+            ),
+          },
+        ]}
+      />
+
+      {view === 'clusters' && invites.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400">Invitations</h3>
+          {invites.map((invite) => (
+            <InvitationCard key={invite.name} invite={invite} onAnswered={load} />
+          ))}
+        </section>
+      )}
+
       {!loans ? (
         <Card className="animate-pulse">
           <div className="h-4 w-40 rounded bg-slate-100" />
           <div className="mt-4 h-2 w-full rounded bg-slate-100" />
         </Card>
-      ) : loans.length === 0 ? (
-        <Card className="border border-dashed border-slate-200 py-12 text-center">
-          <p className="text-base font-semibold text-slate-700">No applications yet</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            An application is saved as you go. Nothing reaches the Bank until you submit it, and you
-            can attach your documents before or after.
-          </p>
+      ) : inView.length === 0 ? (
+        view === 'clusters' ? (
           <Link
-            to="/apply/new"
-            className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+            to="/cluster"
+            className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 px-4 py-3.5 transition-colors hover:border-brand hover:bg-white sm:px-5"
           >
-            <PlusIcon className="h-4 w-4" />
-            Start your first application
+            <ClusterIcon className="h-5 w-5 flex-none text-slate-300" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700">No group applications yet</p>
+              <p className="mt-0.5 text-xs text-slate-400">Start a cluster, or join one you are invited to.</p>
+            </div>
+            <ArrowRightIcon className="h-4 w-4 flex-none text-slate-400" />
           </Link>
-        </Card>
+        ) : (
+          <Card className="border border-dashed border-slate-200 py-12 text-center">
+            <p className="text-base font-semibold text-slate-700">No applications yet</p>
+            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+              An application is saved as you go. Nothing reaches the Bank until you submit it.
+            </p>
+            <Link
+              to="/apply/new"
+              className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Start your first application
+            </Link>
+          </Card>
+        )
       ) : (
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -369,7 +405,7 @@ export function Applications() {
               value={filter}
               onChange={setFilter}
               options={[
-                { id: 'all', label: `All (${loans.length})` },
+                { id: 'all', label: `All (${inView.length})` },
                 { id: 'live', label: `In progress (${live.length})` },
                 { id: 'past', label: `Decided (${past.length})` },
               ]}
@@ -377,9 +413,7 @@ export function Applications() {
             {shown.length > 1 && (
               <button
                 type="button"
-                onClick={() =>
-                  setOpenIds(allOpen ? new Set() : new Set(shown.map((l) => l.name)))
-                }
+                onClick={() => setOpenIds(allOpen ? new Set() : new Set(shown.map((l) => l.name)))}
                 className="text-sm font-semibold text-slate-500 transition-colors hover:text-brand"
               >
                 {allOpen ? 'Collapse all' : 'Expand all'}
@@ -401,16 +435,21 @@ export function Applications() {
                 <ApplicationRow
                   key={loan.name}
                   loan={loan}
+                  attention={attention(loan)}
                   open={openIds.has(loan.name)}
                   onToggle={() => toggle(loan.name)}
                 />
               ))}
             </div>
           )}
+
+          {view === 'clusters' && (
+            <Link to="/cluster" className="inline-block text-sm font-semibold text-brand hover:underline">
+              Manage your groups →
+            </Link>
+          )}
         </section>
       )}
-
-      <ClusterPanel />
     </div>
   );
 }

@@ -31,7 +31,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-from gdb_bank.api import _as_system, _logger, _require_finance, repayment_plan
+from gdb_bank.services.finance import repayment_plan
+from gdb_bank.utils.session import _as_system, _logger, _require_finance
 
 OPEN_LOAN_STATUSES = ("Disbursed", "Partially Disbursed", "Active")
 

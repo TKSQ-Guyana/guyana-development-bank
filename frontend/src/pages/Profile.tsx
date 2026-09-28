@@ -231,7 +231,7 @@ export function Profile() {
       </form>
 
       {/* Personal documents: they follow the person, not one application. */}
-      <DocumentShelf canUpload title="My documents" />
+      <DocumentShelf title="My documents" />
     </div>
   );
 }

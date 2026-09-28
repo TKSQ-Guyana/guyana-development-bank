@@ -12,6 +12,7 @@ import { Portfolio } from './pages/Finance/Portfolio';
 import { Ledger } from './pages/Finance/Ledger';
 import { RuleProposals } from './pages/Finance/RuleProposals';
 import { Dashboard } from './pages/Dashboard';
+import { MyFinancialsPage } from './features/personal-financials/MyFinancialsPage';
 import { Landing } from './pages/Landing';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
@@ -113,6 +114,7 @@ export function App() {
             <Route path="/cluster" element={<Cluster />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/loans/:name" element={<LoanDetail />} />
+            <Route path="/loans/:name/my-financials" element={<MyFinancialsPage />} />
             <Route
               path="/review"
               element={

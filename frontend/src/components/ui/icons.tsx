@@ -208,3 +208,17 @@ export function ChevronDownIcon({ className = base }: IconProps) {
     </svg>
   );
 }
+
+export function BellIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className}>
+      <path
+        d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5.5 1.5 5.5h-13S5 12 5 8ZM8.25 16.5a1.75 1.75 0 0 0 3.5 0"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
