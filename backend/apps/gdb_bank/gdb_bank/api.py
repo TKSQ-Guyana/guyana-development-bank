@@ -27,6 +27,7 @@ from gdb_bank.utils.constants import (  # noqa: F401  (re-exported for siblings)
 	STATUS_FROM_PORTAL,
 	STATUS_TO_PORTAL,
 )
+from gdb_bank.security.conflict import is_same_person
 from gdb_bank.utils.formatters import _portal_dict, _stage_context
 from gdb_bank.utils.session import (  # noqa: F401  (re-exported for siblings)
 	_as_system,
@@ -53,12 +54,6 @@ from gdb_bank.services import (
 from gdb_bank.services.application import _readable_application  # noqa: F401
 from gdb_bank.services.finance import repayment_plan  # noqa: F401
 from gdb_bank.services.user import _get_or_create_customer
-
-@frappe.whitelist(allow_guest=True)
-def signup(full_name: str, email: str, password: str):
-	"""Citizen self-registration: creates a Website User with the Citizen role."""
-	return user_service.signup(full_name, email, password)
-
 
 @frappe.whitelist()
 def whoami():
@@ -433,7 +428,10 @@ def disburse_loan(application: str, amount=None):
 	decision = frappe.db.get_value(
 		"Loan Application", application, ["gdb_reviewed_by", "gdb_owner"], as_dict=True
 	)
-	if decision and decision.gdb_reviewed_by == user:
+	# Both checks compare PEOPLE, not accounts (security/conflict.py): staff sign
+	# in with a work email and citizens with their e-ID, so one person can hold
+	# two accounts, and an account-name comparison alone would miss them.
+	if decision and is_same_person(user, decision.gdb_reviewed_by):
 		_logger().warning(f"four-eyes: {user} approved {application} and tried to release it")
 		frappe.throw(
 			_("You approved this application, so you cannot release its funds. "
@@ -442,7 +440,7 @@ def disburse_loan(application: str, amount=None):
 		)
 	# The same principle one step further out: an officer must not pay
 	# themselves, whatever roles they hold.
-	if decision and decision.gdb_owner == user:
+	if decision and is_same_person(user, decision.gdb_owner):
 		frappe.throw(
 			_("You cannot release funds on your own application."), frappe.PermissionError
 		)

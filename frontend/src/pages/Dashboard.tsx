@@ -140,8 +140,9 @@ export function Dashboard() {
                 <p className="mt-1 text-2xl font-bold text-slate-900">
                   {formatGyd(active.loan_amount)}
                 </p>
-                <p className="text-sm text-slate-500">
-                  {active.term_months} months · {active.purpose}
+                <p className="truncate text-sm text-slate-500">
+                  {active.term_months} months ·{' '}
+                  {active.cluster || active.business_name || 'Loan application'}
                 </p>
               </div>
               <StageBadge stage={active.stage} />

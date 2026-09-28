@@ -1,6 +1,6 @@
 # The whole stack in FIVE services:
 #   mariadb, redis, backend (self-contained ERPNext), frontend (React portal),
-#   keycloak (e-ID sign-in).
+#   keycloak (all sign-in).
 #
 #   docker compose up -d --build
 #
@@ -11,17 +11,17 @@
 # One Redis serves cache (DB /0) and queue (DB /1).
 #
 # Portal: http://localhost:3000    ERPNext desk: http://localhost:8080
-# Keycloak: http://localhost:8086  (admin/admin — realm gdb-citizen)
+# Keycloak: http://localhost:8086  (admin/admin — realms gdb-citizen, gdb-staff)
 #
-# TWO WAYS IN, on purpose, while e-ID sign-in is being proven:
-#   e-ID + password  -> Keycloak, realm gdb-citizen (see keycloak/README.md)
-#                       592-1111-0001 · 592-2222-0002 · 592-3333-0003,
-#                       password ChangeMe@123
-#   email + password -> Frappe's own login, unchanged
-#                       citizen@example.gy (citizen) ·
-#                       underwriter@gdb.gov.gy (underwriter) ·
-#                       Administrator (ERPNext admin)
-#                       password = ADMIN_PASSWORD, default "admin"
+# KEYCLOAK AUTHENTICATES EVERYBODY — two realms, two doors (keycloak/README.md):
+#   citizens  e-ID + password        -> realm gdb-citizen
+#             592-1111-0001 · 592-3333-0003, password ChangeMe@123
+#   staff     work email + password  -> realm gdb-staff
+#             underwriter@ · finance@ · financeofficer@ · admin@gdb.gov.gy,
+#             password ChangeMe@123
+#   Frappe's own email login remains ONLY for System Users — the Administrator
+#   break-glass (password = ADMIN_PASSWORD, default "admin") and the ERPNext
+#   desk until it gets Keycloak SSO. It refuses citizens.
 services:
   mariadb:
     image: mariadb:11.8
@@ -68,23 +68,28 @@ services:
       # Public client in the seeded realm, so no secret. A confidential client
       # sets this and nothing else changes.
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
-      # --- the GOVERNMENT staff realm (optional) --------------------------
+      # --- the STAFF realm ------------------------------------------------
       #
-      # A GDB underwriter is a public servant, so their identity already lives
-      # in the government directory — the SAME realm the MPS portal uses. Point
-      # GDB at it and one government account signs into both systems.
+      # GDB staff sign in with their WORK EMAIL and a password Keycloak holds
+      # (identity.staff_login). The realm NEVER provisions: a Keycloak account
+      # alone opens nothing — the Frappe account and its roles must have been
+      # created by the platform administrator.
       #
-      # Tried BEFORE the citizen realm, and it NEVER provisions: being in the
-      # government directory proves employment, not that the Bank granted you
-      # access. No pre-provisioned Frappe user => refused (identity.py).
-      #
-      # Locally this is the sibling MPS-Guyana stack on :8085, so it needs that
-      # stack running; when it is not, the realm is simply skipped and citizen
-      # sign-in is unaffected. Unset KEYCLOAK_STAFF_REALM to switch it off.
-      KEYCLOAK_STAFF_URL: ${KEYCLOAK_STAFF_URL:-http://host.docker.internal:8085}
-      KEYCLOAK_STAFF_REALM: ${KEYCLOAK_STAFF_REALM:-Guyana-Gov}
-      KEYCLOAK_STAFF_CLIENT_ID: ${KEYCLOAK_STAFF_CLIENT_ID:-mps-staff-console}
+      # Locally this is the gdb-staff realm in the keycloak service below. A
+      # deployment can point it at the government directory instead, provided
+      # that realm accepts the email as the username.
+      KEYCLOAK_STAFF_URL: ${KEYCLOAK_STAFF_URL:-http://keycloak:8080}
+      KEYCLOAK_STAFF_REALM: ${KEYCLOAK_STAFF_REALM:-gdb-staff}
+      KEYCLOAK_STAFF_CLIENT_ID: ${KEYCLOAK_STAFF_CLIENT_ID:-gdb-staff-portal}
       KEYCLOAK_STAFF_CLIENT_SECRET: ${KEYCLOAK_STAFF_CLIENT_SECRET:-}
+      # The confidential client the portal uses to create and disable staff
+      # accounts in that realm, and to set their one-time and chosen
+      # passwords (integrations/keycloak_admin.py). Its
+      # service account holds realm-management manage-users there and nothing
+      # anywhere else. DEV SECRET — a deployment sets its own, or stores it in
+      # the portal's Integration settings, where it is encrypted.
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-gdb-portal-admin}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-gdb-portal-admin-dev-secret}
     # host.docker.internal is automatic on Docker Desktop; this makes the same
     # compose file work on Linux engines too.
     extra_hosts:
@@ -124,8 +129,19 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # The address a BROWSER reaches Keycloak at (its admin console), not the
+      # in-network http://keycloak:8080 the backend calls. Backchannel dynamic
+      # keeps those in-network calls working; token issuers then name this
+      # public URL, which identity.py never checks locally (it confirms every
+      # token through userinfo instead).
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8086}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
     volumes:
+      # Each realm file is imported only if that realm does not exist yet, so
+      # adding gdb-staff reaches an existing volume on the next start without
+      # touching gdb-citizen (keycloak/README.md).
       - ./keycloak/gdb-realm.json:/opt/keycloak/data/import/gdb-realm.json:ro
+      - ./keycloak/gdb-staff-realm.json:/opt/keycloak/data/import/gdb-staff-realm.json:ro
       - keycloak-data:/opt/keycloak/data
     ports:
       - '${KEYCLOAK_PORT:-8086}:8080'

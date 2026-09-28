@@ -106,10 +106,9 @@ const FOOTER_NAV: { heading: string; links: { label: string; to?: string }[] }[]
   },
   {
     heading: 'YOUR APPLICATION',
-    links: [
-      { label: 'Sign in', to: '/login' },
-      { label: 'Create an account', to: '/signup' },
-    ],
+    // No "create an account": a citizen's account opens on their first e-ID
+    // sign-in, so signing in IS the way to start.
+    links: [{ label: 'Sign in', to: '/login' }],
   },
 ];
 

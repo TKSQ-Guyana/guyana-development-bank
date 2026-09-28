@@ -21,7 +21,11 @@ import { Profile } from './pages/Profile';
 import { Statements } from './pages/Statements';
 import { Training } from './pages/Training';
 import { Review } from './pages/Review';
-import { Signup } from './pages/Signup';
+import { AccessHistoryPage } from './features/platform-admin/AccessHistoryPage';
+import { AdminLayout } from './features/platform-admin/AdminLayout';
+import { HealthPage } from './features/platform-admin/HealthPage';
+import { IntegrationsPage } from './features/platform-admin/IntegrationsPage';
+import { UsersPage } from './features/platform-admin/UsersPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -69,12 +73,22 @@ function RequireUnderwriter({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** An underwriter has no loans of their own, so the citizen dashboard has
- *  nothing for them — land them on the queue they actually work from. */
+/** Staff have no loans of their own, so the citizen dashboard has nothing for
+ *  them — land each on the desk they actually work from. */
 function Index() {
   const { user } = useAuth();
+  if (user?.is_platform_admin) return <Navigate to="/admin/users" replace />;
   if (user?.is_underwriter) return <Navigate to="/review" replace />;
   return <Dashboard />;
+}
+
+/** Accounts, roles, health and integration settings are the platform
+ *  administrator's. Mirrored server-side in _require_platform_admin — this
+ *  only decides what to render. */
+function RequirePlatformAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_platform_admin) return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 /** The books are Finance's, not the underwriter's and not the disbursement
@@ -100,7 +114,6 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
           <Route element={<ApplicantShell />}>
             <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the
@@ -145,6 +158,21 @@ export function App() {
             <Route path="/finance/portfolio" element={<Portfolio />} />
             <Route path="/finance/ledger" element={<Ledger />} />
             <Route path="/finance/rules" element={<RuleProposals />} />
+          </Route>
+          <Route
+            element={
+              <RequireAuth>
+                <RequirePlatformAdmin>
+                  <AdminLayout />
+                </RequirePlatformAdmin>
+              </RequireAuth>
+            }
+          >
+            <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
+            <Route path="/admin/users" element={<UsersPage />} />
+            <Route path="/admin/health" element={<HealthPage />} />
+            <Route path="/admin/integrations" element={<IntegrationsPage />} />
+            <Route path="/admin/history" element={<AccessHistoryPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

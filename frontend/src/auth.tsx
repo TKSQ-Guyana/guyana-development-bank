@@ -4,21 +4,30 @@ import {
   ApiError,
   call,
   eidLogin as apiEidLogin,
-  login as apiLogin,
   logout as apiLogout,
+  staffLogin as apiStaffLogin,
+  staffSetPassword as apiStaffSetPassword,
 } from './api';
 import type { Whoami } from './types';
+
+/** A staff sign-in either opens a session, or — for the one-time password an
+ *  administrator issued — asks for the person's own password first. */
+export type StaffSignIn =
+  | { passwordChangeRequired: true }
+  | { passwordChangeRequired: false; whoami: Whoami | null };
 
 interface AuthState {
   user: Whoami | null;
   loading: boolean;
-  /** Resolves to who just signed in, so the caller can route by role (an
-   *  underwriter has nowhere useful to land but the review queue) without
-   *  waiting a render cycle for context state to catch up. */
-  login: (email: string, password: string) => Promise<Whoami | null>;
-  /** Sign in with a national e-ID (`123-4567-8901`) via Keycloak. */
+  // Both sign-ins resolve to who just signed in, so the caller can route by
+  // role (an underwriter has nowhere useful to land but the review queue)
+  // without waiting a render cycle for context state to catch up.
+  /** Citizens: national e-ID (`123-4567-8901`) via the Keycloak citizen realm. */
   loginWithEid: (eid: string, password: string) => Promise<Whoami | null>;
-  signup: (fullName: string, email: string, password: string) => Promise<Whoami | null>;
+  /** GDB staff: work email via the Keycloak staff realm. */
+  loginAsStaff: (email: string, password: string) => Promise<StaffSignIn>;
+  /** GDB staff, first sign-in: replace the one-time password, then sign in. */
+  setStaffPassword: (email: string, oneTimePassword: string, newPassword: string) => Promise<Whoami | null>;
   logout: () => Promise<void>;
 }
 
@@ -49,16 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      await apiLogin(email, password);
-      return refresh();
-    },
-    [refresh],
-  );
-
-  // Same shape as `login`: the backend has already set the session cookie by
-  // the time this resolves, so refresh() reads it the same way either way.
+  // The backend has already set the session cookie by the time either sign-in
+  // resolves, so refresh() reads it the same way whichever door was used.
   const loginWithEid = useCallback(
     async (eid: string, password: string) => {
       await apiEidLogin(eid, password);
@@ -67,10 +68,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
-  const signup = useCallback(
-    async (fullName: string, email: string, password: string) => {
-      await call('gdb_bank.api.signup', { full_name: fullName, email, password });
-      await apiLogin(email, password);
+  const loginAsStaff = useCallback(
+    async (email: string, password: string): Promise<StaffSignIn> => {
+      const result = await apiStaffLogin(email, password);
+      if (result?.password_change_required) return { passwordChangeRequired: true };
+      return { passwordChangeRequired: false, whoami: await refresh() };
+    },
+    [refresh],
+  );
+
+  const setStaffPassword = useCallback(
+    async (email: string, oneTimePassword: string, newPassword: string) => {
+      await apiStaffSetPassword(email, oneTimePassword, newPassword);
       return refresh();
     },
     [refresh],
@@ -85,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginWithEid, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithEid, loginAsStaff, setStaffPassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

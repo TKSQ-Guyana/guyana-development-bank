@@ -8,10 +8,14 @@ info:
     these endpoints expose a stable portal contract over it.
 
     Every custom endpoint is a Frappe *whitelisted method* invoked as
-    `POST /api/method/gdb_bank.api.<name>` with a JSON body. Authentication is
-    the standard Frappe **session cookie** (`sid`) obtained from
-    `POST /api/method/login`. Results are wrapped as `{"message": <result>}`;
-    errors carry `exc_type` / `_server_messages`.
+    `POST /api/method/gdb_bank.<module>.<name>` with a JSON body.
+    Authentication is the standard Frappe **session cookie** (`sid`), minted
+    after **Keycloak** authenticates the caller through one of two doors:
+    citizens with their e-ID (`gdb_bank.identity.password_login`), GDB staff
+    with their work email (`gdb_bank.identity.staff_login`). Frappe's own
+    `POST /api/method/login` remains for System Users only (break-glass).
+    Results are wrapped as `{"message": <result>}`; errors carry `exc_type` /
+    `_server_messages`.
 
     Served through the gdb-frontend nginx, `/api` is same-origin with the SPA.
 servers:
@@ -38,12 +42,24 @@ tags:
       refuses whoever approved the case, so one person holding both roles
       still cannot decide and pay the same application.
   - name: documents
+  - name: platform_admin
+    description: |
+      Runs the platform: staff and citizen accounts, roles, the kill switch,
+      the access history, system health and integration settings. The
+      `Platform Admin` role is in none of the credit or money authority sets,
+      so every underwriter, finance and disbursement endpoint refuses it.
+      Every state change is POST-only, needs a `reason`, and is recorded in
+      the append-only access history.
 
 paths:
   /api/method/login:
     post:
       tags: [auth]
-      summary: Log in (sets the sid session cookie)
+      summary: Frappe's own login — System Users only (break-glass)
+      description: |
+        Kept for the Administrator and the ERPNext desk until the desk has
+        Keycloak SSO. Refuses a citizen (Website User) with "Citizens sign in
+        with their e-ID." — citizens use `password_login`, staff `staff_login`.
       requestBody:
         required: true
         content:
@@ -76,8 +92,9 @@ paths:
 
         First sign-in either **links** the e-ID to an existing User with the
         same email, or **provisions** a new Website User with the `Citizen`
-        role. Roles are never taken from Keycloak: staff access stays a manual
-        grant in Frappe.
+        role. Roles are never taken from Keycloak. This door **never opens a
+        staff account**: an e-ID whose email belongs to one is refused before
+        anything is linked ("This e-ID belongs to a GDB staff account").
 
         Rate-limited to 8 attempts per e-ID per minute — this path does not go
         through Frappe's own `track_login_attempts`.
@@ -123,11 +140,13 @@ paths:
   /api/method/gdb_bank.identity.eid_login_available:
     post:
       tags: [auth]
-      summary: Whether this site has e-ID sign-in configured (guest-allowed)
+      summary: Which Keycloak sign-in doors this site has configured (guest-allowed)
       description: |
-        False when any of `keycloak_url` / `keycloak_realm` /
-        `keycloak_client_id` is unset (site_config, or the matching
-        `KEYCLOAK_*` environment variable).
+        `available` is the citizen e-ID door: false when any of
+        `keycloak_url` / `keycloak_realm` / `keycloak_client_id` is unset
+        (portal Integration settings, site_config, or the matching
+        `KEYCLOAK_*` environment variable). `staff_available` is the same
+        question for the staff realm.
       responses:
         '200':
           description: Availability
@@ -140,6 +159,9 @@ paths:
                     type: object
                     properties:
                       available: { type: boolean }
+                      citizen_realm: { type: string, nullable: true }
+                      staff_available: { type: boolean }
+                      staff_realm: { type: string, nullable: true }
 
   /api/method/logout:
     post:
@@ -149,36 +171,101 @@ paths:
       responses:
         '200': { description: Logged out }
 
-  /api/method/gdb_bank.api.signup:
+  /api/method/gdb_bank.identity.staff_login:
     post:
       tags: [auth]
-      summary: Citizen self-registration (guest-allowed)
-      description: Creates a Website User with the **Citizen** role.
+      summary: GDB staff sign-in with a work email (guest-allowed; sets the sid cookie)
+      description: |
+        Runs the Keycloak password grant against the **staff realm** with the
+        work email as the username, confirms the token against `userinfo`
+        (whose `email` must equal the one typed), and mints the ordinary `sid`
+        session.
+
+        **Never provisions.** The Frappe account — and its roles — must already
+        have been created by the platform administrator; a Keycloak account
+        alone opens nothing. Refuses a citizen account.
+
+        A **one-time password** (issued by the platform administrator) is
+        right but opens no session: the answer is
+        `{"message": {"password_change_required": true}}`, and the client
+        continues with `staff_set_password`. Keycloak only says so once the
+        password is correct, so this reveals nothing a wrong guess would not.
+
+        Rate-limited to 8 attempts per email per minute.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [full_name, email, password]
+              required: [email, password]
               properties:
-                full_name: { type: string, example: Aisha Persaud }
-                email: { type: string, format: email, example: aisha@example.gy }
-                password: { type: string, format: password }
+                email: { type: string, format: email, example: underwriter@gdb.gov.gy }
+                password: { type: string, format: password, example: ChangeMe@123 }
       responses:
         '200':
-          description: Account created
+          description: |
+            Logged in (`Set-Cookie: sid=…`, message is Whoami), or — for a
+            one-time password — `{password_change_required: true}` and no
+            session.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   message:
-                    type: object
-                    properties:
-                      user: { type: string }
-                      full_name: { type: string }
-        '417': { description: Validation error (duplicate email, weak password…) }
+                    oneOf:
+                      - $ref: '#/components/schemas/Whoami'
+                      - type: object
+                        properties:
+                          password_change_required: { type: boolean, enum: [true] }
+        '401':
+          description: |
+            Incorrect email or password (same answer for an unknown email), no
+            GDB account for this email, not a staff account, or disabled.
+        '417': { description: Staff sign-in not configured on this site }
+        '429': { description: Rate limit exceeded (8 attempts per email per minute) }
+
+  /api/method/gdb_bank.identity.staff_set_password:
+    post:
+      tags: [auth]
+      summary: First staff sign-in — replace the one-time password with your own, then sign in (guest-allowed)
+      description: |
+        `password` is the one-time password the platform administrator was
+        shown. It is checked with Keycloak before anything changes, and the
+        account must be one the portal would open and must be waiting on a
+        new password — this is not a general change-password endpoint. The
+        new password is saved as permanent in Keycloak (clearing its pending
+        action), the access history records `Password Chosen` as the
+        person's own act, and the `sid` session is minted exactly as
+        `staff_login` would. Neither password is stored or logged by GDB.
+
+        The new password: at least 12 characters, at most 128, not the
+        one-time password, not the email. Keycloak's realm policy, if any,
+        applies on top. Rate-limited to 8 attempts per email per minute.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, new_password]
+              properties:
+                email: { type: string, format: email, example: k.ramdass@gdb.gov.gy }
+                password: { type: string, format: password, description: The one-time password, example: Kx7m-P2qa-9TfR }
+                new_password: { type: string, format: password, minLength: 12, maxLength: 128 }
+      responses:
+        '200':
+          description: 'Password set and logged in; `Set-Cookie: sid=…`'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/Whoami' }
+        '401': { description: Incorrect email or one-time password, no GDB account, not a staff account, or disabled }
+        '417': { description: 'New password refused by the rules above or by Keycloak, the password is already set, or not configured' }
+        '429': { description: Rate limit exceeded (8 attempts per email per minute) }
 
   /api/method/gdb_bank.api.whoami:
     post:
@@ -1016,6 +1103,230 @@ paths:
         '403': { description: Not your application }
         '417': { description: Not booked, or not open for repayment }
 
+  # -- Platform administration ------------------------------------------------
+  # Every endpoint below answers 403 "Only the GDB platform administrator may
+  # do this." to any other role.
+
+  /api/method/gdb_bank.platform_admin.list_users:
+    post:
+      tags: [platform_admin]
+      summary: Staff or citizen accounts, one page at a time
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: { type: string, enum: [staff, citizens], default: staff }
+                search: { type: string, description: 'Name, email or e-ID' }
+                start: { type: integer, default: 0 }
+                page_length: { type: integer, default: 50, maximum: 100 }
+      responses:
+        '200':
+          description: '`{users: AccountSummary[], has_more, grantable_roles}`'
+
+  /api/method/gdb_bank.platform_admin.get_user:
+    post:
+      tags: [platform_admin]
+      summary: One account, with what the administrator may change about it
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [user], properties: { user: { type: string } } }
+      responses:
+        '200': { description: 'AccountDetail — roles, status, e-ID, can_change_roles, warnings…' }
+        '404': { description: No such account }
+
+  /api/method/gdb_bank.platform_admin.create_staff_user:
+    post:
+      tags: [platform_admin]
+      summary: Create a staff account (and its Keycloak account, with a one-time password shown once)
+      description: |
+        Creates a System User holding only the given portal roles, with NO
+        Frappe password. When the Keycloak admin client is configured, also
+        creates the staff-realm account and sets a **temporary** one-time
+        password on it, returned as `one_time_password` in this response and
+        nowhere else (not stored, not logged, not in the access history).
+        It works for one sign-in, where the person must choose their own
+        (`staff_set_password`).
+        `keycloak.status` is `issued`, `linked` (an account already existed —
+        no one-time password; use `reset_password`), `manual` (not configured
+        — create it in Keycloak by hand) or `failed`.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [full_name, email, roles, reason]
+              properties:
+                full_name: { type: string, example: Kevin Ramdass }
+                email: { type: string, format: email, example: k.ramdass@gdb.gov.gy }
+                eid:
+                  type: string
+                  example: 592-4321-0099
+                  description: The person's national e-ID — for the conflict-of-interest check, never to sign in.
+                roles:
+                  type: array
+                  items: { type: string, enum: [Loan Underwriter, Disbursement Officer, Finance Officer] }
+                reason: { type: string, example: 'New hire, credit team' }
+      responses:
+        '200': { description: '`{user: AccountDetail, keycloak: {status, detail}, one_time_password: string | null}`' }
+        '403': { description: A role outside the grantable three }
+        '409': { description: Email or e-ID already on an account }
+
+  /api/method/gdb_bank.platform_admin.set_user_roles:
+    post:
+      tags: [platform_admin]
+      summary: Set a staff account's portal roles (the desired end state — repeating it is a no-op)
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user, roles, reason]
+              properties:
+                user: { type: string }
+                roles: { type: array, items: { type: string } }
+                reason: { type: string }
+      responses:
+        '200': { description: '`{user, changed}`' }
+        '403': { description: "Own account, an administrator's account, a citizen account, or an ungrantable role" }
+
+  /api/method/gdb_bank.platform_admin.set_user_enabled:
+    post:
+      tags: [platform_admin]
+      summary: The kill switch — disable or re-enable an account
+      description: |
+        Disabling ends the account's open sessions immediately and is honoured
+        at every sign-in even while Keycloak still accepts the password. For a
+        staff account the Keycloak account is disabled too when the admin
+        client is configured.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user, enabled, reason]
+              properties:
+                user: { type: string }
+                enabled: { type: integer, enum: [0, 1] }
+                reason: { type: string, example: Resigned 30 Sep 2026 }
+      responses:
+        '200': { description: '`{user, changed, keycloak}`' }
+        '403': { description: Own account or an administrator's account }
+
+  /api/method/gdb_bank.platform_admin.reset_password:
+    post:
+      tags: [platform_admin]
+      summary: Issue a staff member a new one-time password (shown once) and end their open sessions
+      description: |
+        Replaces whatever the account signs in with by a temporary one-time
+        password, returned as `one_time_password` in this response only. The
+        person's open portal sessions are ended. At their next sign-in they
+        must choose their own (`staff_set_password`), so the administrator
+        never knows the password they use. Staff accounts, enabled, only.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user, reason]
+              properties:
+                user: { type: string }
+                reason: { type: string, example: Forgot their password }
+      responses:
+        '200': { description: '`{user, one_time_password, detail}`' }
+        '403': { description: Own account or an administrator's account }
+        '417': { description: A citizen account, a disabled account, or Keycloak account management not configured }
+
+  /api/method/gdb_bank.platform_admin.access_history:
+    post:
+      tags: [platform_admin]
+      summary: The append-only access history — who changed what, from what, to what, when and why
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user: { type: string, description: Only changes to this account }
+                start: { type: integer, default: 0 }
+                page_length: { type: integer, default: 50, maximum: 100 }
+      responses:
+        '200': { description: '`{rows: AccessChange[], has_more}`' }
+
+  /api/method/gdb_bank.platform_admin.system_health:
+    post:
+      tags: [platform_admin]
+      summary: Scheduler, job queues, recent errors, backups and integration status
+      description: Counts, times and titles only — never a traceback or a file path.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: SystemHealth }
+
+  /api/method/gdb_bank.platform_admin.integration_settings:
+    post:
+      tags: [platform_admin]
+      summary: Every integration setting in force and where it comes from
+      description: A secret is never returned — only whether it is set and its source.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: 'IntegrationGroup[]' }
+
+  /api/method/gdb_bank.platform_admin.save_integration_settings:
+    post:
+      tags: [platform_admin]
+      summary: Override one integration's settings (recorded, with a reason)
+      description: |
+        `values` maps a setting to its new override. For an ordinary setting
+        `""` removes the override. For a secret an absent key leaves it alone,
+        `""` removes it and any other value replaces it.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group, values, reason]
+              properties:
+                group: { type: string, enum: [citizen_eid, staff_sign_in, staff_accounts, dcra, bank_registry] }
+                values: { type: object, additionalProperties: { type: string } }
+                reason: { type: string }
+      responses:
+        '200': { description: 'IntegrationGroup[] after the change' }
+        '417': { description: A malformed URL or identifier }
+
+  /api/method/gdb_bank.platform_admin.test_integration:
+    post:
+      tags: [platform_admin]
+      summary: Check one integration, optionally with unsaved values overlaid
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group]
+              properties:
+                group: { type: string }
+                values: { type: object, additionalProperties: { type: string } }
+      responses:
+        '200': { description: '`{ok: true|false|null, latency_ms, detail}`' }
+
 components:
   schemas_note: |
     ApplicantDocument, InformationRequest and CitizenProfile below are the
@@ -1162,7 +1473,13 @@ components:
         is_underwriter: { type: boolean }
         is_finance:
           type: boolean
-          description: Money movement — release, payment file, collections, ledger views.
+          description: The books — ledger, portfolio, reconciliation, rule proposals.
+        is_disbursement:
+          type: boolean
+          description: Release authority — booking, disbursement, the payment file.
+        is_platform_admin:
+          type: boolean
+          description: Accounts, roles, health and integration settings — no case, no credit, no money.
     LoanApplication:
       type: object
       properties:

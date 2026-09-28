@@ -1,52 +1,25 @@
-"""User-facing account logic: citizen self-registration, the session summary
-the SPA reads on load, and the one-Customer-per-user provisioning that a loan
-application and a bank-account nomination both need.
+"""User-facing account logic: the session summary the SPA reads on load, and
+the one-Customer-per-user provisioning that a loan application and a
+bank-account nomination both need.
 
-`signup` and `whoami` are the business bodies behind the api.py endpoints of the
-same name; the controller supplies the already-extracted session user.
+There is no self-registration here. Keycloak authenticates everybody: a
+citizen's account is created by their first e-ID sign-in
+(identity._resolve_user), and a staff account by the platform administrator
+(services/accounts.py). A Frappe-password sign-up would be a way into the
+portal that Keycloak never sees.
+
+`whoami` is the business body behind the api.py endpoint of the same name; the
+controller supplies the already-extracted session user.
 """
 
 import frappe
-from frappe import _
 
 from gdb_bank.utils.session import (
 	_is_disbursement,
 	_is_finance,
+	_is_platform_admin,
 	_is_underwriter,
-	_logger,
 )
-
-
-def signup(full_name: str, email: str, password: str) -> dict:
-	"""Citizen self-registration: creates a Website User with the Citizen role."""
-	from frappe.utils import validate_email_address
-
-	full_name = (full_name or "").strip()
-	email = (email or "").strip().lower()
-	if not full_name:
-		frappe.throw(_("Full name is required."))
-	validate_email_address(email, throw=True)
-	if frappe.db.exists("User", email):
-		frappe.throw(_("An account with this email already exists. Please log in."))
-
-	user = frappe.get_doc(
-		{
-			"doctype": "User",
-			"email": email,
-			"first_name": full_name,
-			"user_type": "Website User",
-			"send_welcome_email": 0,
-			"enabled": 1,
-		}
-	).insert(ignore_permissions=True)
-	user.add_roles("Citizen")
-
-	from frappe.utils.password import update_password
-
-	update_password(user.name, password)
-	frappe.db.commit()
-	_logger().info(f"citizen signup: {user.name}")
-	return {"user": user.name, "full_name": user.full_name}
 
 
 def whoami(user: str) -> dict:
@@ -68,6 +41,9 @@ def whoami(user: str) -> dict:
 		# books and proposes rules, the disbursement officer pays. See
 		# DISBURSEMENT_ROLES and disburse_loan's second, per-case gate.
 		"is_disbursement": _is_disbursement(user),
+		# Accounts, roles, health and integration settings — and no case, no
+		# credit decision, no money. See utils/constants.PLATFORM_ADMIN_ROLES.
+		"is_platform_admin": _is_platform_admin(user),
 	}
 
 

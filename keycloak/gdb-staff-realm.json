@@ -1,0 +1,127 @@
+{
+  "realm": "gdb-staff",
+  "enabled": true,
+  "displayName": "Guyana Development Bank — Staff",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "clients": [
+    {
+      "clientId": "gdb-staff-portal",
+      "name": "GDB Staff Portal",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ]
+    },
+    {
+      "clientId": "gdb-portal-admin",
+      "name": "GDB Portal — staff account management",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "gdb-portal-admin-dev-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-gdb-portal-admin",
+      "enabled": true,
+      "serviceAccountClientId": "gdb-portal-admin",
+      "clientRoles": {
+        "realm-management": ["manage-users", "view-users", "query-users"]
+      }
+    },
+    {
+      "username": "underwriter@gdb.gov.gy",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "underwriter@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Underwriter",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "finance@gdb.gov.gy",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "finance@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Disbursement Officer",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "financeofficer@gdb.gov.gy",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "financeofficer@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Finance Officer",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "admin@gdb.gov.gy",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@gdb.gov.gy",
+      "firstName": "GDB",
+      "lastName": "Platform Admin",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ChangeMe@123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

@@ -35,6 +35,8 @@ import logging
 
 import frappe
 
+from gdb_bank.integrations import settings as integration_settings
+
 _HTTP_TIMEOUT = 10
 
 # Sandbox register. Stand-ins keyed by e-ID, used only until the switch exists —
@@ -239,7 +241,7 @@ def accounts_for(eid: str | None, full_name: str | None = None) -> list[dict]:
 	if not key:
 		return []
 
-	base_url = frappe.conf.get("bank_registry_base_url")
+	base_url = integration_settings.get("bank_registry_base_url")
 	if base_url:
 		live = _live_accounts(key, base_url)
 		# An unreachable switch yields nothing rather than sandbox data — the
@@ -273,7 +275,7 @@ def verify(bank: str, account_number: str, full_name: str | None = None) -> dict
 	if not number:
 		return _unavailable(bank, number, "no account number given")
 
-	base_url = frappe.conf.get("bank_registry_base_url")
+	base_url = integration_settings.get("bank_registry_base_url")
 	if base_url:
 		live = _live_verify(bank, number, base_url)
 		# A configured-but-unreachable switch is unavailable. It must never

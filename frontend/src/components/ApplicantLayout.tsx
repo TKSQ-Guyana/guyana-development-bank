@@ -11,6 +11,7 @@ import {
   ReviewIcon,
   StatementsIcon,
   TrainingIcon,
+  UsersIcon,
 } from './ui/icons';
 import { useAuth } from '../auth';
 import { NotificationBell } from '../features/notifications/NotificationBell';
@@ -63,7 +64,9 @@ export function ApplicantLayout() {
   // Staff aren't applying for anything themselves, so the citizen rail
   // (applications, payments, statements, cluster, ...) is noise here —
   // their destinations are the "Bank" group below.
-  const isStaff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  const isStaff = Boolean(
+    user?.is_underwriter || user?.is_finance || user?.is_disbursement || user?.is_platform_admin,
+  );
   const items = isStaff ? [] : NAV_ITEMS;
 
   const staffItems: SidebarItem[] = [];
@@ -75,6 +78,9 @@ export function ApplicantLayout() {
   }
   if (user?.is_finance) {
     staffItems.push({ to: '/finance/reconciliation', label: 'Finance', icon: <PortfolioIcon /> });
+  }
+  if (user?.is_platform_admin) {
+    staffItems.push({ to: '/admin/users', label: 'Administration', icon: <UsersIcon /> });
   }
   const groups: SidebarGroup[] = staffItems.length ? [{ label: 'Bank', items: staffItems }] : [];
 

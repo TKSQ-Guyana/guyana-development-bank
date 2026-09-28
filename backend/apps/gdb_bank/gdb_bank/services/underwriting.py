@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime
 
+from gdb_bank.security.conflict import is_same_person
 from gdb_bank.services.evidence import missing_by_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_FROM_PORTAL
 from gdb_bank.utils.formatters import _portal_dict, _stage_context
@@ -39,8 +40,9 @@ def review_loan(user: str, name: str, action: str, remarks: str | None = None) -
 	doc = frappe.get_doc("Loan Application", name)
 
 	# Segregation of duties: an underwriter may also be a borrower, and must
-	# never decide their own case.
-	if doc.gdb_owner == user:
+	# never decide their own case — not from the same account, and not from a
+	# staff account belonging to the same person (security/conflict.py).
+	if is_same_person(user, doc.gdb_owner):
 		frappe.throw(
 			_("You cannot review your own application. Ask another underwriter."), frappe.PermissionError
 		)

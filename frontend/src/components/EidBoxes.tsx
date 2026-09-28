@@ -19,6 +19,10 @@ interface EidBoxesProps {
   invalid?: boolean;
   describedBy?: string;
   autoFocus?: boolean;
+  /** Whether the browser should refuse to submit the form without an e-ID.
+   *  True for sign-in; false where the e-ID is optional (a staff member's
+   *  national e-ID on the administrator's create form). */
+  required?: boolean;
   /**
    * Which palette to wear. `app` is the signed-in application's; `public` is
    * the sign-in page's, which is typeset as a government front door and would
@@ -53,6 +57,7 @@ export function EidBoxes({
   invalid = false,
   describedBy,
   autoFocus = false,
+  required = true,
   variant = 'app',
 }: EidBoxesProps) {
   const skin = SKINS[variant];
@@ -111,7 +116,7 @@ export function EidBoxes({
       type="text"
       inputMode="numeric"
       autoComplete="off"
-      required
+      required={required}
       pattern={`\\d{${EID_PART_LENGTHS[index]}}`}
       title={`${EID_PART_LENGTHS[index]} digits`}
       maxLength={EID_PART_LENGTHS[index]}

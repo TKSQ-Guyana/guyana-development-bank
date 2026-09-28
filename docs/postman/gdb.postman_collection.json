@@ -43,7 +43,7 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Login — citizen",
+          "name": "Login — staff (underwriter)",
           "request": {
             "method": "POST",
             "header": [
@@ -52,15 +52,16 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/api/method/login",
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.staff_login",
+            "description": "Keycloak password grant against the STAFF realm with the work email as the username, then the ordinary Frappe sid session. Never provisions: the Frappe account and its roles must already exist (created by the platform administrator). Roles come from Frappe, never Keycloak.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"usr\": \"citizen@example.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+              "raw": "{\n  \"email\": \"underwriter@gdb.gov.gy\",\n  \"password\": \"{{eidPassword}}\"\n}"
             }
           }
         },
         {
-          "name": "Login — underwriter",
+          "name": "Login — staff (disbursement officer)",
           "request": {
             "method": "POST",
             "header": [
@@ -69,15 +70,16 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/api/method/login",
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.staff_login",
+            "description": "The persona that MOVES MONEY. Disbursement, the payment file and collections answer to this login and refuse the underwriter.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"usr\": \"underwriter@gdb.gov.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+              "raw": "{\n  \"email\": \"finance@gdb.gov.gy\",\n  \"password\": \"{{eidPassword}}\"\n}"
             }
           }
         },
         {
-          "name": "Login — finance officer",
+          "name": "Login — staff (finance officer)",
           "request": {
             "method": "POST",
             "header": [
@@ -86,16 +88,15 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/api/method/login",
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.staff_login",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"usr\": \"finance@gdb.gov.gy\",\n  \"pwd\": \"{{password}}\"\n}"
-            },
-            "description": "The persona that MOVES MONEY. Disbursement, the payment file and collections answer to this login and refuse the underwriter."
+              "raw": "{\n  \"email\": \"financeofficer@gdb.gov.gy\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
           }
         },
         {
-          "name": "Login — e-ID (finance officer)",
+          "name": "Login — staff (platform admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -104,10 +105,29 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.staff_login",
+            "description": "Accounts, roles, the kill switch, health and integration settings. Refused at every credit and money endpoint.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eid\": \"592-5555-0005\",\n  \"password\": \"{{eidPassword}}\"\n}"
+              "raw": "{\n  \"email\": \"admin@gdb.gov.gy\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login — staff, first sign-in (choose your own password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.staff_set_password",
+            "description": "For an account the admin just created or reset. `staff_login` with the one-time password answers `password_change_required: true` and opens no session; this swaps it for the person's own (≥12 characters, not the one-time password, not the email) and signs them in.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"k.ramdass@gdb.gov.gy\",\n  \"password\": \"<one-time password from Create / Reset>\",\n  \"new_password\": \"<a password only they know>\"\n}"
             }
           }
         },
@@ -130,24 +150,6 @@
           }
         },
         {
-          "name": "Login — e-ID (underwriter)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
-            "description": "Signs in as the underwriter and keeps its FRAPPE roles — Keycloak grants none. `is_underwriter` comes back true.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"eid\": \"592-2222-0002\",\n  \"password\": \"{{eidPassword}}\"\n}"
-            }
-          }
-        },
-        {
           "name": "Login — e-ID (provisions a new citizen)",
           "request": {
             "method": "POST",
@@ -166,6 +168,24 @@
           }
         },
         {
+          "name": "Login — e-ID onto a staff account — REFUSED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.identity.password_login",
+            "description": "401 \"This e-ID belongs to a GDB staff account. GDB staff sign in with their work email.\" The citizen realm's 592-2222-0002 carries the underwriter's mailbox; the e-ID door never opens a staff account, and nothing is linked.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eid\": \"592-2222-0002\",\n  \"password\": \"{{eidPassword}}\"\n}"
+            }
+          }
+        },
+        {
           "name": "Login — e-ID (wrong password)",
           "request": {
             "method": "POST",
@@ -179,12 +199,47 @@
             "description": "401 \"Incorrect e-ID or password.\" — deliberately the SAME answer an unknown e-ID gets, so the endpoint never reveals which e-IDs exist. Rate-limited to 8 attempts per e-ID per minute; the 9th is a 429.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eid\": \"592-2222-0002\",\n  \"password\": \"WrongPassword1!\"\n}"
+              "raw": "{\n  \"eid\": \"592-1111-0001\",\n  \"password\": \"WrongPassword1!\"\n}"
             }
           }
         },
         {
-          "name": "e-ID sign-in available?",
+          "name": "Frappe login — citizen — REFUSED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/login",
+            "description": "401 \"Citizens sign in with their e-ID.\" Frappe's own login stays for System Users only (the Administrator break-glass and the ERPNext desk).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"citizen@example.gy\",\n  \"pwd\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Frappe login — Administrator (break-glass)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"Administrator\",\n  \"pwd\": \"{{password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Sign-in doors available?",
           "request": {
             "method": "POST",
             "header": [
@@ -194,27 +249,10 @@
               }
             ],
             "url": "{{baseUrl}}/api/method/gdb_bank.identity.eid_login_available",
-            "description": "False when any of keycloak_url / keycloak_realm / keycloak_client_id is unset (site_config, or the matching KEYCLOAK_* environment variable).",
+            "description": "`available` / `citizen_realm` for the e-ID door, `staff_available` / `staff_realm` for the staff door.",
             "body": {
               "mode": "raw",
               "raw": "{}"
-            }
-          }
-        },
-        {
-          "name": "Signup (guest)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": "{{baseUrl}}/api/method/gdb_bank.api.signup",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Aisha Persaud\",\n  \"email\": \"aisha@example.gy\",\n  \"password\": \"Str0ng-Pass-2026\"\n}"
             }
           }
         },
@@ -249,6 +287,239 @@
             "body": {
               "mode": "raw",
               "raw": "{}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Platform Admin",
+      "description": "Sign in first with \"Login — staff (platform admin)\". Every state change needs a reason and lands in the append-only access history. Every one of these answers 403 to any other role.",
+      "item": [
+        {
+          "name": "List staff accounts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.list_users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"staff\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List citizen accounts (search by e-ID)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.list_users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"citizens\",\n  \"search\": \"592-1111\"\n}"
+            }
+          }
+        },
+        {
+          "name": "One account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.get_user",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"underwriter@gdb.gov.gy\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create a staff account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.create_staff_user",
+            "description": "No Frappe password is set. With the Keycloak admin client configured, the staff-realm account is created with a TEMPORARY one-time password, returned once as `one_time_password` (stored and logged nowhere). The person signs in with it and must choose their own — see \"Login — staff, first sign-in\". `keycloak.status` says what happened.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Kevin Ramdass\",\n  \"email\": \"k.ramdass@gdb.gov.gy\",\n  \"eid\": \"592-4321-0099\",\n  \"roles\": [\n    \"Loan Underwriter\"\n  ],\n  \"reason\": \"New hire, credit team\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Set roles — REFUSED for System Manager",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.set_user_roles",
+            "description": "403 — only Loan Underwriter, Disbursement Officer and Finance Officer are grantable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"k.ramdass@gdb.gov.gy\",\n  \"roles\": [\n    \"System Manager\"\n  ],\n  \"reason\": \"Test\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Set roles (desired end state)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.set_user_roles",
+            "description": "Repeating the same request answers `changed: false` and records nothing new.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"k.ramdass@gdb.gov.gy\",\n  \"roles\": [\n    \"Loan Underwriter\",\n    \"Disbursement Officer\"\n  ],\n  \"reason\": \"Covering for leave, Oct\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Disable an account (kill switch)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.set_user_enabled",
+            "description": "Ends the account's open sessions at once; every sign-in then refuses it, whatever Keycloak says.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"k.ramdass@gdb.gov.gy\",\n  \"enabled\": 0,\n  \"reason\": \"Resigned 30 Sep 2026\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reset password (one-time password, shown once)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.reset_password",
+            "description": "Replaces whatever the account signs in with by a new one-time password (`one_time_password`, this response only) and ends its open sessions. Do not aim it at a seeded persona: their ChangeMe@123 stops working.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user\": \"k.ramdass@gdb.gov.gy\",\n  \"reason\": \"Forgot password\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Access history",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.access_history",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "System health",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.system_health",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Integration settings (secrets never returned)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.integration_settings",
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
+          "name": "Test an integration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.platform_admin.test_integration",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"group\": \"citizen_eid\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Review — REFUSED for the platform admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/method/gdb_bank.api.review_loan",
+            "description": "403 \"Only GDB underwriters may do this.\" The platform admin decides no credit and moves no money.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{loanName}}\",\n  \"action\": \"approve\"\n}"
             }
           }
         }

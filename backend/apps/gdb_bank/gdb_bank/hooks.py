@@ -29,7 +29,19 @@ has_permission = {
 # Evidence arrives through Frappe's own /api/method/upload_file, so the format
 # and size limits are enforced where the file is created rather than in the
 # endpoint that registers it afterwards.
-doc_events = {"File": {"before_insert": "gdb_bank.documents.validate_attachment"}}
+#
+# The platform administrator's limits on accounts (grantable roles only, never
+# their own account, never another administrator's, never a password) are
+# enforced on every User save, so the desk and /api/resource cannot route
+# around services/accounts.py.
+doc_events = {
+	"File": {"before_insert": "gdb_bank.documents.validate_attachment"},
+	"User": {"validate": "gdb_bank.security.role_policy.validate_user_change"},
+}
+
+# Keycloak authenticates everybody; which realm vouched for a sign-in decides
+# which kind of account it may open. Runs before Frappe mints the session.
+on_login = ["gdb_bank.security.sign_in_policy.enforce"]
 
 before_install = ["gdb_bank.install.ensure_roles"]
 after_install = ["gdb_bank.install.after_install"]

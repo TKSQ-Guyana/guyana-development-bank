@@ -38,6 +38,11 @@ export interface LoanApplication {
   /** 'Existing' or 'New' — which half of Sections G/H applies, and which
    *  evidence documents.required_types expects. */
   business_stage: string | null;
+  /** The business this case is filed for. Already served by _portal_dict
+   *  (`gdb_business_name`) — added here so a list row can identify the case
+   *  by this or `cluster` instead of the free-text `purpose`, which has no
+   *  length limit and nothing stops it holding a whole pasted business plan. */
+  business_name: string | null;
   /** The journey stage and the customer-safe sentence that goes with it, both
    *  from the server. `stage_label` is what the applicant reads — never a raw
    *  status value. */
@@ -389,6 +394,10 @@ export interface Whoami {
   /** Release authority: disburse_loan, the payment file. Split out of
    *  is_finance — see api.DISBURSEMENT_ROLES. */
   is_disbursement: boolean;
+  /** Runs the platform — accounts, roles, the kill switch, health and
+   *  integration settings — and sees no case, decides no credit and moves no
+   *  money. The server refuses this role at every credit and money endpoint. */
+  is_platform_admin: boolean;
 }
 
 /** One row off ERPNext's Bank Transaction — money the bank has confirmed

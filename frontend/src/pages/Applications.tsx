@@ -103,8 +103,12 @@ function ApplicationRow({
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {/* Identify the case by who it's for — the cluster if it's the
+                group's, else the business — never by `purpose`: that's a
+                free-text field with no length limit, and nothing stops it
+                holding a whole pasted business plan instead of a sentence. */}
             <span className="truncate text-sm font-semibold text-slate-900">
-              {loan.purpose || 'Loan application'}
+              {loan.cluster || loan.business_name || 'Loan application'}
             </span>
             {attention && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
@@ -114,8 +118,7 @@ function ApplicationRow({
             )}
           </div>
           <p className="mt-0.5 truncate text-xs text-slate-400">
-            {loan.name}
-            {loan.cluster ? ` · ${loan.cluster}` : ''} · started {formatDate(loan.creation)}
+            {loan.name} · started {formatDate(loan.creation)}
           </p>
         </div>
 

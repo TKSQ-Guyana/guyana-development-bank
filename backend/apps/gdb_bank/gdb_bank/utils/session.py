@@ -18,6 +18,7 @@ from frappe import _
 from gdb_bank.utils.constants import (
 	DISBURSEMENT_ROLES,
 	FINANCE_ROLES,
+	PLATFORM_ADMIN_ROLES,
 	STAFF_ROLES,
 	UNDERWRITER_ROLES,
 )
@@ -109,6 +110,21 @@ def _require_staff() -> str:
 	if not _is_staff(user):
 		_logger().warning(f"denied staff endpoint to {user}")
 		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_platform_admin(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & PLATFORM_ADMIN_ROLES)
+
+
+def _require_platform_admin() -> str:
+	"""Accounts, roles, system health and integration settings — and nothing
+	within reach of a case. The converse holds too: this role is in none of the
+	authority sets, so every other _require_* refuses it."""
+	user = _session_user()
+	if not _is_platform_admin(user):
+		_logger().warning(f"denied platform-admin endpoint to {user}")
+		frappe.throw(_("Only the GDB platform administrator may do this."), frappe.PermissionError)
 	return user
 
 

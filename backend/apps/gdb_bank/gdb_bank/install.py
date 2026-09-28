@@ -20,11 +20,16 @@ import frappe
 # deciding its own) lending-rule changes. patches/split_finance_roles.py grants
 # every existing Finance Officer holder Disbursement Officer too, so nobody
 # loses release access the day this ships; a fresh site starts the two apart.
+#
+# "Platform Admin" runs the platform — accounts, roles, the kill switch, health
+# and integration settings — and is in none of the authority sets in
+# utils/constants.py, so it can neither decide credit nor move money.
 ROLES = (
 	("Citizen", 0),
 	("Loan Underwriter", 1),
 	("Finance Officer", 1),
 	("Disbursement Officer", 1),
+	("Platform Admin", 1),
 )
 
 # The banks a citizen may nominate for a payout. Seeded, because the portal's
@@ -356,6 +361,21 @@ USER_CUSTOM_FIELDS = {
 			"no_copy": 1,
 			"description": "National e-ID (123-4567-8901) — also the Keycloak username.",
 			"insert_after": "username",
+		},
+		# A staff member signs in with a work email, so their national e-ID is
+		# not their username — but it is still who they are. The platform
+		# administrator records it here so security/conflict.py can recognise an
+		# officer's OWN citizen application, filed from their separate e-ID
+		# account, and refuse to let them decide or release it.
+		{
+			"fieldname": "gdb_staff_eid",
+			"label": "Staff Member's National e-ID",
+			"fieldtype": "Data",
+			"unique": 1,
+			"read_only": 1,
+			"no_copy": 1,
+			"description": "Recorded by the platform administrator. Never used to sign in.",
+			"insert_after": "gdb_eid",
 		},
 	],
 }
@@ -1048,10 +1068,14 @@ def make_demo_users():
 	# account, and neither of the first two can do the other's half
 	# (api._require_disbursement, api._require_finance, and the four-eyes
 	# check in api.disburse_loan).
+	#
+	# The platform administrator is the fifth: it manages the other accounts and
+	# can do none of their work (utils/constants.PLATFORM_ADMIN_ROLES).
 	demo_users = (
 		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
 		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Disbursement Officer"),
 		("financeofficer@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
+		("admin@gdb.gov.gy", "GDB Platform Admin", "System User", "Platform Admin"),
 		("citizen@example.gy", "Hemanth", "Website User", "Citizen"),
 	)
 	from frappe.utils.password import update_password
@@ -1070,8 +1094,15 @@ def make_demo_users():
 			).insert(ignore_permissions=True)
 			user.add_roles(role)
 			# GDB staff also get lending's desk role so the Lending workspace
-			# and doctypes are visible to them in ERPNext.
-			if user_type == "System User" and frappe.db.exists("Role", "Loan Manager"):
+			# and doctypes are visible to them in ERPNext. Never the platform
+			# administrator: Loan Manager writes lending's own doctypes in the
+			# desk, which would hand the one persona that must not touch a loan
+			# a way to do exactly that.
+			if (
+				user_type == "System User"
+				and role != "Platform Admin"
+				and frappe.db.exists("Role", "Loan Manager")
+			):
 				user.add_roles("Loan Manager")
 			update_password(user.name, password)
 			print(f"created {user_type} {email} with role {role}")

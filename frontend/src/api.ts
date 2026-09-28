@@ -57,14 +57,33 @@ export async function call<T>(method: string, args?: Record<string, unknown>): P
   return (d?.message ?? (data as T)) as T;
 }
 
-export const login = (usr: string, pwd: string) => call<unknown>('login', { usr, pwd });
 export const logout = () => call<unknown>('logout');
 
-/** e-ID sign-in. The backend runs the Keycloak password grant and mints the
- *  same `sid` session `login` above does, so everything downstream — whoami,
- *  roles, permissions — is identical from here on. */
+/** Keycloak authenticates everybody, through two doors. Either way the backend
+ *  runs the Keycloak password grant and mints the same Frappe `sid` session, so
+ *  everything downstream — whoami, roles, permissions — is identical. Which
+ *  door may open which kind of account is decided server-side
+ *  (gdb_bank/security/sign_in_policy.py), never here. */
+
+/** Citizens: national e-ID + password, against the citizen realm. */
 export const eidLogin = (eid: string, pwd: string) =>
   call<unknown>('gdb_bank.identity.password_login', { eid, password: pwd });
+
+/** GDB staff: work email + password, against the staff realm. Opens only an
+ *  account the platform administrator created. A one-time password opens no
+ *  session: it answers `password_change_required`, and staffSetPassword
+ *  finishes the sign-in. */
+export const staffLogin = (email: string, pwd: string) =>
+  call<{ password_change_required?: boolean } | null>('gdb_bank.identity.staff_login', { email, password: pwd });
+
+/** First staff sign-in: swap the one-time password for the person's own, then
+ *  sign in with it. */
+export const staffSetPassword = (email: string, oneTimePassword: string, newPassword: string) =>
+  call<unknown>('gdb_bank.identity.staff_set_password', {
+    email,
+    password: oneTimePassword,
+    new_password: newPassword,
+  });
 
 /** Upload one file through Frappe's OWN endpoint, attached to a document.
  *

@@ -73,9 +73,23 @@ underwriter review queue. The official name everywhere is
   (`/api/method/gdb_bank.api.*`); auth is the Frappe session cookie from
   `/api/method/login`. The site runs with `ignore_csrf: 1` because the SPA
   never receives a Frappe-rendered CSRF token — nginx keeps `/api` same-origin.
-- **TWO WAYS IN, both ending in the same `sid` session** — so nothing
-  downstream of `whoami` knows or cares which was used:
-  - **e-ID + password** → `gdb_bank/identity.py`: the Keycloak password grant
+- **KEYCLOAK AUTHENTICATES EVERYBODY — two doors, one realm each, both ending
+  in the same `sid` session** — so nothing downstream of `whoami` knows or
+  cares which was used. Which door may open which kind of account is
+  `security/sign_in_policy.py`, checked before anything is linked and again at
+  Frappe's `on_login` (which runs before the session is minted):
+  - **citizens: e-ID + password** → realm `gdb-citizen`
+    (`identity.password_login`). Never opens a staff account — an e-ID whose
+    Keycloak email matches a staff mailbox is refused, not linked.
+  - **staff: work email + password** → realm `gdb-staff`
+    (`identity.staff_login`). NEVER provisions: the Frappe account and its
+    roles must already exist, created by the Platform Admin. Refuses a citizen
+    account. No staff password lives in Frappe.
+  - **Frappe's own `/api/method/login`** survives for System Users only (the
+    Administrator break-glass and the ERPNext desk until it has Keycloak SSO)
+    and refuses citizens. `signup` is gone: a citizen account opens on the
+    first e-ID sign-in.
+  - Details of the e-ID door → `gdb_bank/identity.py`: the Keycloak password grant
     with the e-ID AS the username, confirmed against Keycloak's `userinfo`,
     then `login_manager.login_as()`. The e-ID shape (3-4-4, eleven digits,
     dashes included) is stated in exactly two places that must agree —
@@ -87,14 +101,15 @@ underwriter review queue. The official name everywhere is
     (`profiles.record_identity_claims`) — kept apart from what the applicant
     declares, never merged, because where the two disagree is exactly the case
     a human should look at. **Roles never come from
-    Keycloak** — staff access stays a manual Frappe grant. Disabling the
-    Frappe User is the kill switch and works even while Keycloak still
-    authenticates. Rate-limited 8/min per e-ID (Frappe's own
-    `track_login_attempts` guards `/api/method/login`, which this never hits).
-  - **email + password** → Frappe's own login, untouched and still the path
-    the seeded demo users take. Retiring it (`disable_user_pass_login`) is a
-    later, separate decision — and Frappe refuses that switch until a Social
-    Login Key or LDAP exists, which this ROPC path is not.
+    Keycloak** — staff roles are granted only by the Platform Admin. Disabling
+    the Frappe User is the kill switch and works even while Keycloak still
+    authenticates; `services/accounts.set_user_enabled` also clears the
+    account's open sessions, because Frappe does NOT re-check `enabled` when a
+    session resumes. Rate-limited 8/min per e-ID and per staff email (Frappe's
+    own `track_login_attempts` guards `/api/method/login`, which these never hit).
+  - Retiring Frappe's password login entirely (`disable_user_pass_login`) is a
+    later, separate decision — Frappe refuses that switch until a Social Login
+    Key or LDAP exists, which this ROPC path is not.
   - ⚠️ This authenticates an e-ID somebody **provisioned**; it does not prove
     the person typing it is the person it names. An e-ID is an identifier, not
     a secret. Real proofing is the My Guyana broker in
@@ -120,6 +135,38 @@ underwriter review queue. The official name everywhere is
   G$99,000,000 disbursed. `install.REVOKED_MONEY_ROLES` takes the money
   surfaces back off the underwriter on migrate, since a permission already
   written to a site is not undone by ceasing to ask for it.
+- **Platform Admin** (`Platform Admin` role, `gdb_bank/platform_admin.py`
+  over `services/accounts.py`, `services/system_health.py`,
+  `services/integration_settings.py`): staff and citizen accounts, roles, the
+  kill switch, the access history, system health and integration settings.
+  The role is in NONE of the authority sets (`utils/constants.py`), so every
+  credit and money gate refuses it. `security/role_policy.py` limits it —
+  only the three portal roles are grantable, never to its own account, never
+  on an account holding System Manager / Platform Admin, never a password —
+  and is enforced again by a `User.validate` hook so the desk and
+  `/api/resource/User` cannot route around it. Creating a staff member makes
+  the Frappe account here and the Keycloak account through
+  `integrations/keycloak_admin.py` (confidential client `gdb-portal-admin`,
+  service account with realm-management `manage-users` in `gdb-staff`),
+  set with a TEMPORARY one-time password that the admin is shown once and GDB
+  stores nowhere. It opens no session: `staff_login` answers
+  `password_change_required`, the person chooses their own on the staff tab
+  (`identity.staff_set_password`, saved permanent in Keycloak, recorded as
+  `Password Chosen`), so nobody at GDB knows the password they use. **Reset
+  password** reissues one and ends open sessions. No email is sent — there is
+  no SMTP server in the stack. Every change needs
+  a reason and lands in `GDB Access Change` (append-only: the controller
+  refuses edit and delete even from Administrator). Integration settings read
+  through ONE resolver, `integrations/settings.py`: the `GDB Integration
+  Settings` Single (secrets in Password fields, never returned by any
+  endpoint) → site_config → environment. ⚠️ KNOWN GAP, kept deliberately:
+  System Manager is still in every authority set and Administrator bypasses
+  Frappe permissions, so the break-glass superuser CAN decide and pay.
+- **Same person, not same account** (`security/conflict.py`): staff sign in by
+  email and citizens by e-ID, so one person can hold two accounts. The admin
+  records a staff member's national e-ID in `User.gdb_staff_eid`, and
+  `review_loan` / `disburse_loan` refuse when the officer and the applicant
+  (or approver) share an account OR an e-ID.
 - `make_repayment` is the BORROWER's (or a cluster member's). Staff are
   refused: bank-side receipts go through `collections.apply_receipt`, which
   starts from a Bank Transaction — i.e. from money that actually arrived.
@@ -165,22 +212,27 @@ underwriter review queue. The official name everywhere is
 `docker compose up -d --build` → mariadb, redis, backend (first boot takes
 minutes: new-site + erpnext + lending + gdb_bank + wizard + seeds; watch
 `logs -f backend`; seeds demo users `citizen@example.gy`,
-`underwriter@gdb.gov.gy` and `finance@gdb.gov.gy`, password =
-`ADMIN_PASSWORD`, default `admin` — seeding runs on EVERY boot, not only at
-site creation, or a persona added later never appears on an existing site),
-keycloak :8086, frontend nginx :3000; desk at :8080. Frontend dev loop:
+`underwriter@gdb.gov.gy`, `finance@gdb.gov.gy`, `financeofficer@gdb.gov.gy`
+and `admin@gdb.gov.gy` (Platform Admin, deliberately WITHOUT lending's Loan
+Manager) — seeding runs on EVERY boot, not only at site creation, or a
+persona added later never appears on an existing site), keycloak :8086,
+frontend nginx :3000; desk at :8080. Staff sign in on the portal's **GDB staff** tab
+with their email and `ChangeMe@123` (realm `gdb-staff`). Frontend dev loop:
 `npm run dev` in `frontend/` → vite :5173 proxying `/api` to :8080. After
 backend app changes: `docker compose up -d --build backend` (restart runs
 migrate + seeds again). `localhost` cookies are shared across ports 3000/8080
 — log out of one before logging into the other.
 
-**Keycloak :8086** (admin/admin, realm `gdb-citizen`, auto-imported from
-`keycloak/gdb-realm.json`). e-ID accounts, password `ChangeMe@123`:
-`592-1111-0001` (links to the seeded citizen), `592-2222-0002` (links to the
-underwriter), `592-5555-0005` (links to the finance officer), `592-3333-0003`
-(provisions a new citizen — but ONLY on a site where it has never signed in;
-once provisioned it links to that User like the rest, so testing the
-provisioning path needs a fresh site or an unused e-ID). **8086, not 8085** —
+**Keycloak :8086** (admin/admin; realms `gdb-citizen` from
+`keycloak/gdb-realm.json` and `gdb-staff` from `keycloak/gdb-staff-realm.json`,
+both auto-imported). Citizen e-ID accounts, password `ChangeMe@123`:
+`592-1111-0001` (links to the seeded citizen), `592-3333-0003` (provisions a
+new citizen — but ONLY on a site where it has never signed in; once
+provisioned it links to that User like the rest, so testing the provisioning
+path needs a fresh site or an unused e-ID). `592-2222-0002` and
+`592-5555-0005` carry staff mailboxes and are now REFUSED by design — staff
+use `gdb-staff`. Compose sets `KC_HOSTNAME=http://localhost:8086` (+
+backchannel dynamic) so links in Keycloak's emails are browser-reachable. **8086, not 8085** —
 the sibling MPS-Guyana stack holds 8085 and both run on this machine.
 Keycloak imports a realm ONLY if it does not already exist, so editing the
 realm JSON needs `docker compose rm -sf keycloak && docker volume rm

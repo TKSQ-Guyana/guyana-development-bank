@@ -25,6 +25,8 @@ import logging
 
 import frappe
 
+from gdb_bank.integrations import settings as integration_settings
+
 _HTTP_TIMEOUT = 10
 
 # Sandbox register. Stand-ins, used only until DCRA exposes the real service —
@@ -186,7 +188,7 @@ def businesses_for(eid: str) -> list[dict]:
 	if not eid:
 		return []
 
-	base_url = frappe.conf.get("dcra_base_url")
+	base_url = integration_settings.get("dcra_base_url")
 	if base_url:
 		live = _live_by_eid(eid, base_url)
 		# Unreachable registry yields nothing rather than sandbox data — the
@@ -225,7 +227,7 @@ def lookup(registration_number: str) -> dict:
 	if not number:
 		return _unavailable(number, "no registration number given")
 
-	base_url = frappe.conf.get("dcra_base_url")
+	base_url = integration_settings.get("dcra_base_url")
 	if base_url:
 		live = _live(number, base_url)
 		if live is not None:

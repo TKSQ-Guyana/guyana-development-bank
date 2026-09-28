@@ -28,6 +28,16 @@ DISBURSEMENT_ROLES = {"Disbursement Officer", "System Manager"}
 # the applicant or the bank", not "may they do this particular thing".
 STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES | DISBURSEMENT_ROLES
 
+# Runs the platform: accounts, roles, the kill switch, system health and the
+# integration settings. Deliberately NOT in STAFF_ROLES nor in any authority
+# set above — the admin sees no case, decides no credit and moves no money, and
+# that is enforced by every _require_* gate refusing this role, not by the SPA
+# hiding buttons. System Manager is here for the same reason it is in every set
+# above: it is the break-glass superuser (the known gap features.md records),
+# not a persona anyone works as day to day.
+PLATFORM_ADMIN_ROLE = "Platform Admin"
+PLATFORM_ADMIN_ROLES = {PLATFORM_ADMIN_ROLE, "System Manager"}
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
