@@ -303,4 +303,3 @@ Backend sanity: `docker compose up -d --build backend`, wait for
 * Perform non-idempotent financial operations.
 * Call external APIs without timeouts.
 * Silently swallow exceptions.
- Dev_V3
