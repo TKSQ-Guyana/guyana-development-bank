@@ -118,9 +118,18 @@ export function App() {
             <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the
                 list because that is what the sidebar points at; starting a new
-                one is a deliberate step from there. */}
+                one is a deliberate step from there.
+
+                `new` and `:name` are two different acts and now have two
+                different URLs. `new` always opens an empty form; `:name`
+                resumes THAT draft, read back from GDB. They used to be one
+                route that silently rehydrated whatever the browser happened to
+                be holding, which meant "start an application" continued an
+                abandoned one and the server draft it belonged to was
+                orphaned. */}
             <Route path="/apply" element={<Applications />} />
             <Route path="/apply/new" element={<Apply />} />
+            <Route path="/apply/:name" element={<Apply />} />
             <Route path="/payments" element={<Payments />} />
             <Route path="/statements" element={<Statements />} />
             <Route path="/training" element={<Training />} />

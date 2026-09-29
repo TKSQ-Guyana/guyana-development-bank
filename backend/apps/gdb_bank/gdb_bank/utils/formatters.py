@@ -143,11 +143,30 @@ def _stage_context(names: list[str]) -> dict:
 		group_by="parent",
 	):
 		ctx[total.parent]["use_of_funds_total"] = flt(total.total)
+
+	# Section B's declared partners and shareholders, read back the same way —
+	# so a half-finished application resumes with its co-owners still on it,
+	# and an underwriter reading the case sees who else owns the business.
+	for line in frappe.get_all(
+		OWNERSHIP_LINE,
+		filters={
+			"parent": ["in", wanted],
+			"parenttype": "Loan Application",
+			"parentfield": OWNERSHIP_FIELD,
+		},
+		fields=["parent", "holder_eid", "holder_name", "share_percent"],
+		order_by="idx asc",
+	):
+		ctx[line.parent].setdefault("ownership_lines", []).append(
+			{"eid": line.holder_eid, "name": line.holder_name, "share": flt(line.share_percent)}
+		)
 	return ctx
 
 
 USE_OF_FUNDS_LINE = "GDB Use Of Funds Line"
 USE_OF_FUNDS_FIELD = "gdb_use_of_funds_lines"
+OWNERSHIP_LINE = "GDB Ownership Line"
+OWNERSHIP_FIELD = "gdb_ownership_lines"
 
 
 def _schedule_instalments(loans: list[str]) -> dict:
@@ -309,6 +328,11 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		# them. None, not 0, when there are no lines to total.
 		"use_of_funds": case.get("use_of_funds") or [],
 		"use_of_funds_total": case.get("use_of_funds_total"),
+		# Declared co-owners, and the applicant's own share. Both travel on
+		# every case so the wizard can resume them and the review screen can
+		# show who else owns the business a loan is going to.
+		"ownership_lines": case.get("ownership_lines") or [],
+		"applicant_share": get("gdb_applicant_share"),
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),
 		"reviewed_on": get("gdb_reviewed_on"),

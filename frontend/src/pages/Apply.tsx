@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { DocumentShelf } from '../components/DocumentShelf';
-import { EidBoxes } from '../components/EidBoxes';
 import { Card } from '../components/ui/Card';
 import { ArrowRightIcon, CheckIcon } from '../components/ui/icons';
 import {
   ChoiceCard,
   MoneyField,
   Notice,
+  ReadOnlyField,
   Section,
   SelectField,
   TextAreaField,
@@ -24,6 +24,7 @@ import {
   REGIONS,
   SharedPlan,
 } from '../components/apply/cluster';
+import { OwnershipBlock } from '../components/apply/ownership';
 import { EMPTY_EID, isCompleteEid } from '../eid';
 import type {
   BankAccountRecord,
@@ -33,9 +34,10 @@ import type {
   ClusterPlanSection,
   DcraRecord,
   LoanApplication,
+  OwnershipRow,
   UseOfFundsRow,
 } from '../types';
-import { encodeUseOfFunds, formatGyd, parseUseOfFunds } from '../utils';
+import { encodeUseOfFunds, formatDate, formatGyd, parseUseOfFunds } from '../utils';
 
 /** The guided application.
  *
@@ -132,7 +134,6 @@ interface Saved {
   sections: Sections;
   useOfFunds: UseOfFundsRow[];
   step: StepId;
-  draftName?: string;
   clusterName?: string;
   wantsFacilitator?: boolean | null;
   facilitatorEid?: string;
@@ -150,6 +151,12 @@ const DEFAULT_DOB = '1990-01-01';
 export function Apply() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Present on `/apply/:name` and absent on `/apply/new`. That single
+  // difference is what tells resuming a specific draft apart from starting a
+  // fresh application — the two used to share one route and one blob of
+  // browser storage, which is why "start an application" continued the last
+  // abandoned one.
+  const { name: routeName } = useParams<{ name: string }>();
 
   const [step, setStep] = useState<StepId>('consent');
   // null = not checked yet. Fetched once from the citizen's own profile, so a
@@ -170,6 +177,12 @@ export function Apply() {
   const [businessName, setBusinessName] = useState('');
   const [sections, setSections] = useState<Sections>({});
   const [useOfFunds, setUseOfFunds] = useState<UseOfFundsRow[]>([{ item: '', amount: 0 }]);
+  // How much of the business the applicant owns, and who owns the rest. Asked
+  // of a partnership and of an incorporated company; a sole trader owns all of
+  // it and a cluster is not owned in shares at all. Declared, never verified
+  // here — naming a co-owner is not the same as that person agreeing.
+  const [applicantShare, setApplicantShare] = useState('');
+  const [owners, setOwners] = useState<OwnershipRow[]>([]);
 
   // Section A — about the applicant. Name and e-ID come straight off
   // `whoami`, never asked. These four are the GDB Citizen Profile's own
@@ -236,6 +249,26 @@ export function Apply() {
   const forCluster = structure === 'Cluster-supported';
   const storageKey = `gdb.apply.${user?.user ?? 'anon'}`;
 
+  // Ownership shares are a question only where ownership is divided. A sole
+  // trader owns all of it; a cluster is a group of separate borrowers, not a
+  // jointly-owned company.
+  const sharesApply = structure === 'Partnership' || structure === 'Incorporated (Inc.)';
+  // Rows that actually name somebody. A blank line in a form is not a co-owner.
+  const namedOwners = owners.filter((o) => isCompleteEid(o.eid) || o.name.trim());
+  const sharesDeclared =
+    Number(applicantShare || 0) + namedOwners.reduce((sum, o) => sum + Number(o.share || 0), 0);
+
+  // Who GDB actually heard this from. A confirmed registry hit and a name
+  // recalled from the applicant's own earlier filing are not the same evidence
+  // and must not carry the same label — the adapter's `source` is the only
+  // thing that can tell them apart, so it is what the badge reads.
+  const dcraSourceLabel =
+    dcraRecord?.source === 'dcra'
+      ? 'Confirmed by DCRA'
+      : dcraRecord?.source === 'gdb_history'
+        ? 'From your earlier application'
+        : 'Not confirmed';
+
   // Only the steps this route actually asks. A sole trader never sees the
   // group screens at all.
   const steps = useMemo(
@@ -267,7 +300,96 @@ export function Apply() {
   const val = (key: string) => sections[key] ?? '';
 
   // --- resume -------------------------------------------------------------
+  /** Load a draft back from GDB. This is the resume path: the server holds the
+   *  application, so what is read here is what the Bank will see, not what a
+   *  particular browser happens to remember. */
+  /** The application this component instance is already holding in its own
+   *  state. Saving a draft switches the URL from `/apply/new` to
+   *  `/apply/<name>`, which changes `routeName` — and without this the resume
+   *  effect would treat that as "open a different draft", re-read it from the
+   *  server and reset the wizard to its first step. The applicant would be
+   *  thrown back to step 2 at the exact moment their work was first saved. */
+  const loaded = useRef<string | null>(null);
+
+  const resumeFromServer = async (name: string) => {
+    loaded.current = name;
+    setBusy(true);
+    try {
+      const loan = await call<LoanApplication>('gdb_bank.api.loan_detail', { name });
+      if (loan.status !== 'Draft') {
+        // Already submitted: there is nothing to edit, and the case page is
+        // where it now lives.
+        navigate(`/loans/${name}`, { replace: true });
+        return;
+      }
+      setDraft(loan);
+      setStage((loan.business_stage as '' | 'Existing' | 'New') ?? '');
+      setStructure(((loan.sections?.legal_structure as Structure) ?? '') as Structure);
+      setAmount(loan.loan_amount ? String(loan.loan_amount) : '');
+      setTerm(loan.term_months ? String(loan.term_months) : '12');
+      setIncome(loan.monthly_income ? String(loan.monthly_income) : '');
+      setPhone(loan.phone ?? '');
+      setPurpose(loan.purpose ?? '');
+      setDcra(loan.dcra_number ?? '');
+      setBusinessName(loan.business_name ?? '');
+      setSections((loan.sections ?? {}) as Sections);
+      setUseOfFunds(
+        loan.use_of_funds?.length ? loan.use_of_funds : [{ item: '', amount: 0 }],
+      );
+      setApplicantShare(loan.applicant_share != null ? String(loan.applicant_share) : '');
+      // A draft saved before the ownership table existed carries its partners
+      // only as the co_applicants e-ID list. Seed the rows from it so resuming
+      // one shows the partners it was filed with rather than an empty block —
+      // with no shares, because that draft never recorded any.
+      const declared = (loan.sections?.co_applicants as string | undefined) ?? '';
+      const named = declared.split(',').map((s) => s.trim()).filter(Boolean);
+      setOwners(
+        loan.ownership_lines?.length
+          ? loan.ownership_lines
+          : named.map((eid) => ({ eid, name: '', share: 0 })),
+      );
+      setCoApplicants(named.length ? named : [EMPTY_EID]);
+      if (loan.cluster) setChosenCluster(loan.cluster);
+      // A resumed draft is past the consent question by definition — it could
+      // not have been saved otherwise — so open it on the first step that
+      // actually asks something.
+      setStep('route');
+      setRestored(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'That application could not be opened.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
+    // `/apply/:name` resumes that draft from GDB. `/apply/new` starts empty and
+    // deliberately ignores — and clears — whatever this browser was holding:
+    // "start an application" has to mean a new one.
+    if (routeName) {
+      // Already ours — this is the URL catching up with a draft we just saved,
+      // not a request to open a different one.
+      if (loaded.current === routeName) return;
+      void resumeFromServer(routeName);
+      return;
+    }
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      /* a browser that refuses storage is not a reason to block an application */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeName, storageKey]);
+
+  // Crash recovery for the window BEFORE a server draft exists — the funding
+  // step is the earliest point the server will accept one, and a connection
+  // that drops before then should not cost the applicant everything they
+  // typed. Superseded by the server draft the moment there is one, which is
+  // why the write below stops and clears once `draft` is set.
+  useEffect(() => {
+    if (routeName || draft) return;
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return;
@@ -310,9 +432,26 @@ export function Apply() {
     } catch {
       /* a browser that refuses storage is not a reason to block an application */
     }
+    // Deliberately keyed on the storage key alone: this is a once-on-mount
+    // recovery, and re-running it as `draft` changes would overwrite what the
+    // applicant is typing with what the browser last wrote.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
   useEffect(() => {
+    // Once GDB holds the draft, GDB is where it lives. Keeping a second copy
+    // on the device would be duplicated server state, and — because these
+    // fields are somebody's address, phone and income — it would leave that
+    // PII in localStorage for whoever opens the browser next. Cleared here
+    // rather than merely stopped, so an earlier copy does not survive.
+    if (draft || routeName) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        /* private window, quota, blocked storage — never fatal */
+      }
+      return;
+    }
     const payload: Saved = {
       stage,
       structure,
@@ -327,7 +466,6 @@ export function Apply() {
       sections,
       useOfFunds,
       step,
-      draftName: draft?.name,
       clusterName,
       wantsFacilitator,
       facilitatorEid,
@@ -356,6 +494,7 @@ export function Apply() {
     useOfFunds,
     step,
     draft,
+    routeName,
     storageKey,
     clusterName,
     wantsFacilitator,
@@ -607,12 +746,30 @@ export function Apply() {
         ...sections,
         legal_structure: structure,
         // Only complete e-IDs travel. A half-typed one is not a partner.
-        co_applicants: structure === 'Partnership' ? validCoApplicants.join(', ') : '',
+        // Kept in step with the ownership rows, which are now where partners
+        // are named: this field is what the desk and older readers show, and
+        // leaving it to the retired input would have emptied it on every save.
+        co_applicants:
+          structure === 'Partnership'
+            ? namedOwners.map((o) => o.eid).filter(isCompleteEid).join(', ')
+            : '',
         use_of_funds: encodeUseOfFunds(useOfFunds),
+        // Shares only where shares exist. A sole trader owns the whole thing
+        // and a cluster is not owned in percentages, so sending a figure for
+        // either would put a number in the Bank's record that means nothing.
+        applicant_share: sharesApply ? applicantShare || 0 : 0,
+        ownership_lines: sharesApply ? namedOwners : [],
       },
       name: draft?.name,
     });
     setDraft(saved);
+    // Claim it before the URL changes, so the resume effect below knows this
+    // draft is already on screen and leaves the wizard where it is.
+    loaded.current = saved.name;
+    // The draft now exists at GDB, so the URL becomes the one that resumes it.
+    // Without this a reload would land back on `/apply/new` and open an empty
+    // form beside a draft that already exists.
+    if (!routeName && saved.name) navigate(`/apply/${saved.name}`, { replace: true });
     return saved;
   };
 
@@ -644,8 +801,18 @@ export function Apply() {
         return 'Tell us which business this application is for.';
       }
       if (!structure) return 'Tell us how you are applying.';
-      if (structure === 'Partnership' && validCoApplicants.length === 0) {
-        return "Give at least one partner's e-ID, or apply as a sole trader.";
+      if (structure === 'Partnership' && namedOwners.length === 0) {
+        return 'Name at least one partner, or apply as a sole proprietorship.';
+      }
+      if (sharesApply && !applicantShare) {
+        return structure === 'Partnership'
+          ? 'Tell us what share of the partnership is yours.'
+          : 'Tell us what share of the company is yours.';
+      }
+      // Over 100% cannot be true of anything, and the server refuses it too.
+      // Under 100% is deliberately allowed — see OwnershipBlock.
+      if (sharesApply && sharesDeclared > 100) {
+        return `The declared shares add up to ${sharesDeclared}%. They cannot exceed 100%.`;
       }
       if (forCluster) {
         if (!chosenCluster && !clusterName.trim()) return 'Give your group a name.';
@@ -698,7 +865,13 @@ export function Apply() {
     consentChecked,
     stage,
     structure,
-    validCoApplicants.length,
+    // The ownership block's state, all of it. Missing from here, the memo kept
+    // answering "name at least one partner" after a partner had been named —
+    // the rule was right and simply never re-ran.
+    namedOwners.length,
+    applicantShare,
+    sharesApply,
+    sharesDeclared,
     forCluster,
     chosenCluster,
     clusterName,
@@ -1023,10 +1196,13 @@ export function Apply() {
                       setDcraNote(null);
                       setDcraRecord(null);
                       setManualEntry(false);
-                      // Existing business does not ask this question for now —
-                      // it defaults to Sole trader rather than leaving the
-                      // applicant to choose from a hidden set of options.
-                      setStructure('Sole Trader');
+                      // The structure question is asked of an existing
+                      // business too, below. It used to be forced to Sole
+                      // Trader here, which meant a trading company or
+                      // partnership — the ordinary case for a business that
+                      // already has a DCRA registration — had no way to say
+                      // what it was, and every one of them reached the Bank
+                      // filed as a sole trader.
                     }}
                   />
                   <ChoiceCard
@@ -1082,11 +1258,21 @@ export function Apply() {
                 </Section>
               )}
 
-              {/* Only once the stage is answered, and only for a new venture —
-                  an existing business defaults to Sole trader above, without
-                  asking this question. */}
-              {stage === 'New' && (
-                <Section letter="2" title="Type of business">
+              {/* Asked of BOTH routes once the stage is answered. How a
+                  business is owned is a fact about it whether or not it is
+                  already trading, and an underwriter deciding a development
+                  loan needs to know whether they are lending to one person or
+                  to their share of something larger. */}
+              {stage && (
+                <Section
+                  letter={stage === 'Existing' ? '3' : '2'}
+                  title="Type of business"
+                  blurb={
+                    stage === 'Existing'
+                      ? 'How the business you picked above is owned.'
+                      : 'How the business you intend to trade as will be owned.'
+                  }
+                >
                   <div className="grid gap-3 sm:grid-cols-3">
                     <ChoiceCard
                       title="Sole proprietorship"
@@ -1110,47 +1296,22 @@ export function Apply() {
                     />
                   </div>
 
-                  {/* Partners are named by e-ID, never by mailbox — the e-ID is
-                      how GDB identifies a person everywhere else in the bank. */}
-                  {structure === 'Partnership' && (
-                    <div className="rounded-lg bg-slate-50/80 p-4">
-                      <p className="text-sm font-bold text-slate-800">Your partners</p>
-                      <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
-                        Name each partner by their national e-ID. Naming somebody here records what
-                        you have declared &mdash; it does not sign them up. GDB contacts each partner
-                        separately, and they confirm through their own sign-in.
-                      </p>
-                      <div className="space-y-2">
-                        {coApplicants.map((eid, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <EidBoxes
-                              value={eid}
-                              onChange={(next) =>
-                                setCoApplicants((list) => list.map((v, j) => (j === i ? next : v)))
-                              }
-                            />
-                            {coApplicants.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCoApplicants((list) => list.filter((_, j) => j !== i))
-                                }
-                                className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-400 hover:bg-slate-100 hover:text-rose-600"
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setCoApplicants((list) => [...list, EMPTY_EID])}
-                        className="mt-3 text-xs font-semibold text-brand underline"
-                      >
-                        Add another partner
-                      </button>
-                    </div>
+                  {/* A partnership and an incorporated company ask the same
+                      two things — what the applicant owns, and who owns the
+                      rest — so they share one block. Only the wording differs,
+                      because a partner and a shareholder are not the same word
+                      to the person filling this in. Co-owners are named by
+                      e-ID, never by mailbox: the e-ID is how GDB identifies a
+                      person everywhere else in the bank. */}
+                  {sharesApply && (
+                    <OwnershipBlock
+                      structure={structure}
+                      applicantShare={applicantShare}
+                      onApplicantShare={setApplicantShare}
+                      owners={owners}
+                      onOwners={setOwners}
+                      declared={sharesDeclared}
+                    />
                   )}
 
                   {/* The group is named here and nowhere else. Asking for it
@@ -1192,21 +1353,25 @@ export function Apply() {
               title="About you"
               blurb="Confirmed against your e-ID. What it holds cannot be edited here."
             >
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                <dl className="space-y-1 text-xs text-slate-600">
-                  <div>
-                    <dt className="inline text-slate-400">Name: </dt>
-                    <dd className="inline font-medium text-slate-900">
-                      {profile?.verified_full_name || user?.full_name || '—'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="inline text-slate-400">National ID: </dt>
-                    <dd className="inline font-mono font-medium text-slate-900">
-                      {user?.eid || profile?.eid || '—'}
-                    </dd>
-                  </div>
-                </dl>
+              {/* The identity directory's own assertion, shown the same grey
+                  way as DCRA's. These two are not answers the applicant gave
+                  and must not look like fields they may change — the portal
+                  keeps what was VERIFIED apart from what was DECLARED
+                  everywhere else (GDB Citizen Profile holds the two blocks
+                  separately and never merges them), and this is where that
+                  distinction first meets the applicant. */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ReadOnlyField
+                  label="Name"
+                  value={profile?.verified_full_name || user?.full_name}
+                  source="From your e-ID"
+                  checked={profile?.verified_on ? formatDate(profile.verified_on) : null}
+                />
+                <ReadOnlyField
+                  label="National e-ID"
+                  value={user?.eid || profile?.eid}
+                  source="From your e-ID"
+                />
               </div>
 
               <TextField
@@ -1373,32 +1538,53 @@ export function Apply() {
                             {dcraRecord.status}
                           </span>
                         </div>
-                        <dl className="space-y-1 text-xs text-slate-600">
+                        {/* Grey, not white: these are the register's values,
+                            and the portal must not dress them as fields the
+                            applicant may answer. Each one is attributed to
+                            whoever GDB actually heard it from — a confirmed
+                            DCRA hit and a name recalled from an earlier
+                            application are not the same evidence, and the
+                            source line says which this is. */}
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <ReadOnlyField
+                            label="Registered business name"
+                            value={dcraRecord.business_name}
+                            source={dcraSourceLabel}
+                          />
+                          <ReadOnlyField
+                            label="Registration number"
+                            value={dcraRecord.registration_number}
+                            source={dcraSourceLabel}
+                          />
                           {dcraRecord.business_type && (
-                            <div>
-                              <dt className="inline text-slate-400">Structure: </dt>
-                              <dd className="inline font-medium">{dcraRecord.business_type}</dd>
-                            </div>
+                            <ReadOnlyField
+                              label="Structure on the register"
+                              value={dcraRecord.business_type}
+                              source={dcraSourceLabel}
+                            />
                           )}
                           {dcraRecord.registered_on && (
-                            <div>
-                              <dt className="inline text-slate-400">Registered: </dt>
-                              <dd className="inline font-medium">{dcraRecord.registered_on}</dd>
-                            </div>
+                            <ReadOnlyField
+                              label="Registered on"
+                              value={dcraRecord.registered_on}
+                              source={dcraSourceLabel}
+                            />
                           )}
                           {dcraRecord.region && (
-                            <div>
-                              <dt className="inline text-slate-400">Region: </dt>
-                              <dd className="inline font-medium">{dcraRecord.region}</dd>
-                            </div>
+                            <ReadOnlyField
+                              label="Region"
+                              value={dcraRecord.region}
+                              source={dcraSourceLabel}
+                            />
                           )}
                           {dcraRecord.proprietors?.length ? (
-                            <div>
-                              <dt className="inline text-slate-400">Proprietors: </dt>
-                              <dd className="inline font-medium">{dcraRecord.proprietors.join(', ')}</dd>
-                            </div>
+                            <ReadOnlyField
+                              label="Proprietors"
+                              value={dcraRecord.proprietors.join(', ')}
+                              source={dcraSourceLabel}
+                            />
                           ) : null}
-                        </dl>
+                        </div>
                         {dcraRecord.source === 'dcra' ? (
                           <p className="mt-2 text-[11px] text-slate-400">
                             Confirmed by the DCRA register.

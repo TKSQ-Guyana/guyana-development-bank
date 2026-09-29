@@ -1,14 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { call } from '../../api';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
-import type {
-  Cluster,
-  ClusterPlan,
-  ClusterPlanSection,
-  EidLookup,
-  Facilitator,
-} from '../../types';
-import { EidBoxes } from '../EidBoxes';
+import type { Cluster, ClusterPlan, ClusterPlanSection, Facilitator } from '../../types';
+import { EidWithName } from './EidWithName';
 import { Notice, SelectField, TextAreaField, TextField } from './fields';
 
 /** The cluster route's own screens.
@@ -106,71 +100,10 @@ export const PLAN_SECTIONS: {
   },
 ];
 
-/** An e-ID box that fills in the name once the number is complete.
- *
- *  The lookup answers a name only for an e-ID that already holds a portal
- *  account. An unknown number is not an error and must not read like one: a
- *  group inviting somebody who has never signed in is the ordinary case in a
- *  programme reaching people who are not online yet.
- */
-export function EidWithName({
-  value,
-  onChange,
-  onResolved,
-  disabled,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  onResolved?: (found: EidLookup | null) => void;
-  disabled?: boolean;
-}) {
-  const [found, setFound] = useState<EidLookup | null>(null);
-  const [looking, setLooking] = useState(false);
-  // Guards a re-render from re-asking for a number already answered.
-  const asked = useRef('');
-
-  useEffect(() => {
-    if (!isCompleteEid(value)) {
-      asked.current = '';
-      setFound(null);
-      onResolved?.(null);
-      return;
-    }
-    if (asked.current === value) return;
-    asked.current = value;
-    setLooking(true);
-    call<EidLookup>('gdb_bank.api.lookup_eid', { eid: value })
-      .then((r) => {
-        setFound(r);
-        onResolved?.(r);
-      })
-      .catch(() => {
-        // A lookup that cannot run is not a reason to block a group from
-        // naming somebody. The invitation goes out against the e-ID either way.
-        setFound(null);
-        onResolved?.(null);
-      })
-      .finally(() => setLooking(false));
-    // onResolved is a fresh closure on every render; depending on it would
-    // re-run this effect forever.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <div className="space-y-1">
-      <EidBoxes value={value} onChange={onChange} disabled={disabled} />
-      {looking && <p className="text-xs text-slate-400">Looking up this e-ID…</p>}
-      {!looking && found?.registered && (
-        <p className="text-xs font-semibold text-emerald-700">{found.name}</p>
-      )}
-      {!looking && found && !found.registered && (
-        <p className="text-xs text-slate-500">
-          Not registered with GDB yet — the invitation waits for their first sign-in.
-        </p>
-      )}
-    </div>
-  );
-}
+// `EidWithName` now lives in its own module: naming a person by e-ID is not
+// a cluster question, and partners and shareholders name people the same
+// way. Re-exported here so every existing import keeps working.
+export { EidWithName };
 
 /** Choose a GDB facilitator from the ones GDB offers.
  *
@@ -403,6 +336,7 @@ export function MembersTable({
   const [eid, setEid] = useState(EMPTY_EID);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const add = async () => {
@@ -425,7 +359,52 @@ export function MembersTable({
     }
   };
 
+  /** Withdraw an invitation, or remove somebody who joined.
+   *
+   *  The confirmation says which of the two this is, because they are not the
+   *  same act: an unanswered invitation disappears as though it never
+   *  happened, while a member who joined is recorded as having left. The
+   *  server decides that, not this screen — the wording here just has to match
+   *  what it will do. */
+  const remove = async (m: Cluster['members'][number]) => {
+    if (!cluster) return;
+    const who = m.member_name || m.member_eid || 'this person';
+    const joined = m.member_status === 'Active';
+    if (
+      !window.confirm(
+        joined
+          ? `Remove ${who} from ${cluster.name}? They stop seeing the group's application. Anything they have already signed stays signed.`
+          : `Withdraw the invitation to ${who}? They will be told it was withdrawn.`,
+      )
+    ) {
+      return;
+    }
+    setRemoving(m.member_eid ?? m.member ?? who);
+    setError(null);
+    try {
+      onChanged(
+        await call<Cluster>('gdb_bank.api.remove_member', {
+          eid: m.member_eid,
+          member: m.member,
+          cluster: cluster.name,
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove that member');
+    } finally {
+      setRemoving(null);
+    }
+  };
+
   const roster = cluster?.members ?? [];
+  // Invitations nobody has answered. Worth saying out loud on this screen,
+  // because an unanswered invitation looks exactly like a member here and
+  // behaves nothing like one: only an accepted member sees the group's
+  // application, and only an accepted member is given a line to sign on its
+  // offer. A head who cannot tell them apart submits believing the group is
+  // in, and nobody finds out until the offer is issued.
+  const waiting = roster.filter((m) => m.member_status === 'Invited').length;
+  const joined = roster.filter((m) => m.member_status === 'Active' && !m.is_head).length;
 
   return (
     <div className="space-y-4">
@@ -436,6 +415,7 @@ export function MembersTable({
               <th className="px-4 py-2 font-semibold">e-ID</th>
               <th className="px-4 py-2 font-semibold">Name</th>
               <th className="px-4 py-2 font-semibold">Status</th>
+              <th className="px-4 py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -463,11 +443,31 @@ export function MembersTable({
                         ? 'Declined'
                         : 'No longer in this group'}
                 </td>
+                <td className="px-4 py-2 text-right">
+                  {/* The head is not removable: a group with nobody who may
+                      act for it has no way forward. Neither is somebody who
+                      already declined or left — there is nothing left to
+                      remove. */}
+                  {!m.is_head && (m.member_status === 'Invited' || m.member_status === 'Active') && (
+                    <button
+                      type="button"
+                      onClick={() => void remove(m)}
+                      disabled={removing !== null}
+                      className="rounded-full px-3 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                    >
+                      {removing === (m.member_eid ?? m.member)
+                        ? 'Removing…'
+                        : m.member_status === 'Invited'
+                          ? 'Withdraw'
+                          : 'Remove'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
             {roster.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-4 text-sm text-slate-500">
+                <td colSpan={4} className="px-4 py-4 text-sm text-slate-500">
                   Nobody has been added yet.
                 </td>
               </tr>
@@ -475,6 +475,34 @@ export function MembersTable({
           </tbody>
         </table>
       </div>
+
+      {/* An invitation is not membership, and this is the screen where the
+          head still has time to do something about it. Until they accept, an
+          invitee sees nothing of the group's application and gets no line to
+          sign on its offer — and GDB will not issue a group's offer to a head
+          on their own, so an unanswered invitation stops the loan later
+          instead of now. */}
+      {waiting > 0 && (
+        <Notice tone={joined === 0 ? 'warn' : 'info'}>
+          {joined === 0 ? (
+            <>
+              <strong>
+                Nobody has accepted yet &mdash; {waiting} invitation{waiting === 1 ? '' : 's'}{' '}
+                still waiting.
+              </strong>{' '}
+              You can carry on and submit, but until somebody accepts, they will not see this
+              application and GDB cannot issue the group a Letter of Offer. It may be worth
+              reminding them.
+            </>
+          ) : (
+            <>
+              {joined} {joined === 1 ? 'member has' : 'members have'} accepted; {waiting} invitation
+              {waiting === 1 ? ' is' : 's are'} still waiting. Only those who accept will see this
+              application and sign the offer.
+            </>
+          )}
+        </Notice>
+      )}
 
       <div className="rounded-lg bg-slate-50/80 p-4">
         <p className="mb-1 text-sm font-bold text-slate-800">Add a member</p>

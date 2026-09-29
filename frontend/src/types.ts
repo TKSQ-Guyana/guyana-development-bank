@@ -23,6 +23,16 @@ export interface UseOfFundsRow {
   amount: number;
 }
 
+/** One declared co-owner of the business a loan is for: a partner in a
+ *  partnership, a shareholder in an incorporated company. DECLARED — naming
+ *  somebody here records what the applicant said, not that person's agreement,
+ *  which they give through their own sign-in. */
+export interface OwnershipRow {
+  eid: string;
+  name: string;
+  share: number;
+}
+
 export interface LoanApplication {
   name: string;
   applicant: string;
@@ -44,6 +54,10 @@ export interface LoanApplication {
    *  by this or `cluster` instead of the free-text `purpose`, which has no
    *  length limit and nothing stops it holding a whole pasted business plan. */
   business_name: string | null;
+  /** The DCRA registration this case was filed against, where there is one.
+   *  Served by `_portal_dict` and needed when a draft is resumed from the
+   *  server — without it the wizard reopens with the registration blank. */
+  dcra_number: string | null;
   /** The journey stage and the customer-safe sentence that goes with it, both
    *  from the server. `stage_label` is what the applicant reads — never a raw
    *  status value. */
@@ -89,6 +103,11 @@ export interface LoanApplication {
   /** Frappe's SUM of those lines; null when there are none. Never add the
    *  lines up in the client. */
   use_of_funds_total: number | null;
+  /** Everybody who owns a share of the business besides the applicant, and the
+   *  applicant's own share. Empty and null respectively for a sole trader, who
+   *  owns all of it, and for a cluster, which is not owned in shares. */
+  ownership_lines: OwnershipRow[];
+  applicant_share: number | null;
   /** Expected document types not yet on file, for a queue row. Batched
    *  server-side (see api._evidence_missing_map) — present only from
    *  all_loans; the case page reads the live shelf via DocumentShelf instead. */
@@ -288,6 +307,13 @@ export interface Cluster {
   can_edit_plan: boolean;
   viewer: string;
   members: ClusterMember[];
+  /** Members who have ACCEPTED, and invitations still unanswered — neither
+   *  counting the head. The difference is not cosmetic: only an accepted
+   *  member can see the group's application, and only an accepted member is
+   *  given a signature line when its offer is issued. Counted on the server so
+   *  the portal and the rules that act on it read the same number. */
+  joined_count: number;
+  invited_count: number;
   applications: ClusterCase[];
 }
 

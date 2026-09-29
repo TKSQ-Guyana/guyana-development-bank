@@ -52,6 +52,10 @@ function attentionFor(loan: LoanApplication, owesFinancials = false): Attention 
     return {
       tag: 'Not submitted',
       note: 'This is still a draft — the Bank cannot see it until it is submitted. Nothing is lost in the meantime.',
+      // Back into the wizard, at THIS draft. It used to point at the case page,
+      // which refuses to render a draft — so the one button labelled "continue
+      // this application" was the one place you could not continue it from.
+      action: { to: `/apply/${loan.name}`, label: 'Continue this application' },
     };
   }
   if (loan.conditions_outstanding > 0) {
@@ -80,13 +84,21 @@ function ApplicationRow({
   attention,
   open,
   onToggle,
+  onDiscard,
+  discarding,
 }: {
   loan: LoanApplication;
   attention: Attention | null;
   open: boolean;
   onToggle: () => void;
+  onDiscard: (loan: LoanApplication) => void;
+  discarding: boolean;
 }) {
   const bodyId = `case-${loan.name}`;
+  // Only ever a draft. Once an application is with the Bank it is the record
+  // of what was asked for, and withdrawing it is a decision rather than a
+  // delete — the server refuses it either way.
+  const discardable = loan.stage === 'Draft';
 
   return (
     <div
@@ -186,14 +198,24 @@ function ApplicationRow({
             </div>
           )}
 
-          <div className="mt-5 border-t border-slate-100 pt-4">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
             <Link
               to={attention?.action?.to ?? `/loans/${loan.name}`}
               className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
             >
-              {attention?.action?.label ?? (loan.stage === 'Draft' ? 'Continue this application' : 'Open case')}
+              {attention?.action?.label ?? 'Open case'}
               <ArrowRightIcon className="h-4 w-4" />
             </Link>
+            {discardable && (
+              <button
+                type="button"
+                onClick={() => onDiscard(loan)}
+                disabled={discarding}
+                className="rounded-full px-4 py-2 text-sm font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+              >
+                {discarding ? 'Discarding…' : 'Discard this draft'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -271,6 +293,7 @@ export function Applications() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const [discarding, setDiscarding] = useState<string | null>(null);
 
   const load = useCallback(() => {
     call<LoanApplication[]>('gdb_bank.api.my_loans')
@@ -307,6 +330,34 @@ export function Applications() {
   const shown = filter === 'live' ? live : filter === 'past' ? past : [...live, ...past];
   const allOpen = shown.length > 0 && shown.every((l) => openIds.has(l.name));
   const clustersWaiting = invites.length > 0 || group.some((l) => attention(l));
+
+  /** Abandon a draft. Drafts only — the server refuses anything that has been
+   *  submitted, because that is the Bank's record of what was asked for.
+   *
+   *  Confirmed first and named in the prompt: this deletes, and an applicant
+   *  who has been filling a form in for twenty minutes deserves to be asked
+   *  rather than to find out. */
+  async function discard(loan: LoanApplication) {
+    const label = loan.business_name || loan.cluster || 'this draft';
+    if (
+      !window.confirm(
+        `Discard ${label}? The draft and everything typed into it are deleted. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDiscarding(loan.name);
+    try {
+      await call('gdb_bank.api.discard_application', { name: loan.name });
+      // Reload rather than splice it out locally: the list is server state,
+      // and what the Bank holds is the answer to what is left.
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That draft could not be discarded.');
+    } finally {
+      setDiscarding(null);
+    }
+  }
 
   function toggle(name: string) {
     setOpenIds((prev) => {
@@ -362,9 +413,21 @@ export function Applications() {
         ]}
       />
 
-      {view === 'clusters' && invites.length > 0 && (
+      {/* Shown on BOTH tabs, not only under Clusters. An unanswered invitation
+          is the single thing standing between this person and a group
+          application they cannot otherwise see — and somebody who has never
+          joined a group has no reason to look under a tab called Clusters. It
+          used to be reachable only from the one bell notification sent at
+          invite time, so missing that meant never being told again. */}
+      {invites.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400">Invitations</h3>
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400">
+            {invites.length === 1 ? 'An invitation is waiting for you' : 'Invitations waiting for you'}
+          </h3>
+          <p className="text-sm text-slate-500">
+            Until you accept, you will not see the group&rsquo;s application and you cannot sign
+            its Letter of Offer.
+          </p>
           {invites.map((invite) => (
             <InvitationCard key={invite.name} invite={invite} onAnswered={load} />
           ))}
@@ -444,6 +507,8 @@ export function Applications() {
                   attention={attention(loan)}
                   open={openIds.has(loan.name)}
                   onToggle={() => toggle(loan.name)}
+                  onDiscard={discard}
+                  discarding={discarding === loan.name}
                 />
               ))}
             </div>

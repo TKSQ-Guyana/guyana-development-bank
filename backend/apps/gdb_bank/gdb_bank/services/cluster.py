@@ -131,6 +131,64 @@ def _notify_invited(user: str | None, cluster: str, head: str) -> None:
 	)
 
 
+def roster_split(cluster: str) -> dict:
+	"""Who has actually joined, and who is still only invited.
+
+	The two are never interchangeable where it counts: only an Active member
+	sees the group's application (`_clusters_of`), and only an Active member is
+	given a signature line when its offer is issued (`offers._roster_for`). A
+	head reading a roster where both look the same cannot tell that half their
+	group is not really in it yet — which is exactly how a group application
+	reaches the Bank with nobody but the head able to see or sign it.
+	"""
+	rows = frappe.get_all(
+		"GDB Cluster Member",
+		filters={"parent": cluster},
+		fields=["member", "member_eid", "member_name", "member_status", "is_head"],
+		order_by="is_head desc, idx asc",
+	)
+	return {
+		"active": [r for r in rows if r.member_status == "Active"],
+		"invited": [r for r in rows if r.member_status == "Invited"],
+	}
+
+
+def notify_group_submitted(head: str, cluster: str, application: str) -> None:
+	"""Tell the group that its application has gone to the Bank.
+
+	Two audiences, two messages, because they are in different positions. An
+	ACTIVE member can open the case, so their notification links to it. An
+	INVITED one cannot — `_clusters_of` counts Active rows only — and the
+	reason they cannot is that they never answered. Until now the invitation
+	notification was the ONLY thing they ever received: miss it, and nothing in
+	the portal mentioned the group again. That is the whole distance between a
+	head who believes they invited somebody and a member who never saw a thing.
+
+	Neither message carries an amount. A member may not see the head's income
+	or contact details — test_cluster_flow asserts it — and a notification
+	subject is not the place to hand over what the case view withholds.
+	"""
+	split = roster_split(cluster)
+	for row in split["active"]:
+		if row.member and row.member != head:
+			notify(
+				row.member,
+				_("{0}'s application has been submitted to GDB").format(cluster),
+				f"/loans/{application}",
+				from_user=head,
+			)
+	for row in split["invited"]:
+		if row.member:
+			notify(
+				row.member,
+				_("{0} has submitted {1}'s application — accept your invitation to see it").format(
+					frappe.utils.get_fullname(head), cluster
+				),
+				INVITATIONS_LINK,
+				from_user=head,
+			)
+
+
 # --------------------------------------------------------------------------
 # The group and its roster
 # --------------------------------------------------------------------------
@@ -234,6 +292,107 @@ def invite_member(user: str, eid: str, full_name: str | None = None, cluster: st
 	return cluster_view(user, cluster)
 
 
+def _blocking_signature(cluster: str, member: str | None) -> str | None:
+	"""A live offer this member still has to sign, if there is one.
+
+	`offers._roster_for` freezes the signature roster when the offer is issued,
+	deliberately — a line that stands is part of the agreement as issued. The
+	consequence is that removing somebody who holds a PENDING line does not
+	take the line away: the offer simply can never be completed, and the group
+	is left with an agreement nobody can execute. So removal waits until the
+	offer is resolved, rather than quietly creating a deadlock.
+	"""
+	if not member:
+		return None
+	rows = frappe.get_all(
+		"GDB Offer Signature",
+		filters={"member": member, "signature_status": "Pending"},
+		fields=["parent"],
+	)
+	for row in rows:
+		offer = frappe.db.get_value(
+			"GDB Loan Offer", row.parent, ["name", "status", "application"], as_dict=True
+		)
+		if offer and offer.status == "Issued":
+			application = frappe.db.get_value("Loan Application", offer.application, "gdb_cluster")
+			if application == cluster:
+				return offer.name
+	return None
+
+
+def remove_member(
+	user: str, eid: str | None = None, member: str | None = None, cluster: str | None = None
+):
+	"""The head withdraws an invitation, or removes a member who had joined.
+
+	These are two different acts and are not recorded the same way.
+
+	An INVITED row is DELETED. Nothing happened: nobody joined, nobody saw the
+	group's case, and leaving the row behind as "Declined" would put an answer
+	in the invitee's mouth that they never gave.
+
+	An ACTIVE row is marked EXITED and KEPT. Somebody who was in the group is
+	part of its history, the spec is explicit that a member's exit must not
+	invalidate anything, and an offer they have already signed stays signed.
+
+	The head cannot be removed: a cluster with no head has nobody who may act
+	for it.
+	"""
+	cluster = _head_cluster(user, cluster)
+	eid = normalize_eid(eid) if eid else None
+	if not eid and not member:
+		frappe.throw(_("Say which member to remove."))
+
+	doc = frappe.get_doc("GDB Cluster", cluster)
+	row = next(
+		(m for m in doc.members if (member and m.member == member) or (eid and m.member_eid == eid)),
+		None,
+	)
+	if not row:
+		frappe.throw(_("Nobody by that e-ID is in this cluster."))
+	if cint(row.is_head) or (row.member and row.member == doc.head):
+		frappe.throw(_("The head cannot be removed from their own cluster."))
+	if row.member_status not in ("Invited", "Active"):
+		frappe.throw(
+			_("{0} is not in this cluster.").format(row.member_name or row.member_eid or row.member)
+		)
+
+	blocking = _blocking_signature(cluster, row.member)
+	if blocking:
+		frappe.throw(
+			_(
+				"{0} still has to sign the Letter of Offer {1}. Withdraw or settle that offer first — "
+				"removing them now would leave an agreement nobody can complete."
+			).format(row.member_name or row.member_eid, blocking)
+		)
+
+	withdrawn = row.member_status == "Invited"
+	who = row.member
+	label = row.member_name or row.member_eid or row.member
+
+	if withdrawn:
+		doc.members.remove(row)
+	else:
+		row.member_status = "Exited"
+		row.responded_on = nowdate()
+
+	doc.save(ignore_permissions=True)
+	notify(
+		who,
+		_("Your invitation to join {0} was withdrawn").format(cluster)
+		if withdrawn
+		else _("You are no longer part of {0}").format(cluster),
+		INVITATIONS_LINK,
+		from_user=user,
+	)
+	frappe.db.commit()
+	_logger().info(
+		f"{user} {'withdrew the invitation to' if withdrawn else 'removed'} {label} "
+		f"from cluster {cluster}"
+	)
+	return cluster_view(user, cluster)
+
+
 def my_invitations(user: str) -> list[dict]:
 	"""Groups this person has been asked to join and has not yet answered."""
 	eid = frappe.db.get_value("User", user, "gdb_eid")
@@ -242,12 +401,22 @@ def my_invitations(user: str) -> list[dict]:
 		filters={"member": user, "member_status": "Invited"},
 		fields=["parent", "invited_on"],
 	)
-	if not rows and eid:
-		rows = frappe.get_all(
-			"GDB Cluster Member",
-			filters={"member_eid": eid, "member_status": "Invited"},
-			fields=["parent", "invited_on"],
-		)
+	# Both sources, always — not one as a fallback for the other. A person can
+	# hold an invitation already linked to their account AND one still raised
+	# against their bare e-ID (invited before they ever signed in, or invited
+	# again from a second group). Treating the e-ID list as a fallback hid the
+	# second kind the moment the first kind existed.
+	if eid:
+		seen = {row.parent for row in rows}
+		rows += [
+			row
+			for row in frappe.get_all(
+				"GDB Cluster Member",
+				filters={"member_eid": eid, "member_status": "Invited"},
+				fields=["parent", "invited_on"],
+			)
+			if row.parent not in seen
+		]
 	out = []
 	for row in rows:
 		cluster = frappe.db.get_value(
@@ -416,6 +585,14 @@ def cluster_view(user: str, cluster: str) -> dict:
 			}
 			for m in roster
 		],
+		# The split the head has to be able to see. `members` carries each
+		# status already, but every screen that counts a roster was counting
+		# rows of any status — which is how a group reaches submission with
+		# nobody but the head actually in it. Counted here so the portal and
+		# the rules that act on it (`_clusters_of`, `offers._roster_for`) are
+		# reading the same number. Neither count includes the head.
+		"joined_count": len([m for m in roster if m.member_status == "Active" and not m.is_head]),
+		"invited_count": len([m for m in roster if m.member_status == "Invited"]),
 		"applications": cases,
 	}
 

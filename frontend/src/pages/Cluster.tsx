@@ -361,8 +361,41 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
   const [eid, setEid] = useState(EMPTY_EID);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+
+  /** Withdraw an invitation, or remove a member who joined. Two different
+   *  acts: an unanswered invitation disappears as though it never happened,
+   *  while somebody who joined is recorded as having left, and anything they
+   *  signed stays signed. The server decides which; this only has to say so. */
+  const remove = async (m: ClusterType['members'][number]) => {
+    const who = m.member_name || m.member_eid || 'this person';
+    const joined = m.member_status === 'Active';
+    if (
+      !window.confirm(
+        joined
+          ? `Remove ${who} from ${cluster.name}? They stop seeing the group's application. Anything they have already signed stays signed.`
+          : `Withdraw the invitation to ${who}? They will be told it was withdrawn.`,
+      )
+    ) {
+      return;
+    }
+    setRemoving(m.member_eid ?? m.member ?? who);
+    setError(null);
+    try {
+      await call('gdb_bank.api.remove_member', {
+        eid: m.member_eid,
+        member: m.member,
+        cluster: cluster.name,
+      });
+      onInvited();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove that member');
+    } finally {
+      setRemoving(null);
+    }
+  };
 
   const invite = async (e: FormEvent) => {
     e.preventDefault();
@@ -402,8 +435,29 @@ function Members({ cluster, onInvited }: { cluster: ClusterType; onInvited: () =
                 {m.member_eid ?? 'no e-ID'}
               </span>
             </span>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              {m.member_status}
+            <span className="flex items-center gap-3">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                {m.member_status}
+              </span>
+              {/* The head's own control, and only over somebody who is still
+                  invited or still in. The head cannot be removed at all — a
+                  group with nobody who may act for it has no way forward. */}
+              {cluster.is_head &&
+                !m.is_head &&
+                (m.member_status === 'Invited' || m.member_status === 'Active') && (
+                  <button
+                    type="button"
+                    onClick={() => void remove(m)}
+                    disabled={removing !== null}
+                    className="rounded-full px-3 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                  >
+                    {removing === (m.member_eid ?? m.member)
+                      ? 'Removing…'
+                      : m.member_status === 'Invited'
+                        ? 'Withdraw'
+                        : 'Remove'}
+                  </button>
+                )}
             </span>
           </li>
         ))}

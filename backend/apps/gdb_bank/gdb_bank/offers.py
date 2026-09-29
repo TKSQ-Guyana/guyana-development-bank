@@ -21,6 +21,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, fmt_money, formatdate, getdate, now_datetime, nowdate
 
+from gdb_bank.services import cluster as cluster_service
 from gdb_bank.services.application import _readable_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_TO_PORTAL
 from gdb_bank.utils.session import _as_system, _logger, _require_underwriter, _session_user
@@ -289,6 +290,27 @@ def issue_offer(
 			_("Offer {0} is already {1} for this application.").format(live.name, live.status.lower())
 		)
 
+	# A cluster offer whose roster is the head alone is not a cluster offer.
+	# `_roster_for` builds the signature lines from ACTIVE members and freezes
+	# them here, so if the group's invitations were never accepted this issues
+	# a group facility carrying ONE signature — an individual loan wearing a
+	# group's name, and unfixable afterwards because the roster is frozen.
+	# Refused rather than warned: the roster is the control, and a control that
+	# evaporates when nobody answers an invitation is not a control.
+	if row.gdb_cluster:
+		joined = cluster_service.roster_split(row.gdb_cluster)
+		if not [m for m in joined["active"] if not cint(m.is_head)]:
+			waiting = len(joined["invited"])
+			frappe.throw(
+				_(
+					"Nobody in {0} has accepted their invitation yet{1}, so this offer would carry the "
+					"head's signature alone. A group facility needs the group in it before it is issued."
+				).format(
+					row.gdb_cluster,
+					_(" ({0} still outstanding)").format(waiting) if waiting else "",
+				)
+			)
+
 	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
 	amount = flt(offered_amount) or flt(row.loan_amount)
 	term = cint(term_months) or cint(row.repayment_periods)
@@ -540,3 +562,52 @@ def accepted_offer(application: str):
 		["name", "offered_amount", "term_months"],
 		as_dict=True,
 	)
+
+
+def group_consent_missing(application: str) -> str | None:
+	"""Why this GROUP has not agreed to its loan, or None when it has.
+
+	Re-derived on the money side rather than taken on trust, because until now
+	the whole group-consent control rested on one boolean — the offer's
+	`status` being "Accepted" — and that boolean can be set by one person.
+	`_execution_state` reports `joint: False` for an offer carrying NO
+	signature lines, so `accept_offer` treats such an offer as an individual
+	one and the head executes the group's agreement alone. Six cluster loans on
+	this stack were disbursed that way, the largest G$1,800,000, against groups
+	whose other members never signed anything.
+
+	Checked against the offer's OWN frozen roster, never the cluster's roster
+	today: `_roster_for` freezes the signatories at issue on purpose, and a
+	member who signed and later left has still signed. What is refused is an
+	executed group agreement that nobody but the head is party to.
+
+	The programme specification puts this exactly here — "at the point of
+	release, the system re-derives entitlement and authorizations" — and the
+	reason it belongs on the money side is that an authorization derived once,
+	at acceptance, is an authorization nothing re-checks before the cash moves.
+	"""
+	cluster = frappe.db.get_value("Loan Application", application, "gdb_cluster")
+	if not cluster:
+		return None
+
+	offer = frappe.db.get_value(
+		"GDB Loan Offer",
+		{"application": application, "status": "Accepted", "docstatus": 1},
+		["name"],
+		as_dict=True,
+	)
+	if not offer:
+		return _("{0} is a group application with no executed Letter of Offer.").format(application)
+
+	rows = _signatures(offer.name)
+	if not rows:
+		return _(
+			"Letter of Offer {0} carries no signatures, but {1} is {2}'s application. "
+			"The group never signed it — it cannot be booked or released. Issue a new offer "
+			"so every active member gets a line to sign."
+		).format(offer.name, application, cluster)
+
+	outstanding = [r.member_name for r in rows if r.signature_status != "Signed"]
+	if outstanding:
+		return _("{0} has not been signed by: {1}.").format(offer.name, ", ".join(outstanding))
+	return None

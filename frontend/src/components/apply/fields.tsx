@@ -12,6 +12,19 @@ const controlClass =
   'placeholder:text-slate-300 transition-colors focus:border-brand focus:outline-none ' +
   'focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500';
 
+/** A value GDB fetched rather than asked for.
+ *
+ *  Grey ground and no white input box, because a white box with a border is
+ *  the portal's promise that you may type in it — and these are the State's
+ *  record, not the applicant's answer. The specification is explicit that
+ *  registry values appear "as confirmed read-only values with the confirming
+ *  agency and last-checked time", and that an applicant who thinks a line is
+ *  wrong reports it rather than overwriting the source.
+ */
+const readOnlyClass =
+  'w-full rounded-md border border-transparent bg-slate-100 px-3.5 py-2.5 text-sm ' +
+  'font-medium text-slate-600';
+
 interface FieldProps {
   label: string;
   hint?: ReactNode;
@@ -38,6 +51,47 @@ export function Field({ label, hint, required, tag, children }: FieldProps) {
       {children}
       {hint && <span className="mt-1.5 block text-xs leading-relaxed text-slate-500">{hint}</span>}
     </label>
+  );
+}
+
+/** One value GDB got from somewhere else, shown as read-only and attributed.
+ *
+ *  `source` names the authority — "Confirmed by DCRA", "From your e-ID" — so
+ *  the applicant can see WHY a line cannot be edited, and `checked` carries
+ *  when it was last looked up. A value with no attribution should not use this
+ *  component: "you cannot change this" without "and here is who says so" is
+ *  the thing the specification warns against.
+ */
+export function ReadOnlyField({
+  label,
+  value,
+  source,
+  checked,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  source: string;
+  checked?: string | null;
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="block">
+      <span className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-slate-700">{label}</span>
+        <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {source}
+        </span>
+      </span>
+      <p className={readOnlyClass}>{value || <span className="text-slate-400">Not held</span>}</p>
+      {(hint || checked) && (
+        <span className="mt-1.5 block text-xs leading-relaxed text-slate-500">
+          {hint}
+          {hint && checked ? ' · ' : ''}
+          {checked ? `Checked ${checked}` : ''}
+        </span>
+      )}
+    </div>
   );
 }
 

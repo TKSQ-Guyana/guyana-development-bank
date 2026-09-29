@@ -126,6 +126,13 @@ APPLICATION_SECTIONS = (
 	# co-applicant who must consent does so through their own sign-in, never
 	# through this form.
 	("gdb_co_applicants", "Co-applicant e-IDs (Declared)", "Small Text"),
+	# What the applicant owns of the business they are borrowing for. Asked of
+	# a PARTNERSHIP and of an INCORPORATED company, and of neither a sole
+	# trader (who owns all of it) nor a cluster (which is not owned in shares
+	# at all). A development loan to a business the applicant holds a tenth of
+	# is a different case from one they hold outright, and until now the form
+	# could not tell an underwriter which it was looking at.
+	("gdb_applicant_share", "Applicant's Ownership Share (%)", "Percent"),
 	# B — business identity
 	("gdb_sector", "Sector", "Data"),
 	("gdb_sub_sector", "Sub-sector", "Data"),
@@ -257,6 +264,17 @@ CUSTOM_FIELDS = {
 			"fieldtype": "Table",
 			"options": "GDB Use Of Funds Line",
 			"insert_after": "gdb_use_of_funds",
+		},
+		# Everybody who owns a share of the business BESIDES the applicant,
+		# whose own share is the gdb_applicant_share above. Rows rather than
+		# more text in gdb_co_applicants, so a share is a real Percent column
+		# that can be totalled and refused — see services.application._owners.
+		{
+			"fieldname": "gdb_ownership_lines",
+			"label": "Partners and Shareholders (Declared)",
+			"fieldtype": "Table",
+			"options": "GDB Ownership Line",
+			"insert_after": "gdb_co_applicants",
 		},
 		{
 			"fieldname": "gdb_remarks",

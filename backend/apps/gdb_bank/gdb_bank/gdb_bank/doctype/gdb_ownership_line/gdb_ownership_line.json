@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "creation": "2026-09-29 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "holder_eid",
+  "holder_name",
+  "share_percent"
+ ],
+ "fields": [
+  {
+   "description": "The national e-ID of a partner or shareholder, as the applicant DECLARED it. Naming somebody is not the same as that person agreeing: a co-owner who must consent does so through their own sign-in, never through this form.",
+   "fieldname": "holder_eid",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "e-ID"
+  },
+  {
+   "fieldname": "holder_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Name"
+  },
+  {
+   "description": "Declared share of the business. The applicant's own share is gdb_applicant_share on the application; these rows are everybody else, and the two together may not exceed 100.",
+   "fieldname": "share_percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Share %",
+   "non_negative": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Ownership Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

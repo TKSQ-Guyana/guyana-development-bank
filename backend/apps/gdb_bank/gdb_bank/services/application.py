@@ -29,7 +29,12 @@ from gdb_bank.utils.formatters import (
 	_stage_context,
 )
 from gdb_bank.utils.session import _as_system, _eids, _is_staff, _logger, _session_user
-from gdb_bank.services.cluster import _cluster_for, _clusters_of, _is_shared_with
+from gdb_bank.services.cluster import (
+	_cluster_for,
+	_clusters_of,
+	_is_shared_with,
+	notify_group_submitted,
+)
 from gdb_bank.services.evidence import missing_evidence
 from gdb_bank.services.user import _get_or_create_customer
 
@@ -91,6 +96,11 @@ def _section_values(sections) -> dict:
 		return {}
 
 	values = {}
+	# Partners and shareholders, as rows. Handled outside the SECTION_KEYS loop
+	# because unlike use_of_funds there is no legacy text field to derive the
+	# key from — the ownership table was a table from the start.
+	if "ownership_lines" in sections:
+		values["gdb_ownership_lines"] = _ownership_lines(sections.get("ownership_lines"))
 	for key, (fieldname, fieldtype) in SECTION_KEYS.items():
 		if key not in sections:
 			continue
@@ -100,13 +110,74 @@ def _section_values(sections) -> dict:
 			# amount is then a Currency column Frappe can SUM.
 			values["gdb_use_of_funds_lines"] = _use_of_funds_lines(raw)
 			continue
-		if fieldtype == "Currency":
+		if fieldtype in ("Currency", "Percent"):
 			values[fieldname] = flt(raw)
 		elif fieldtype == "Int":
 			values[fieldname] = cint(raw)
 		else:
 			values[fieldname] = (raw or "").strip() if isinstance(raw, str) else (raw or "")
 	return values
+
+
+def _ownership_lines(raw) -> list[dict]:
+	"""Declared partners and shareholders as child-table rows.
+
+	Shaped exactly like `_use_of_funds_lines`: the form sends a list of
+	{eid, name, share}, as a list or JSON-encoded. A row naming nobody is
+	dropped, because a blank line in a form is not a co-owner.
+
+	Nothing here checks that the e-ID belongs to a real person, and that is
+	deliberate — these are DECLARED owners. Naming somebody is not the same as
+	that person agreeing, and a co-owner who must consent does so through their
+	own sign-in.
+	"""
+	if isinstance(raw, str):
+		text = raw.strip()
+		if not text:
+			return []
+		try:
+			raw = frappe.parse_json(text)
+		except Exception:
+			return []
+	if not isinstance(raw, list):
+		return []
+
+	rows = []
+	for line in raw:
+		if not isinstance(line, dict):
+			continue
+		eid = (line.get("eid") or "").strip()
+		name = (line.get("name") or "").strip()
+		if not eid and not name:
+			continue
+		rows.append(
+			{"holder_eid": eid, "holder_name": name, "share_percent": flt(line.get("share"))}
+		)
+	return rows
+
+
+def _check_shares(values: dict) -> None:
+	"""The applicant's share plus everybody else's may not exceed 100.
+
+	Checked on the SERVER because the form is not the enforcement boundary, and
+	checked on the DRAFT as well as the submission because `_validated` is
+	shared by both — a draft must not be able to hold what a submission would
+	have refused.
+
+	A total UNDER 100 is allowed and deliberately so: an applicant who does not
+	know every shareholder of the company they work in should not be blocked
+	from applying, and an underwriter reading 60% declared knows to ask about
+	the rest. Only a total over 100, which cannot be true of anything, is
+	refused.
+	"""
+	declared = flt(values.get("gdb_applicant_share"))
+	declared += sum(flt(row.get("share_percent")) for row in values.get("gdb_ownership_lines") or [])
+	if declared > 100:
+		frappe.throw(
+			_("The declared ownership shares add up to {0}%. They cannot exceed 100%.").format(
+				flt(declared, 2)
+			)
+		)
 
 
 def _validated(
@@ -193,6 +264,7 @@ def _validated(
 		values.update(_blanked(NEW_ONLY))
 	elif business_stage == "New":
 		values.update(_blanked(EXISTING_ONLY))
+	_check_shares(values)
 	return values
 
 
@@ -284,6 +356,13 @@ def submit_application(user: str, name: str):
 	doc.flags.ignore_permissions = True
 	doc.submit()
 	frappe.db.commit()
+	# A group's application is the group's business. Until now nothing was sent
+	# at submission at all, so an invitee who missed the one invitation
+	# notification was never told again — and since only an ACTIVE member can
+	# see the case, "I invited them and submitted it" and "I have never seen
+	# anything" were both true at once. See notify_group_submitted.
+	if doc.gdb_cluster:
+		notify_group_submitted(user, doc.gdb_cluster, name)
 	_logger().info(
 		f"loan application {name} submitted by {user} for {doc.loan_amount}"
 		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")

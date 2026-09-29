@@ -90,6 +90,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await apiLogout();
     } finally {
       setUser(null);
+      // Every half-finished application this browser was holding, whoever it
+      // belonged to. The wizard keeps a recovery copy on the device for the
+      // window before GDB has the draft, and that copy is somebody's address,
+      // phone and income — it must not outlive their session. A shared or
+      // family device is the ordinary case in this programme, not the edge
+      // one, and nothing else ever cleared these keys.
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('gdb.apply.'))
+          .forEach((k) => localStorage.removeItem(k));
+      } catch {
+        /* private window, blocked storage — never a reason to fail a logout */
+      }
     }
   }, []);
 

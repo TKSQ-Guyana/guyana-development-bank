@@ -210,6 +210,19 @@ def invite_member(eid: str, full_name: str | None = None, cluster: str | None = 
 
 
 @frappe.whitelist()
+def remove_member(eid: str | None = None, member: str | None = None, cluster: str | None = None):
+	"""The head withdraws an invitation, or removes a member who had joined.
+
+	A withdrawn invitation is deleted (nothing had happened); a member who
+	joined is marked Exited and kept, because they are part of the group's
+	history. Refused while that member still owes a signature on a live offer.
+	"""
+	return cluster_service.remove_member(
+		_session_user(), eid=eid, member=member, cluster=cluster
+	)
+
+
+@frappe.whitelist()
 def my_invitations():
 	return cluster_service.my_invitations(_session_user())
 
@@ -396,6 +409,17 @@ def book_loan(application: str):
 			  "applicant to accept it before booking.").format(application)
 		)
 
+	# On a GROUP application, "accepted" is not enough. The offer's status is a
+	# single boolean and one person can set it — an offer carrying no signature
+	# lines is read as an individual one, so the head executes the group's
+	# agreement alone. Re-derived here from the signatures themselves rather
+	# than trusted from the flag.
+	from gdb_bank.offers import group_consent_missing
+
+	unsigned = group_consent_missing(application)
+	if unsigned:
+		frappe.throw(unsigned)
+
 	# Booked on the OFFER's amount and term, not the application's: those two are
 	# the inputs lending is given, and every figure after this — the drawable
 	# ceiling, the schedule, the instalment — is lending's own arithmetic on them.
@@ -478,6 +502,17 @@ def disburse_loan(application: str, amount=None):
 		get_disbursal_amount,
 	)
 
+
+	# Checked AGAIN here, not only at booking. Release is the last point at
+	# which GDB can still decline to move money, and the specification asks for
+	# authorizations to be re-derived at exactly this moment rather than
+	# inherited from a check made earlier against state that has since changed.
+	# A loan booked before this gate existed would otherwise keep drawing down.
+	from gdb_bank.offers import group_consent_missing
+
+	unsigned = group_consent_missing(application)
+	if unsigned:
+		frappe.throw(unsigned)
 
 	# Conditions precedent are not advice. The Letter of Offer says no funds
 	# move until they are met, so release checks the checklist rather than
