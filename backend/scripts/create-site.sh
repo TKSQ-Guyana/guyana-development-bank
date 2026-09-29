@@ -1,0 +1,68 @@
+#!/bin/bash
+# Site bootstrap for gdb-backend — invoked by start-backend.sh under a lock
+# (also runnable on its own, e.g. a Kubernetes Job). Idempotent: creates the
+# site on first run, migrates after.
+#
+# Env: SITE_NAME, DB_HOST, DB_PORT, DB_ROOT_PASSWORD, ADMIN_PASSWORD,
+#      REDIS_CACHE, REDIS_QUEUE (host:port[/db]), GDB_DEMO_PASSWORD (optional)
+set -euo pipefail
+
+SITE="${SITE_NAME:-gdb.localhost}"
+cd /home/frappe/frappe-bench
+
+bench set-config -g db_host "${DB_HOST:-mariadb}"
+bench set-config -gp db_port "${DB_PORT:-3306}"
+# One Redis serves both roles by default: cache on DB /0, queue on DB /1.
+bench set-config -g redis_cache "redis://${REDIS_CACHE:-redis:6379/0}"
+bench set-config -g redis_queue "redis://${REDIS_QUEUE:-redis:6379/1}"
+bench set-config -g redis_socketio "redis://${REDIS_QUEUE:-redis:6379/1}"
+bench set-config -gp socketio_port 9000
+
+# sites/ is a volume: regenerate apps.txt from the apps actually in the image,
+# and make sure gdb_bank's static assets are linked (volumes initialized from
+# an older image won't have the symlink).
+ls -1 apps > sites/apps.txt
+mkdir -p sites/assets
+ln -sfn /home/frappe/frappe-bench/apps/gdb_bank/gdb_bank/public sites/assets/gdb_bank
+
+if [ ! -d "sites/$SITE" ]; then
+  echo "Creating site $SITE ..."
+  bench new-site "$SITE" \
+    --mariadb-user-host-login-scope='%' \
+    --db-root-username root \
+    --db-root-password "${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD}" \
+    --admin-password "${ADMIN_PASSWORD:?set ADMIN_PASSWORD}" \
+    --install-app erpnext \
+    --install-app lending \
+    --install-app gdb_bank \
+    --set-default
+fi
+
+# Always, including immediately after new-site. `bench new-site` fires each
+# app's after_install hook but NOT after_migrate, and gdb_bank does most of its
+# setup in after_migrate: the account-check fields on Bank Account, the bank
+# list a payout destination links to, the loan GL accounts, the product's rate.
+# A site created and never migrated runs without all of it, and the first
+# citizen to reach the payout step gets a 500 from a column that was never
+# created. Idempotent, so it costs a no-op on every later boot.
+echo "Migrating $SITE ..."
+migratebench --site "$SITE" 
+
+# Demo personas, on every boot rather than only at site creation. It is
+# idempotent (each user is created only if absent), and running it only on a
+# fresh site meant a persona added later — the finance officer, say — never
+# appeared on an existing one, so the role split could not be demonstrated
+# without rebuilding the database.
+bench --site "$SITE" execute gdb_bank.install.make_demo_users
+
+# The React portal is a separate origin proxied through nginx; the classic
+# frappe CSRF token is not available to it, so disable CSRF for this API-only
+# deployment (cookies are SameSite; nginx keeps /api same-origin).
+bench --site "$SITE" set-config ignore_csrf 1
+bench --site "$SITE" set-config mute_emails 1
+# Complete the ERPNext first-boot wizard headlessly so the desk (:8080) is
+# usable right away, then seed lending masters (Loan Product etc). Idempotent.
+bench --site "$SITE" execute gdb_bank.install.complete_setup_wizard
+bench --site "$SITE" execute gdb_bank.install.ensure_lending_defaults
+
+echo "Site $SITE ready."
