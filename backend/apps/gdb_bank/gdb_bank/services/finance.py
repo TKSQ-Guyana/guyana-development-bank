@@ -4,7 +4,7 @@
 refused here and go through collections.apply_receipt instead. `repayment_plan`
 decides how a payment of a given size should be posted and is shared with the
 bank collections file, so a payment is decided the same way however it reaches
-GDB; collections.py imports it from gdb_bank.api, which re-exports it from here.
+GDB; collections.py imports it from here.
 
 Nothing in this module computes money: the due figures, the ceilings and the
 schedule are all lending's own answer.
@@ -40,10 +40,12 @@ def repayment_plan(loan_name: str, amount) -> dict:
 	amount = flt(amount)
 	amounts = calculate_amounts(loan_name, nowdate(), "Normal Repayment") or {}
 	due_now = flt(amounts.get("payable_amount"))
-	outstanding = (
-		flt(amounts.get("pending_principal_amount"))
-		+ flt(amounts.get("interest_amount"))
-		+ flt(amounts.get("penalty_amount"))
+	# What it takes to close the loan today, as lending itself states it: the
+	# Loan Closure branch of calculate_amounts folds pending principal, interest
+	# and penalty (and charges) into payable_amount. Summing those parts here
+	# would be a second copy of lending's rule.
+	outstanding = flt(
+		(calculate_amounts(loan_name, nowdate(), "Loan Closure") or {}).get("payable_amount")
 	)
 
 	error = None

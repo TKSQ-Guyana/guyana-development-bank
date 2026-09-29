@@ -52,7 +52,6 @@ from gdb_bank.services import (
 )
 # Re-exported for siblings; _get_or_create_customer is also used by save_bank_details.
 from gdb_bank.services.application import _readable_application  # noqa: F401
-from gdb_bank.services.finance import repayment_plan  # noqa: F401
 from gdb_bank.services.user import _get_or_create_customer
 
 @frappe.whitelist()
@@ -295,12 +294,18 @@ def attach_facilitator(cluster: str, eid: str | None = None, requested: int | No
 
 
 @frappe.whitelist()
-def loan_account(application: str):
+def loan_account(application: str, from_date: str | None = None, to_date: str | None = None):
 	"""Booked loan, repayment schedule and what is left to pay.
 
 	Returns loan: None while the application is still with the underwriter.
+	With from_date and to_date it also answers `statement`: lending's Loan
+	Statement of Account for this loan cut to that period (the balance before
+	it, every disbursement and payment in it, the balance after it), and the
+	schedule rows falling due in it.
 	"""
-	return application_service.loan_account(_session_user(), application)
+	return application_service.loan_account(
+		_session_user(), application, from_date=from_date, to_date=to_date
+	)
 
 
 @frappe.whitelist()
@@ -333,6 +338,7 @@ BOOKED_LOAN_FIELDS = [
 	"applicant",
 	"applicant_type",
 	"loan_amount",
+	"repayment_periods",
 	"disbursed_amount",
 ]
 
@@ -390,13 +396,17 @@ def book_loan(application: str):
 			  "applicant to accept it before booking.").format(application)
 		)
 
+	# Booked on the OFFER's amount and term, not the application's: those two are
+	# the inputs lending is given, and every figure after this — the drawable
+	# ceiling, the schedule, the instalment — is lending's own arithmetic on them.
+	#
 	# lending guards its own mapper with has_permission("Loan", "create"), a
 	# permission no portal role holds. Who may ask has been settled above, so
 	# the write runs as the system — the same shape as make_repayment.
-	from lending.loan_management.doctype.loan_application.loan_application import create_loan
+	from gdb_bank.services.disbursement import create_loan_on_offer
 
 	with _as_system():
-		loan = create_loan(application, submit=1)
+		loan = create_loan_on_offer(application, agreement)
 		frappe.db.commit()
 
 	_logger().info(f"loan {loan.name} booked from {application} by {user}")
@@ -452,6 +462,17 @@ def disburse_loan(application: str, amount=None):
 		frappe.throw(
 			_("Loan {0} is not awaiting disbursement (status {1}).").format(loan.name, loan.status)
 		)
+
+	# lending's drawable ceiling is only as good as the amount it was booked at.
+	# A Loan booked on the requested amount rather than the executed offer would
+	# let lending release more than the borrower agreed to, so it is refused
+	# until it is rebooked. An equality check, not a calculation.
+	from gdb_bank.offers import accepted_offer
+	from gdb_bank.services.disbursement import offer_mismatch
+
+	mismatch = offer_mismatch(loan, accepted_offer(application))
+	if mismatch:
+		frappe.throw(mismatch)
 
 	from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
 		get_disbursal_amount,

@@ -227,7 +227,9 @@ def _agreement_text(offer) -> str:
 		f"   Interest rate : {flt(offer.rate_of_interest)}% per annum.",
 		f"   Term          : {cint(offer.term_months)} months.",
 		f"   Instalment    : {money(offer.monthly_instalment)} per month (indicative).",
-		f"   Total repayable: {money(offer.total_repayable)}.",
+		f"   Total repayable: {money(offer.total_repayable)}."
+		if offer.total_repayable
+		else "   Total repayable: as the repayment schedule issued at disbursement states.",
 		"",
 		"2. REPAYMENT",
 		"   You agree to repay this loan by monthly instalments. The binding",

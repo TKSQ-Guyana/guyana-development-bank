@@ -146,7 +146,33 @@ export function LoanDetail() {
             <CardLabel>Case facts</CardLabel>
             <div className="mt-2">
               <Row label="Amount requested" value={formatGyd(loan.loan_amount)} />
-              <Row label="Term" value={`${loan.term_months} months`} />
+              <Row label="Term requested" value={`${loan.term_months} months`} />
+              {loan.approved_amount != null && (
+                <Row
+                  label="Approved (offer)"
+                  value={`${formatGyd(loan.approved_amount)} · ${loan.approved_term} months`}
+                />
+              )}
+              {loan.sanctioned_amount != null && (
+                <Row
+                  label="Booked in lending"
+                  value={
+                    loan.booked_on_offer === false ? (
+                      <span className="text-rose-700">
+                        {formatGyd(loan.sanctioned_amount)} — not the offer
+                      </span>
+                    ) : (
+                      formatGyd(loan.sanctioned_amount)
+                    )
+                  }
+                />
+              )}
+              {loan.disbursed_amount > 0 && (
+                <Row label="Disbursed" value={formatGyd(loan.disbursed_amount)} />
+              )}
+              {loan.monthly_repayment != null && (
+                <Row label="Monthly repayment" value={formatGyd(loan.monthly_repayment)} />
+              )}
               <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
               <Row label="Business" value={loan.business_stage || '—'} />
               <Row label="Phone" value={loan.phone || '—'} />
@@ -227,7 +253,12 @@ export function LoanDetail() {
           />
 
           <Panel active={tab === 'application'}>
-            <ApplicationSections sections={loan.sections} businessStage={loan.business_stage} />
+            <ApplicationSections
+              sections={loan.sections}
+              businessStage={loan.business_stage}
+              useOfFunds={loan.use_of_funds ?? []}
+              useOfFundsTotal={loan.use_of_funds_total}
+            />
           </Panel>
 
           <Panel active={tab === 'evidence'}>

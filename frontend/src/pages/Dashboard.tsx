@@ -138,10 +138,10 @@ export function Dashboard() {
               <div>
                 <CardLabel>{active.name}</CardLabel>
                 <p className="mt-1 text-2xl font-bold text-slate-900">
-                  {formatGyd(active.loan_amount)}
+                  {formatGyd(active.facility_amount)}
                 </p>
                 <p className="truncate text-sm text-slate-500">
-                  {active.term_months} months ·{' '}
+                  {active.facility_term} months ·{' '}
                   {active.cluster || active.business_name || 'Loan application'}
                 </p>
               </div>

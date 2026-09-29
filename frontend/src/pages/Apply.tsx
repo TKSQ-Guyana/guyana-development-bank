@@ -1738,10 +1738,18 @@ export function Apply() {
                         ))}
                       </tbody>
                       <tfoot>
+                        {/* The total is Frappe's SUM of the lines as saved on the
+                            draft — never added up here. Before the first save
+                            there is nothing for Frappe to total yet. */}
                         <tr className="border-t border-slate-200 bg-slate-50/60 font-semibold text-slate-800">
-                          <td className="px-3 py-2">Total</td>
+                          <td className="px-3 py-2">
+                            Total{' '}
+                            <span className="font-normal text-slate-400">
+                              {draft?.use_of_funds_total != null ? '(as saved)' : '(worked out when you save)'}
+                            </span>
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums">
-                            {formatGyd(useOfFunds.reduce((sum, r) => sum + r.amount, 0))}
+                            {draft?.use_of_funds_total != null ? formatGyd(draft.use_of_funds_total) : '—'}
                           </td>
                           <td />
                         </tr>

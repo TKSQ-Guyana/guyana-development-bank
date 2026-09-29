@@ -5,7 +5,7 @@ import { PaymentFile } from '../components/PaymentFile';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardLabel } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
-import type { LoanApplication, LoanRow } from '../types';
+import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
 /** The disbursement officer's worklist.
@@ -16,22 +16,18 @@ import { formatGyd, formatDate } from '../utils';
  *    Awaiting booking  — approved, but no Loan exists yet. Needs "Book loan".
  *    Awaiting release  — a Loan exists with an undrawn balance. Needs a draw.
  *
- *  Both halves read through existing surfaces: the approved applications come
- *  from gdb_bank.api.all_loans, the loans straight off Frappe's REST endpoint
- *  for the Loan doctype. No new backend endpoint — the framework scopes the
- *  rows (see permission_query_conditions in gdb_bank/permissions.py).
- *
- *  The undrawn figure here is sanctioned minus disbursed, which is the right
- *  number to triage by but NOT the authority on what may be released: lending
- *  computes that, and the booking panel on the loan page reads it as
- *  `disbursable`. Releasing money stays on that page for exactly that reason.
+ *  Both halves are one read of gdb_bank.api.all_loans, and every figure on
+ *  them is served, never worked out here: the offer's approved amount, the
+ *  amount lending booked, what it has disbursed, and — as `drawable` — what
+ *  lending's get_disbursal_amount says may still be released, the same figure
+ *  the release panel offers and Loan Disbursement validates against.
  */
 
 const AWAITING_RELEASE = ['Sanctioned', 'Partially Disbursed'];
 
 interface Queue {
   booking: LoanApplication[];
-  release: LoanRow[];
+  release: LoanApplication[];
 }
 
 export function Disbursements() {
@@ -48,41 +44,17 @@ export function Disbursements() {
 
   const load = useCallback(() => {
     setError(null);
-    Promise.all([
-      call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Approved' }),
-      getList<LoanRow>('Loan', {
-        fields: [
-          'name',
-          'applicant_name',
-          'loan_application',
-          'loan_amount',
-          'disbursed_amount',
-          'status',
-          'posting_date',
-        ],
-        orderBy: 'creation desc',
-      }),
-    ])
-      .then(([approved, loans]) => {
-        // An application is awaiting booking only while nothing has been
-        // booked against it, so the set of already-booked applications is the
-        // filter — taken from the loans themselves rather than guessed at.
-        const booked = new Set(loans.map((l) => l.loan_application).filter(Boolean));
+    call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Approved' })
+      .then((approved) =>
         setQueue({
-          booking: approved.filter((a) => !booked.has(a.name)),
-          release: loans.filter((l) => AWAITING_RELEASE.includes(l.status)),
-        });
-      })
+          booking: approved.filter((a) => !a.loan),
+          release: approved.filter((a) => a.loan_status && AWAITING_RELEASE.includes(a.loan_status)),
+        }),
+      )
       .catch((err: Error) => setError(err.message));
   }, []);
 
   useEffect(load, [load]);
-
-  const pending = queue ? queue.booking.length + queue.release.length : 0;
-  const undrawn = queue
-    ? queue.release.reduce((sum, l) => sum + (l.loan_amount - l.disbursed_amount), 0) +
-      queue.booking.reduce((sum, a) => sum + a.loan_amount, 0)
-    : 0;
 
   return (
     <div>
@@ -115,39 +87,46 @@ export function Disbursements() {
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
             <Card className="p-4">
-              <CardLabel>Awaiting action</CardLabel>
-              <p className="mt-1 text-2xl font-bold text-slate-800">{pending}</p>
+              <CardLabel>Awaiting release</CardLabel>
+              <p className="mt-1 text-2xl font-bold text-slate-800">{queue.release.length}</p>
             </Card>
             <Card className="p-4">
-              <CardLabel>Undrawn</CardLabel>
-              <p className="mt-1 text-2xl font-bold text-slate-800">{formatGyd(undrawn)}</p>
+              <CardLabel>Awaiting booking</CardLabel>
+              <p className="mt-1 text-2xl font-bold text-slate-800">{queue.booking.length}</p>
             </Card>
           </div>
 
           <Section
             title="Awaiting release"
             empty="No loan has an undrawn balance."
-            caption="A loan exists. Open it to release funds."
+            caption="A loan exists. Open it to release funds. Undrawn is what lending says may still be released."
+            amountHeads={['Approved', 'Sanctioned', 'Disbursed', 'Undrawn']}
           >
-            {queue.release.map((l) => (
-              <tr key={l.name} className="hover:bg-slate-50">
+            {queue.release.map((a) => (
+              <tr key={a.name} className="hover:bg-slate-50">
                 <td className="px-4 py-3">
-                  <Link
-                    to={`/loans/${l.loan_application ?? ''}`}
-                    className="font-medium text-brand hover:underline"
-                  >
-                    {l.loan_application ?? l.name}
+                  <Link to={`/loans/${a.name}`} className="font-medium text-brand hover:underline">
+                    {a.name}
                   </Link>
-                  <span className="ml-2 font-mono text-xs text-slate-400">{l.name}</span>
+                  <span className="ml-2 font-mono text-xs text-slate-400">{a.loan}</span>
                 </td>
-                <td className="px-4 py-3">{l.applicant_name ?? '—'}</td>
-                <td className="px-4 py-3">{formatGyd(l.loan_amount)}</td>
-                <td className="px-4 py-3">{formatGyd(l.disbursed_amount)}</td>
-                <td className="px-4 py-3 font-semibold text-slate-800">
-                  {formatGyd(l.loan_amount - l.disbursed_amount)}
+                <td className="px-4 py-3">{a.applicant_name}</td>
+                <td className="px-4 py-3">
+                  {a.approved_amount != null ? formatGyd(a.approved_amount) : '—'}
                 </td>
                 <td className="px-4 py-3">
-                  <Badge tone="warning">{l.status}</Badge>
+                  {a.sanctioned_amount != null ? formatGyd(a.sanctioned_amount) : '—'}
+                </td>
+                <td className="px-4 py-3">{formatGyd(a.disbursed_amount)}</td>
+                <td className="px-4 py-3 font-semibold text-slate-800">
+                  {a.drawable != null ? formatGyd(a.drawable) : '—'}
+                </td>
+                <td className="px-4 py-3">
+                  {a.booked_on_offer === false ? (
+                    <Badge tone="danger">Rebook — not on offer terms</Badge>
+                  ) : (
+                    <Badge tone="warning">{a.loan_status}</Badge>
+                  )}
                 </td>
               </tr>
             ))}
@@ -156,7 +135,8 @@ export function Disbursements() {
           <Section
             title="Awaiting booking"
             empty="Every approved application has been booked."
-            caption="Approved, but no loan exists yet."
+            caption="Approved, but no loan exists yet. Booking puts the offer's amount and term into lending."
+            amountHeads={['Requested', 'Approved', 'Term', 'Approved on']}
           >
             {queue.booking.map((a) => (
               <tr key={a.name} className="hover:bg-slate-50">
@@ -167,8 +147,10 @@ export function Disbursements() {
                 </td>
                 <td className="px-4 py-3">{a.applicant_name}</td>
                 <td className="px-4 py-3">{formatGyd(a.loan_amount)}</td>
-                <td className="px-4 py-3 text-slate-400">—</td>
-                <td className="px-4 py-3 font-semibold text-slate-800">{formatGyd(a.loan_amount)}</td>
+                <td className="px-4 py-3 font-semibold text-slate-800">
+                  {a.approved_amount != null ? formatGyd(a.approved_amount) : 'No live offer'}
+                </td>
+                <td className="px-4 py-3">{a.facility_term} months</td>
                 <td className="px-4 py-3 text-slate-500">{formatDate(a.reviewed_on ?? a.creation)}</td>
               </tr>
             ))}
@@ -183,11 +165,14 @@ function Section({
   title,
   caption,
   empty,
+  amountHeads,
   children,
 }: {
   title: string;
   caption: string;
   empty: string;
+  /** The four headings between Applicant and the last column. */
+  amountHeads: [string, string, string, string];
   children: React.ReactNode[];
 }) {
   return (
@@ -205,9 +190,11 @@ function Section({
               <tr>
                 <th className="px-4 py-3">Application</th>
                 <th className="px-4 py-3">Applicant</th>
-                <th className="px-4 py-3">Sanctioned</th>
-                <th className="px-4 py-3">Disbursed</th>
-                <th className="px-4 py-3">Undrawn</th>
+                {amountHeads.map((h) => (
+                  <th key={h} className="px-4 py-3">
+                    {h}
+                  </th>
+                ))}
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>

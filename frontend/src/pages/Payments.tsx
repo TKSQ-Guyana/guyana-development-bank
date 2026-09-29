@@ -125,7 +125,7 @@ export function Payments() {
                   }`}
                 >
                   <span className="block text-xs font-medium text-slate-400">{f.name}</span>
-                  <span className="block font-bold text-slate-800">{formatGyd(f.loan_amount)}</span>
+                  <span className="block font-bold text-slate-800">{formatGyd(f.facility_amount)}</span>
                   <span className="block truncate text-xs text-slate-500">{f.purpose}</span>
                   {f.cluster && (
                     <span className="mt-1.5 inline-block rounded-full bg-gdb-gold/40 px-2 py-0.5 text-[11px] font-semibold text-brand-dark">

@@ -16,11 +16,14 @@ const yearAgo = () => {
 
 /** Statement of account for a period.
  *
- *  Every figure is the loan ledger's: the schedule lending generated and the
- *  dues it reports. Two things are deliberately kept apart on the page —
- *  instalments SCHEDULED in the period, and what has actually been PAID to
- *  date — because conflating a plan with a receipt is how a statement stops
- *  being a statement. */
+ *  What happened is lending's Loan Statement of Account, the report the ERPNext
+ *  desk shows for the same loan: the balance before the period, every
+ *  disbursement and payment in it with lending's running balance, and the
+ *  balance after it. The server cuts the report to the period (loan_account
+ *  with from_date/to_date), so nothing is added up here. What was planned —
+ *  the instalments the schedule has falling due in the period — is kept in a
+ *  table of its own, because conflating a plan with a receipt is how a
+ *  statement stops being a statement. */
 export function Statements() {
   const { user } = useAuth();
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
@@ -43,31 +46,16 @@ export function Statements() {
   const active = selected ?? facilities[0]?.name ?? null;
 
   useEffect(() => {
-    if (!active) {
+    if (!active || !from || !to) {
       setAccount(null);
       return;
     }
-    call<LoanAccount>('gdb_bank.api.loan_account', { application: active })
+    call<LoanAccount>('gdb_bank.api.loan_account', { application: active, from_date: from, to_date: to })
       .then(setAccount)
       .catch((err: Error) => setError(err.message));
-  }, [active]);
+  }, [active, from, to]);
 
-  const period = useMemo(() => {
-    const schedule = account?.schedule ?? [];
-    const inPeriod = schedule.filter((r) => r.payment_date >= from && r.payment_date <= to);
-    const firstIndex = schedule.findIndex((r) => r.payment_date >= from);
-    // The balance carried into the period is the one left by the instalment
-    // before it — or the whole facility, if the period starts before the first.
-    const opening =
-      firstIndex > 0
-        ? schedule[firstIndex - 1].balance_loan_amount
-        : (account?.loan?.disbursed_amount ?? 0);
-    const closing = inPeriod.length
-      ? inPeriod[inPeriod.length - 1].balance_loan_amount
-      : opening;
-    const due = inPeriod.reduce((sum, r) => sum + r.total_payment, 0);
-    return { rows: inPeriod, opening, closing, due };
-  }, [account, from, to]);
+  const period = account?.statement;
 
   if (error) {
     return <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>;
@@ -124,7 +112,7 @@ export function Statements() {
                 >
                   {facilities.map((f) => (
                     <option key={f.name} value={f.name}>
-                      {f.name} — {formatGyd(f.loan_amount)}
+                      {f.name} — {formatGyd(f.facility_amount)}
                     </option>
                   ))}
                 </select>
@@ -152,7 +140,7 @@ export function Statements() {
             </div>
           </Card>
 
-          {account?.loan && (
+          {account?.loan && period && (
             <Card className="p-8 lg:p-10">
               {/* Formal document treatment: this is the instrument a borrower
                   takes to another institution, not a dashboard panel. */}
@@ -187,7 +175,11 @@ export function Statements() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Interest rate</dt>
-                  <dd className="font-medium text-slate-800">0% — interest free</dd>
+                  <dd className="font-medium text-slate-800">
+                    {account.loan.rate_of_interest === 0
+                      ? '0% — interest free'
+                      : `${account.loan.rate_of_interest}% per annum`}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-500">Term</dt>
@@ -207,7 +199,7 @@ export function Statements() {
                     Opening balance
                   </p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
-                    {formatGyd(period.opening)}
+                    {formatGyd(period.opening_balance)}
                   </p>
                 </div>
                 <div>
@@ -215,7 +207,7 @@ export function Statements() {
                     Instalments scheduled
                   </p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
-                    {formatGyd(period.due)}
+                    {formatGyd(period.instalments_due)}
                   </p>
                 </div>
                 <div>
@@ -223,9 +215,53 @@ export function Statements() {
                     Closing balance
                   </p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
-                    {formatGyd(period.closing)}
+                    {formatGyd(period.closing_balance)}
                   </p>
                 </div>
+              </div>
+
+              <div className="border-b border-slate-200 py-5">
+                <p id="statement-transactions" className="mb-3 text-sm font-bold text-slate-800">
+                  Transactions in this period
+                </p>
+                {period.transactions.length === 0 ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                    Nothing was released or paid between {formatDate(from)} and {formatDate(to)}.
+                  </p>
+                ) : (
+                  <table aria-labelledby="statement-transactions" className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                        <th className="py-2 font-semibold">Date</th>
+                        <th className="py-2 font-semibold">Transaction</th>
+                        <th className="py-2 font-semibold">Reference</th>
+                        <th className="py-2 text-right font-semibold">Debit</th>
+                        <th className="py-2 text-right font-semibold">Credit</th>
+                        <th className="py-2 text-right font-semibold">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {period.transactions.map((t) => (
+                        <tr key={t.transaction_name} className="border-b border-slate-100 last:border-0">
+                          <td className="py-2.5 text-slate-600">{formatDate(t.posting_date)}</td>
+                          <td className="py-2.5 text-slate-800">{t.transaction_type}</td>
+                          <td className="py-2.5 font-mono text-xs text-slate-500">
+                            {t.transaction_name}
+                          </td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-600">
+                            {formatGyd(t.debit)}
+                          </td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-600">
+                            {formatGyd(t.credit)}
+                          </td>
+                          <td className="py-2.5 text-right font-semibold tabular-nums text-slate-900">
+                            {formatGyd(t.balance)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               <div className="py-5">
@@ -309,9 +345,9 @@ export function Statements() {
               </div>
 
               <p className="mt-6 border-t border-slate-100 pt-4 text-xs leading-relaxed text-slate-400">
-                Balances are derived from the loan ledger at the time this statement was generated.
-                Instalments listed above are amounts falling due; amounts received are shown in the
-                position as at today.
+                Transactions and balances are the Bank's loan ledger for this facility at the time
+                this statement was generated. Instalments are what the repayment schedule has falling
+                due in the period; they are a plan, not payments received.
               </p>
             </Card>
           )}

@@ -21,7 +21,7 @@ for that shape, but no loan equivalent. That gap is what this module fills:
     suggest_loans          ranked candidates for one receipt
     apply_receipt          create the Loan Repayment, then allocate it
 
-Posting goes through `api.repayment_plan`, the same helper the portal payment
+Posting goes through `services.finance.repayment_plan`, the same helper the portal payment
 box uses, so a payment is decided identically however it reaches GDB.
 
 Endpoints: POST /api/method/gdb_bank.collections.<name>
@@ -29,9 +29,10 @@ Endpoints: POST /api/method/gdb_bank.collections.<name>
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt, getdate, nowdate
 
 from gdb_bank.services.finance import repayment_plan
+from gdb_bank.utils.formatters import _schedule_instalments
 from gdb_bank.utils.session import _as_system, _logger, _require_finance
 
 OPEN_LOAN_STATUSES = ("Disbursed", "Partially Disbursed", "Active")
@@ -76,9 +77,17 @@ def unreconciled_receipts(bank_account: str | None = None, limit: int = 50):
 		order_by="date asc",
 		limit=limit,
 	)
+	# The total is Frappe's SUM over EVERY unapplied receipt, not an addition of
+	# the page shown above it: past `limit` rows that addition silently
+	# under-reported the cash still waiting to be applied.
+	total = frappe.get_all(
+		"Bank Transaction",
+		filters=filters,
+		fields=[{"SUM": "unallocated_amount", "as": "total_unapplied"}],
+	)
 	return {
 		"receipts": rows,
-		"total_unapplied": sum(flt(r.unallocated_amount) for r in rows),
+		"total_unapplied": flt(total[0].total_unapplied) if total else 0.0,
 	}
 
 
@@ -106,21 +115,23 @@ def suggest_loans(bank_transaction: str, limit: int = 8):
 	loans = frappe.get_all(
 		"Loan",
 		filters={"docstatus": 1, "status": ["in", OPEN_LOAN_STATUSES]},
-		fields=[
-			"name",
-			"loan_application",
-			"applicant",
-			"applicant_name",
-			"loan_amount",
-			"total_principal_paid",
-			"monthly_repayment_amount",
-		],
+		fields=["name", "loan_application", "applicant", "applicant_name"],
 		limit_page_length=0,
 	)
+	# Both figures a receipt is matched against are lending's own: the
+	# instalment on the loan's current repayment schedule (the Loan's
+	# monthly_repayment_amount is the figure at booking and goes stale once a
+	# smaller amount is released), and what it takes to close the loan today.
+	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
+
+	instalments = _schedule_instalments([loan.name for loan in loans])
 
 	scored = []
 	for loan in loans:
-		outstanding = flt(loan.loan_amount) - flt(loan.total_principal_paid)
+		outstanding = flt(
+			(calculate_amounts(loan.name, nowdate(), "Loan Closure") or {}).get("payable_amount")
+		)
+		instalment = flt(instalments.get(loan.name))
 		if outstanding <= 0:
 			continue
 
@@ -132,7 +143,7 @@ def suggest_loans(bank_transaction: str, limit: int = 8):
 		):
 			rank += 2
 			why.append("reference names this loan")
-		if abs(flt(loan.monthly_repayment_amount) - amount) < 1:
+		if instalment and abs(instalment - amount) < 1:
 			rank += 1
 			why.append("amount matches the instalment")
 		if abs(outstanding - amount) < 1:
@@ -159,7 +170,7 @@ def suggest_loans(bank_transaction: str, limit: int = 8):
 					"application": loan.loan_application,
 					"borrower": loan.applicant_name,
 					"outstanding": outstanding,
-					"instalment": flt(loan.monthly_repayment_amount),
+					"instalment": instalment,
 					"rank": rank,
 					"why": why,
 				}

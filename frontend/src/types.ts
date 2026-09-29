@@ -14,9 +14,10 @@ export type LoanStage = 'Draft' | 'Review' | 'Approved' | 'Signing' | 'Disbursed
  *  than sitting at a step on it. */
 export const LOAN_STAGES: LoanStage[] = ['Draft', 'Review', 'Approved', 'Signing', 'Disbursed'];
 
-/** One line of the funding step's use-of-funds table. Stored JSON-encoded in
- *  the same `use_of_funds` section field a free-text draft used to hold, so
- *  an older application's plain string still round-trips as text. */
+/** One line of the funding step's use-of-funds table. Sent JSON-encoded as
+ *  `sections.use_of_funds`; the server stores each line as a row of the
+ *  GDB Use Of Funds Line child table and answers them back as `use_of_funds`,
+ *  with Frappe's SUM of them as `use_of_funds_total`. */
 export interface UseOfFundsRow {
   item: string;
   amount: number;
@@ -55,14 +56,39 @@ export interface LoanApplication {
   conditions_outstanding: number;
   /** The booked lending Loan, once the case has one. */
   loan: string | null;
+  /** lending's own status on that Loan (Sanctioned, Partially Disbursed, …). */
+  loan_status: string | null;
   disbursed_amount: number;
+  /** `loan_amount` / `term_months` are what was REQUESTED. These followed:
+   *  approved_* — the live Letter of Offer, the underwriter's decision;
+   *  sanctioned_amount — the booked Loan, as lending holds it;
+   *  facility_* — whichever of those stands now. All from the server. */
+  approved_amount: number | null;
+  approved_term: number | null;
+  sanctioned_amount: number | null;
+  facility_amount: number;
+  facility_term: number;
+  /** False only for a Loan booked on the requested amount instead of the
+   *  executed offer — release is refused until it is rebooked. */
+  booked_on_offer: boolean | null;
+  /** What lending says is still drawable, for a loan awaiting release. Present
+   *  only on all_loans rows. */
+  drawable?: number | null;
   rate_of_interest: number | null;
+  /** The instalment as lending states it at this stage of the case: the
+   *  repayment schedule once money has moved, else the booked Loan's, else the
+   *  offer's, else the application's indicative figure. Never computed here. */
   monthly_repayment: number | null;
   /** Sections B-H of the application — the business narrative, keyed without
    *  the gdb_ prefix the doctype uses. Whitelisted server-side against
    *  install.APPLICATION_SECTIONS, so an unknown key is dropped, never
    *  written. */
   sections: Record<string, string | number | null>;
+  /** Section C's use-of-funds lines, as the child-table rows Frappe holds. */
+  use_of_funds: UseOfFundsRow[];
+  /** Frappe's SUM of those lines; null when there are none. Never add the
+   *  lines up in the client. */
+  use_of_funds_total: number | null;
   /** Expected document types not yet on file, for a queue row. Batched
    *  server-side (see api._evidence_missing_map) — present only from
    *  all_loans; the case page reads the live shelf via DocumentShelf instead. */
@@ -216,6 +242,8 @@ export interface ClusterCase {
   private: boolean;
   loan_amount?: number;
   term_months?: number;
+  facility_amount?: number;
+  facility_term?: number;
   purpose?: string;
   monthly_repayment?: number;
 }
@@ -336,19 +364,6 @@ export interface BookedLoan {
   repayment_periods: number;
 }
 
-/** A Loan row as it comes off Frappe's generic REST surface, for the
- *  disbursement queue. Deliberately a different shape from BookedLoan: this is
- *  the raw doctype, not the portal contract. */
-export interface LoanRow {
-  name: string;
-  applicant_name: string | null;
-  loan_application: string | null;
-  loan_amount: number;
-  disbursed_amount: number;
-  status: string;
-  posting_date: string | null;
-}
-
 /** One payment received against a facility. On a cluster's loan several
  *  members pay into the same account, so the payer is part of the record. */
 export interface LoanPayment {
@@ -375,6 +390,44 @@ export interface LoanAccount {
   /** What lending says is still drawable. Server-side only for underwriters;
    *  null for everyone else. Never derive this on the client. */
   disbursable?: number | null;
+  /** The instalment lending bills: the current repayment schedule's, else the
+   *  booked Loan's. `loan.monthly_repayment_amount` is only the figure at
+   *  booking and goes stale once a smaller amount is released. */
+  instalment?: number | null;
+  /** The executed offer's terms, and whether lending was booked on them. */
+  approved_amount?: number | null;
+  approved_term?: number | null;
+  booked_on_offer?: boolean | null;
+  /** Present when loan_account was asked for a period (from_date/to_date). */
+  statement?: LoanStatement | null;
+}
+
+/** One line of lending's Loan Statement of Account, exactly as the report
+ *  gives it: a disbursement or a payment, and lending's running balance after
+ *  it. */
+export interface StatementLine {
+  posting_date: string;
+  transaction_type: string;
+  transaction_doctype: string;
+  transaction_name: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  remarks: string | null;
+}
+
+/** A statement period, every figure lending's. What happened is its Loan
+ *  Statement of Account cut to the period: the balance before it, every line
+ *  in it, the balance after it. What was planned is kept apart: the schedule
+ *  rows falling due in the period and their sum. */
+export interface LoanStatement {
+  from_date: string;
+  to_date: string;
+  transactions: StatementLine[];
+  opening_balance: number;
+  closing_balance: number;
+  rows: ScheduleRow[];
+  instalments_due: number;
 }
 
 export interface Whoami {
@@ -476,8 +529,11 @@ export interface LoanOffer {
   offered_amount: number;
   term_months: number;
   rate_of_interest: number;
+  /** lending's get_monthly_repayment_amount on the offered terms. */
   monthly_instalment: number;
-  total_repayable: number;
+  /** The principal on an interest-free offer; null with a rate, where the
+   *  total is what lending's schedule accrues once disbursed. */
+  total_repayable: number | null;
   first_repayment_date: string | null;
   conditions: string[];
   agreement_text: string | null;

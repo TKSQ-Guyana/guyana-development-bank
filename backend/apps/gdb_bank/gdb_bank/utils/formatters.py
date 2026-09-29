@@ -63,12 +63,28 @@ def _stage_context(names: list[str]) -> dict:
 	for offer in frappe.get_all(
 		"GDB Loan Offer",
 		filters={"application": ["in", wanted], "docstatus": ["<", 2]},
-		fields=["application", "status", "name", "valid_until"],
+		fields=[
+			"application",
+			"status",
+			"name",
+			"valid_until",
+			"offered_amount",
+			"term_months",
+			"monthly_instalment",
+		],
 		order_by="creation asc",
 	):
-		ctx[offer.application]["offer_status"] = offer.status
-		ctx[offer.application]["offer"] = offer.name
-		ctx[offer.application]["offer_valid_until"] = offer.valid_until
+		live = offer.status in ("Issued", "Accepted")
+		ctx[offer.application].update(
+			offer_status=offer.status,
+			offer=offer.name,
+			offer_valid_until=offer.valid_until,
+			# The underwriter's decision on amount and term. Only a live offer
+			# carries one: a declined or lapsed offer approved nothing.
+			approved_amount=flt(offer.offered_amount) if live else None,
+			approved_term=cint(offer.term_months) if live else None,
+			offer_instalment=flt(offer.monthly_instalment) if live else None,
+		)
 
 	# Counted in Python rather than with a SQL aggregate: Frappe refuses a
 	# function written as a string in `fields`, and the row count here is one
@@ -81,15 +97,81 @@ def _stage_context(names: list[str]) -> dict:
 		entry = ctx[cond.application]
 		entry["conditions_outstanding"] = cint(entry.get("conditions_outstanding")) + 1
 
-	for loan in frappe.get_all(
+	loans = frappe.get_all(
 		"Loan",
 		filters={"loan_application": ["in", wanted], "docstatus": ["<", 2]},
-		fields=["loan_application", "name", "status", "disbursed_amount"],
-	):
+		fields=[
+			"loan_application",
+			"name",
+			"status",
+			"loan_amount",
+			"repayment_periods",
+			"disbursed_amount",
+			"monthly_repayment_amount",
+		],
+	)
+	instalments = _schedule_instalments([loan.name for loan in loans])
+	for loan in loans:
 		ctx[loan.loan_application].update(
-			loan=loan.name, loan_status=loan.status, disbursed_amount=flt(loan.disbursed_amount)
+			loan=loan.name,
+			loan_status=loan.status,
+			sanctioned_amount=flt(loan.loan_amount),
+			sanctioned_term=cint(loan.repayment_periods),
+			disbursed_amount=flt(loan.disbursed_amount),
+			loan_instalment=flt(loan.monthly_repayment_amount),
+			schedule_instalment=instalments.get(loan.name),
 		)
+
+	# Section C's use-of-funds lines, and what they come to — the total is
+	# Frappe's own SUM, grouped per application in one query for the batch,
+	# never an addition done here or in the client.
+	lines = {
+		"parent": ["in", wanted],
+		"parenttype": "Loan Application",
+		"parentfield": USE_OF_FUNDS_FIELD,
+	}
+	for line in frappe.get_all(
+		USE_OF_FUNDS_LINE, filters=lines, fields=["parent", "item", "amount"], order_by="idx asc"
+	):
+		ctx[line.parent].setdefault("use_of_funds", []).append(
+			{"item": line.item, "amount": flt(line.amount)}
+		)
+	for total in frappe.get_all(
+		USE_OF_FUNDS_LINE,
+		filters=lines,
+		fields=["parent", {"SUM": "amount", "as": "total"}],
+		group_by="parent",
+	):
+		ctx[total.parent]["use_of_funds_total"] = flt(total.total)
 	return ctx
+
+
+USE_OF_FUNDS_LINE = "GDB Use Of Funds Line"
+USE_OF_FUNDS_FIELD = "gdb_use_of_funds_lines"
+
+
+def _schedule_instalments(loans: list[str]) -> dict:
+	"""{loan: instalment} from each loan's current lending repayment schedule.
+
+	The schedule is what lending actually bills: a disbursement generates it on
+	the amount released, and lending regenerates it on a further tranche or an
+	advance payment. The Loan's own monthly_repayment_amount is only the figure
+	at booking and is never updated after that, so it is not the instalment
+	once money has moved. The Active schedule when there is one; otherwise the
+	latest submitted one (a closed loan keeps the instalment it ended on).
+	"""
+	current = {}
+	if not loans:
+		return current
+	for sched in frappe.get_all(
+		"Loan Repayment Schedule",
+		filters={"loan": ["in", loans], "docstatus": 1},
+		fields=["loan", "status", "monthly_repayment_amount"],
+		order_by="creation asc",
+	):
+		if current.get(sched.loan, {}).get("status") != "Active":
+			current[sched.loan] = sched
+	return {loan: flt(s.monthly_repayment_amount) for loan, s in current.items()}
 
 
 def _stage_for(status: str, ctx: dict) -> tuple:
@@ -192,15 +274,56 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		# the applicant still learns that GDB is finishing its checks.
 		"conditions_outstanding": cint(case.get("conditions_outstanding")) if _is_staff() else 0,
 		"loan": case.get("loan"),
+		"loan_status": case.get("loan_status"),
 		"disbursed_amount": flt(case.get("disbursed_amount")),
+		# `loan_amount` and `term_months` above stay what was REQUESTED — the
+		# draft form round-trips them. These are the figures that followed:
+		#   approved_*   the live Letter of Offer (the underwriter's decision)
+		#   sanctioned_* the booked Loan, as lending holds it
+		#   facility_*   whichever of those stands now, for a one-line summary
+		"approved_amount": case.get("approved_amount"),
+		"approved_term": case.get("approved_term"),
+		"sanctioned_amount": case.get("sanctioned_amount"),
+		"facility_amount": case.get("sanctioned_amount")
+		or case.get("approved_amount")
+		or get("loan_amount"),
+		"facility_term": case.get("sanctioned_term")
+		or case.get("approved_term")
+		or get("repayment_periods"),
+		# False only for a Loan booked before book_loan took the offer's terms —
+		# lending holds the requested amount, and release refuses it until it is
+		# rebooked (services.disbursement.offer_mismatch). None when there is no
+		# Loan or no live offer to compare.
+		"booked_on_offer": None
+		if case.get("sanctioned_amount") is None or case.get("approved_amount") is None
+		else (
+			case["sanctioned_amount"] == case["approved_amount"]
+			and case.get("sanctioned_term") == case.get("approved_term")
+		),
 		# Sections B-H as one nested block, so the form round-trips exactly
 		# what it sent and the underwriter's case view reads the same shape.
+		# `sections.use_of_funds` is only the legacy text, for an application
+		# from before the lines below existed.
 		"sections": {key: get(fieldname) for key, (fieldname, _t) in SECTION_KEYS.items()},
+		# Section C's use of funds as the child-table rows, and Frappe's SUM of
+		# them. None, not 0, when there are no lines to total.
+		"use_of_funds": case.get("use_of_funds") or [],
+		"use_of_funds_total": case.get("use_of_funds_total"),
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),
 		"reviewed_on": get("gdb_reviewed_on"),
 		"rate_of_interest": get("rate_of_interest"),
-		"monthly_repayment": get("repayment_amount"),
+		# The instalment as lending states it at this point in the case, never a
+		# figure of GDB's: the repayment schedule once money has moved; the
+		# booked Loan's before that; the offer's (lending's own function, see
+		# GDBLoanOffer.set_repayment_figures) before booking; and the
+		# application's indicative figure on the requested amount before that.
+		"monthly_repayment": (
+			(case.get("schedule_instalment") if flt(case.get("disbursed_amount")) > 0 else None)
+			or case.get("loan_instalment")
+			or case.get("offer_instalment")
+			or get("repayment_amount")
+		),
 		"creation": get("creation"),
 		"modified": get("modified"),
 	}

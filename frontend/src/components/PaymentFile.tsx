@@ -8,7 +8,9 @@ import { formatGyd } from '../utils';
  *  Rows come from the `GDB Disbursement Payment File` query report — SQL held
  *  in Frappe, not here — so the layout a bank expects is changed by editing
  *  the report, never by editing this component. Nothing is computed on the
- *  client except the CSV serialisation.
+ *  client except the CSV serialisation: the bank and "has an account" filters
+ *  are the report's own SQL filters, and "To pay" is the total row Frappe
+ *  appends to exactly those rows (Add Total Row).
  *
  *  A row with no account number is a disbursement with nowhere to send the
  *  money. Those are shown first and excluded from the download: a payment file
@@ -39,7 +41,13 @@ export function PaymentFile({ company }: { company: string | null }) {
   const [from, setFrom] = useState(`${new Date().getFullYear()}-01-01`);
   const [to, setTo] = useState(today);
   const [columns, setColumns] = useState<ReportColumn[]>([]);
+  // Every disbursement in the period, account or not: the "cannot pay" list and
+  // the banks to choose from.
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+  // Only what can be paid, for the chosen bank, with Frappe's total row.
+  const [file, setFile] = useState<{ rows: Record<string, unknown>[]; total: Record<string, unknown> | null } | null>(
+    null,
+  );
   const [bank, setBank] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
@@ -47,12 +55,18 @@ export function PaymentFile({ company }: { company: string | null }) {
   const load = useCallback(async () => {
     if (!company) return;
     setRows(null);
+    setFile(null);
     setError(null);
     setDenied(false);
     try {
-      const res = await runReport(REPORT, { company, from_date: from, to_date: to });
-      setColumns(res.columns);
-      setRows(res.rows);
+      const period = { company, from_date: from, to_date: to };
+      const [everything, payable] = await Promise.all([
+        runReport(REPORT, { ...period, bank: '', payable_only: 0 }),
+        runReport(REPORT, { ...period, bank, payable_only: 1 }),
+      ]);
+      setColumns(payable.columns);
+      setRows(everything.rows);
+      setFile({ rows: payable.rows, total: payable.total });
     } catch (err) {
       if (err instanceof ApiError && (err.status === 403 || /permission|not permitted/i.test(err.message))) {
         setDenied(true);
@@ -60,18 +74,18 @@ export function PaymentFile({ company }: { company: string | null }) {
         setError(err instanceof Error ? err.message : 'Could not build the payment file');
       }
     }
-  }, [company, from, to]);
+  }, [company, from, to, bank]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const all = rows ?? [];
-  const payable = all.filter((r) => r.account_number);
   const blocked = all.filter((r) => !r.account_number);
-  const banks = [...new Set(payable.map((r) => String(r.bank)))].sort();
-  const selected = bank ? payable.filter((r) => r.bank === bank) : payable;
-  const total = selected.reduce((t, r) => t + Number(r.amount ?? 0), 0);
+  const banks = [...new Set(all.filter((r) => r.account_number).map((r) => String(r.bank)))].sort();
+  const selected = file?.rows ?? [];
+  // Frappe's total row, not an addition done here.
+  const total = file?.total ? Number(file.total.amount ?? 0) : 0;
 
   const exportCsv = () => {
     const head = columns.map((c) => csvEscape(c.label)).join(',');

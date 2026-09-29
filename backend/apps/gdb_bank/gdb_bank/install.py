@@ -244,6 +244,18 @@ CUSTOM_FIELDS = {
 			"insert_after": "gdb_dcra_number",
 		},
 		*_section_custom_fields(),
+		# Section C's use of funds as real rows, one Currency amount each, so the
+		# total is Frappe's SUM over the lines rather than an addition done by a
+		# client over a JSON string. Supersedes the gdb_use_of_funds text, which
+		# the migrate_use_of_funds_to_lines patch unpacked into these rows and
+		# which is no longer written.
+		{
+			"fieldname": "gdb_use_of_funds_lines",
+			"label": "Use of Funds",
+			"fieldtype": "Table",
+			"options": "GDB Use Of Funds Line",
+			"insert_after": "gdb_use_of_funds",
+		},
 		{
 			"fieldname": "gdb_remarks",
 			"label": "Underwriter Remarks",
@@ -678,7 +690,15 @@ LEFT JOIN `tabBank Account` ba
 WHERE ld.docstatus = 1
   AND ld.company = %(company)s
   AND ld.disbursement_date BETWEEN %(from_date)s AND %(to_date)s
+  AND (%(payable_only)s = 0 OR IFNULL(ba.bank_account_no, '') != '')
+  AND (%(bank)s = '' OR ba.bank = %(bank)s)
 ORDER BY ba.bank, ld.disbursement_date"""
+
+# The file's total is Frappe's: with add_total_row, query_report.run appends a
+# "Total" row it sums itself over exactly the rows returned. That is why the
+# bank and "has an account" filters live in the SQL above rather than in the
+# client — Frappe can only total the rows it was asked for.
+PAYMENT_FILE_REPORT_SETTINGS = {"query": PAYMENT_FILE_QUERY, "add_total_row": 1}
 
 
 def ensure_payment_file_report():
@@ -717,12 +737,21 @@ def ensure_payment_file_report():
 				"report_type": "Query Report",
 				"is_standard": "No",
 				"module": "GDB Bank",
-				"query": PAYMENT_FILE_QUERY,
+				**PAYMENT_FILE_REPORT_SETTINGS,
 			}
 		).insert(ignore_permissions=True)
 
-	# Roles are a union, so a grant somebody made in the desk survives a migrate.
+	# The SQL here is the one place the layout is defined, so a site whose
+	# report predates a change to it is brought up to date on migrate —
+	# otherwise it keeps the old query, and Frappe keeps totalling the old rows.
 	report = frappe.get_doc("Report", PAYMENT_FILE_REPORT)
+	stale = {k: v for k, v in PAYMENT_FILE_REPORT_SETTINGS.items() if report.get(k) != v}
+	if stale:
+		report.update(stale)
+		report.save(ignore_permissions=True)
+		report.reload()
+
+	# Roles are a union, so a grant somebody made in the desk survives a migrate.
 	wanted = sorted(
 		({r.role for r in report.roles} | set(PAYMENT_FILE_ROLES))
 		- set(REVOKED_MONEY_ROLES)
@@ -801,6 +830,20 @@ def make_property_setters():
 			"Check",
 			validate_fields_for_doctype=False,
 		)
+
+	# Loan.monthly_repayment_amount is `fetch_from: loan_application.repayment_amount`,
+	# which Frappe re-applies on every save of a new Loan — so the instalment
+	# lending computed on the REQUESTED amount overwrote the one book_loan asks
+	# lending to compute on the APPROVED amount. Fetch only when empty, and the
+	# figure lending works out at booking is the one that stays.
+	make_property_setter(
+		"Loan",
+		"monthly_repayment_amount",
+		"fetch_if_empty",
+		"1",
+		"Check",
+		validate_fields_for_doctype=False,
+	)
 
 
 def ensure_lending_defaults():

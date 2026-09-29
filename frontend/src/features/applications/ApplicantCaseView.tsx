@@ -158,8 +158,20 @@ function ApplicationDetails({ loan }: { loan: LoanApplication }) {
           }
         />
         {loan.cluster && <Row label="Group" value={loan.cluster} />}
-        <Row label="Loan amount" value={formatGyd(loan.loan_amount)} />
-        <Row label="Term" value={`${loan.term_months} months`} />
+        <Row label="Amount requested" value={formatGyd(loan.loan_amount)} />
+        <Row label="Term requested" value={`${loan.term_months} months`} />
+        {loan.approved_amount != null && (
+          <Row
+            label="Approved by GDB"
+            value={`${formatGyd(loan.approved_amount)} over ${loan.approved_term} months`}
+          />
+        )}
+        {loan.disbursed_amount > 0 && (
+          <Row label="Disbursed" value={formatGyd(loan.disbursed_amount)} />
+        )}
+        {loan.monthly_repayment != null && loan.stage !== 'Draft' && (
+          <Row label="Monthly repayment" value={formatGyd(loan.monthly_repayment)} />
+        )}
         {!loan.cluster && loan.monthly_income > 0 && (
           <Row label="Monthly income" value={formatGyd(loan.monthly_income)} />
         )}
@@ -171,7 +183,12 @@ function ApplicationDetails({ loan }: { loan: LoanApplication }) {
         </div>
       </Card>
       {loan.stage !== 'Draft' && (
-        <ApplicationSections sections={loan.sections} businessStage={loan.business_stage} />
+        <ApplicationSections
+          sections={loan.sections}
+          businessStage={loan.business_stage}
+          useOfFunds={loan.use_of_funds ?? []}
+          useOfFundsTotal={loan.use_of_funds_total}
+        />
       )}
     </>
   );

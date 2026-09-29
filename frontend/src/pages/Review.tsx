@@ -153,6 +153,11 @@ export function Review() {
                     </td>
                     <td className="px-4 py-3 font-medium tabular-nums text-slate-800">
                       {formatGyd(loan.loan_amount)}
+                      {loan.approved_amount != null && (
+                        <p className="text-xs font-normal text-slate-500">
+                          approved {formatGyd(loan.approved_amount)}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <StageBadge stage={loan.stage} />

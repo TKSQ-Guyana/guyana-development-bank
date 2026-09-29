@@ -142,6 +142,10 @@ export interface ReportColumn {
 export interface ReportResult {
   columns: ReportColumn[];
   rows: Record<string, unknown>[];
+  /** Frappe's own total row, keyed like `rows`, when the report has Add Total
+   *  Row set — query_report.run sums it server-side. Null otherwise. Display
+   *  it; never add the rows up here instead. */
+  total: Record<string, unknown> | null;
 }
 
 /** Run one of ERPNext's own script reports and hand back its columns and rows.
@@ -174,13 +178,25 @@ export async function runReport(
   if (!res.ok) {
     throw new ApiError(extractErrorMessage(data, `Could not run ${reportName} (${res.status})`), res.status);
   }
-  const message = (data as { message?: { columns?: ReportColumn[]; result?: unknown[] } })?.message ?? {};
+  const message =
+    (data as { message?: { columns?: ReportColumn[]; result?: unknown[]; add_total_row?: boolean | number } })
+      ?.message ?? {};
+  const columns = message.columns ?? [];
+  const result = message.result ?? [];
   // Script reports emit the odd separator/total row as a bare array; only
   // keyed rows can be rendered against the column list.
-  const rows = (message.result ?? []).filter(
+  const rows = result.filter(
     (r): r is Record<string, unknown> => !!r && typeof r === 'object' && !Array.isArray(r),
   );
-  return { columns: message.columns ?? [], rows };
+  // With Add Total Row, Frappe appends the total it computed as the LAST row,
+  // a bare array aligned to the columns. Keyed back onto the column fieldnames
+  // so it reads exactly like a row.
+  const last = result[result.length - 1];
+  const total =
+    message.add_total_row && Array.isArray(last)
+      ? Object.fromEntries(columns.map((c, i) => [c.fieldname, last[i]]))
+      : null;
+  return { columns, rows, total };
 }
 
 /** Read a doctype straight off Frappe's generic REST surface.

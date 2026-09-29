@@ -1,2 +1,4 @@
 gdb_bank.patches.split_finance_roles
 gdb_bank.patches.normalise_profile_regions
+gdb_bank.patches.migrate_use_of_funds_to_lines
+gdb_bank.patches.repair_use_of_funds_item_text

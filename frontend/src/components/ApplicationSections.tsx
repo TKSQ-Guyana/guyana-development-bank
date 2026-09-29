@@ -1,6 +1,7 @@
 import { Card, CardLabel } from './ui/Card';
 import { Badge } from './ui/Badge';
-import { formatGyd, parseUseOfFunds } from '../utils';
+import type { UseOfFundsRow } from '../types';
+import { formatGyd } from '../utils';
 
 /** Sections B–H of the application — the business narrative an underwriter
  *  actually decides a development loan on.
@@ -138,12 +139,22 @@ const SOURCE_TONE: Record<SectionSpec['source'], 'neutral' | 'warning'> = {
 export function ApplicationSections({
   sections,
   businessStage,
+  useOfFunds,
+  useOfFundsTotal,
 }: {
   sections: Record<string, string | number | null>;
   businessStage: string | null;
+  /** The use-of-funds lines as Frappe holds them (a child table). */
+  useOfFunds: UseOfFundsRow[];
+  /** Frappe's SUM of those lines. Shown, never recomputed here. */
+  useOfFundsTotal: number | null;
 }) {
   const visible = SECTIONS.filter((s) => !s.onlyFor || s.onlyFor === businessStage);
-  const hasAny = visible.some((s) => s.fields.some((f) => !isBlank(sections[f.key], f.type)));
+  // The table field is filled when Frappe holds lines for it, or — on an
+  // application from before the lines existed — when its legacy text is set.
+  const blank = (f: FieldSpec) =>
+    f.type === 'table' ? useOfFunds.length === 0 && isBlank(sections[f.key]) : isBlank(sections[f.key], f.type);
+  const hasAny = visible.some((s) => s.fields.some((f) => !blank(f)));
 
   return (
     <Card>
@@ -164,7 +175,7 @@ export function ApplicationSections({
       {hasAny && (
         <div className="space-y-6">
           {visible.map((section) => {
-            const filled = section.fields.filter((f) => !isBlank(sections[f.key], f.type));
+            const filled = section.fields.filter((f) => !blank(f));
             return (
               <section key={section.letter} className="border-t border-slate-100 pt-4 first:border-0 first:pt-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -182,16 +193,15 @@ export function ApplicationSections({
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     {section.fields.map((f) => {
                       const raw = sections[f.key];
-                      if (isBlank(raw, f.type)) return null;
+                      if (blank(f)) return null;
                       if (f.type === 'table') {
-                        const rows = parseUseOfFunds(raw);
                         return (
                           <div key={f.key} className="sm:col-span-2">
                             <dt className="mb-1 text-xs text-slate-500">{f.label}</dt>
-                            {rows ? (
+                            {useOfFunds.length > 0 ? (
                               <table className="w-full text-sm">
                                 <tbody className="divide-y divide-slate-100">
-                                  {rows.map((r, i) => (
+                                  {useOfFunds.map((r, i) => (
                                     <tr key={i}>
                                       <td className="py-1 text-slate-700">{r.item}</td>
                                       <td className="py-1 text-right font-medium tabular-nums text-slate-800">
@@ -202,7 +212,7 @@ export function ApplicationSections({
                                   <tr className="border-t border-slate-200 font-semibold">
                                     <td className="py-1 text-slate-800">Total</td>
                                     <td className="py-1 text-right tabular-nums text-slate-900">
-                                      {formatGyd(rows.reduce((sum, r) => sum + r.amount, 0))}
+                                      {useOfFundsTotal != null ? formatGyd(useOfFundsTotal) : '—'}
                                     </td>
                                   </tr>
                                 </tbody>

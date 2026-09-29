@@ -139,8 +139,8 @@ function ClusterDetail({
                   </p>
                   <p className="text-xs text-slate-500">
                     {app.name}
-                    {!app.private && app.loan_amount !== undefined && (
-                      <> · {formatGyd(app.loan_amount)} over {app.term_months} months</>
+                    {!app.private && app.facility_amount !== undefined && (
+                      <> · {formatGyd(app.facility_amount)} over {app.facility_term} months</>
                     )}
                   </p>
                 </div>

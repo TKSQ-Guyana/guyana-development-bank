@@ -31,17 +31,33 @@ class GDBLoanOffer(Document):
 		self.set_repayment_figures()
 
 	def set_repayment_figures(self):
-		"""Straight-line on an interest-free facility. Anything else is
-		lending's arithmetic and belongs to the repayment schedule, not here —
-		this is the indicative figure printed on the offer."""
+		"""The instalment lending will bill on these terms, from lending itself.
+
+		get_monthly_repayment_amount is the function lending runs on a Loan
+		Application and on every repayment schedule, so the figure printed on the
+		offer is the one the borrower is later charged — not a division of GDB's
+		that disagrees with it by the rounding. Total repayable is stated only on
+		an interest-free offer, where it is the principal and nothing is
+		calculated; with a rate it is whatever lending's schedule accrues, which
+		exists only once the loan is disbursed.
+		"""
+		from lending.loan_management.doctype.loan_repayment_schedule.utils import (
+			get_monthly_repayment_amount,
+		)
+
+		# Set once, before submission. Acceptance saves the submitted offer again,
+		# and an offer issued before this used lending's function carries GDB's
+		# old figure: recomputing it then would be a change to a submitted field,
+		# which Frappe refuses — and the borrower is accepting the wording as issued.
+		if self.docstatus != 0:
+			return
 		amount = flt(self.offered_amount)
 		term = int(self.term_months or 0)
 		rate = flt(self.rate_of_interest)
 		if not amount or not term:
 			return
-		interest = amount * (rate / 100.0) * (term / 12.0) if rate else 0.0
-		self.total_repayable = amount + interest
-		self.monthly_instalment = self.total_repayable / term
+		self.monthly_instalment = get_monthly_repayment_amount(amount, rate, term, "Monthly")
+		self.total_repayable = amount if not rate else None
 
 	def is_open(self) -> bool:
 		"""Still capable of being accepted."""

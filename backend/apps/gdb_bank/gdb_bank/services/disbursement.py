@@ -1,127 +1,76 @@
-"""Booking and releasing a loan — the Bank's money side of an approved case.
+"""The terms lending books a loan on, and the check that a booked loan carries them.
 
-Both acts are lending's own (create_loan; the Loan Disbursement doctype, whose
-submit generates the schedule). This module adds who may ask, and when, and
-computes no money. Release has two gates: the role, checked by the caller, and
-four eyes, checked here — whoever approved a case never releases it (R-131),
-and nobody releases funds on their own application.
+Booking and release themselves are api.book_loan and api.disburse_loan: lending's
+create_loan, and the Loan Disbursement doctype whose submit generates the
+schedule, behind the role and four-eyes gates. What lives here is what those
+two share — the offer's amount and term as the inputs lending is given, and the
+refusal to release on a Loan that was booked on anything else. Nothing here
+computes money: every figure is lending's own.
 """
 
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate
-
-from gdb_bank.conditions import outstanding
-from gdb_bank.offers import accepted_offer
-from gdb_bank.services.application import loan_account
-from gdb_bank.utils.constants import STATUS_TO_PORTAL
-from gdb_bank.utils.session import _as_system, _logger
-
-BOOKED_LOAN_FIELDS = [
-	"name",
-	"status",
-	"company",
-	"applicant",
-	"applicant_type",
-	"loan_amount",
-	"disbursed_amount",
-]
+from frappe.utils import cint, flt, fmt_money
 
 
-def booked_loan(application: str):
-	"""The Loan booked from this application, if one exists yet."""
-	return frappe.db.get_value("Loan", {"loan_application": application}, BOOKED_LOAN_FIELDS, as_dict=True)
+def create_loan_on_offer(application: str, agreement):
+	"""Book the Loan on the terms the applicant accepted, and submit it.
 
+	lending's create_loan maps the Loan Application onto a Loan, and the
+	application carries what was REQUESTED. The credit decision is the Letter of
+	Offer, so its amount and term are the two inputs lending is given — and from
+	there every figure is lending's own: the drawable ceiling
+	(get_disbursal_amount), the schedule a disbursement generates, and the
+	instalment, which is lending's get_monthly_repayment_amount — the same
+	function lending's Loan Application runs on the requested amount.
 
-def book_loan(user: str, application: str) -> dict:
-	"""Create the Loan for an approved application whose offer is executed.
-
-	An approval binds nobody; the signed Letter of Offer is what puts a borrower
-	on GDB's books, so booking waits for it.
+	The caller has settled who may book and holds the system elevation.
 	"""
-	row = frappe.db.get_value("Loan Application", application, ["name", "status"], as_dict=True)
-	if not row:
-		frappe.throw(_("Loan Application {0} not found.").format(application))
-	if row.status != "Approved":
-		frappe.throw(
-			_("Only an approved application can be booked ({0} is {1}).").format(
-				application, STATUS_TO_PORTAL.get(row.status, row.status)
-			)
-		)
-	existing = booked_loan(application)
-	if existing:
-		frappe.throw(_("Loan {0} is already booked for {1}.").format(existing.name, application))
-	if not accepted_offer(application):
-		frappe.throw(
-			_("No accepted offer for {0}. Issue a Letter of Offer and wait for the "
-			  "applicant to accept it before booking.").format(application)
-		)
-
-	# lending guards its mapper with a Loan create permission no portal role
-	# holds; who may ask is settled, so the write runs as the system.
 	from lending.loan_management.doctype.loan_application.loan_application import create_loan
-
-	with _as_system():
-		loan = create_loan(application, submit=1)
-		frappe.db.commit()
-
-	_logger().info(f"loan {loan.name} booked from {application} by {user}")
-	return loan_account(user, application)
-
-
-def disburse_loan(user: str, application: str, amount=None) -> dict:
-	"""Release funds on a booked loan. Omit `amount` to release all lending says
-	is drawable — both that default and the ceiling are lending's."""
-	decision = frappe.db.get_value(
-		"Loan Application", application, ["gdb_reviewed_by", "gdb_owner"], as_dict=True
+	from lending.loan_management.doctype.loan_repayment_schedule.utils import (
+		get_monthly_repayment_amount,
 	)
-	if decision and decision.gdb_reviewed_by == user:
-		_logger().warning(f"four-eyes: {user} approved {application} and tried to release it")
-		frappe.throw(
-			_("You approved this application, so you cannot release its funds. "
-			  "Another officer must disburse it."),
-			frappe.PermissionError,
-		)
-	if decision and decision.gdb_owner == user:
-		frappe.throw(_("You cannot release funds on your own application."), frappe.PermissionError)
 
-	loan = booked_loan(application)
-	if not loan:
-		frappe.throw(_("No loan has been booked for {0} yet.").format(application))
-	if loan.status not in ("Sanctioned", "Partially Disbursed"):
-		frappe.throw(_("Loan {0} is not awaiting disbursement (status {1}).").format(loan.name, loan.status))
+	loan = create_loan(application)  # lending's mapper, unsaved
+	loan.loan_amount = flt(agreement.offered_amount)
+	loan.repayment_periods = cint(agreement.term_months)
+	# The rate lending itself fetches onto the Loan (fetch_from loan_product).
+	rate = flt(frappe.db.get_value("Loan Product", loan.loan_product, "rate_of_interest"))
+	loan.monthly_repayment_amount = get_monthly_repayment_amount(
+		loan.loan_amount, rate, loan.repayment_periods, loan.repayment_frequency or "Monthly"
+	)
+	loan.submit()
+	return loan
 
-	# The Letter of Offer says no funds move until its conditions are met.
-	blocking = outstanding(application)
-	if blocking:
-		frappe.throw(
-			_("{0} condition(s) precedent are still outstanding: {1}").format(
-				len(blocking), "; ".join(blocking[:3])
-			)
-		)
 
-	from lending.loan_management.doctype.loan_disbursement.loan_disbursement import get_disbursal_amount
+def offer_mismatch(loan, agreement) -> str | None:
+	"""Why this Loan does not carry the executed offer's terms, or None.
 
-	with _as_system() as caller:
-		amount = flt(amount) if amount else flt(get_disbursal_amount(loan.name)[0])
-		if amount <= 0:
-			frappe.throw(_("Nothing is available to disburse on {0} right now.").format(loan.name))
-		doc = frappe.get_doc(
-			{
-				"doctype": "Loan Disbursement",
-				"against_loan": loan.name,
-				"company": loan.company,
-				"applicant_type": loan.applicant_type,
-				"applicant": loan.applicant,
-				"posting_date": nowdate(),
-				"disbursement_date": nowdate(),
-				"disbursed_amount": amount,
-				"gdb_disbursed_by": caller,
-			}
-		)
-		doc.insert()
-		doc.submit()
-		frappe.db.commit()
+	A Loan booked before book_loan took the offer's terms carries the REQUESTED
+	amount, so lending's own drawable ceiling on it is too high. Releasing on it
+	would pay out more than the borrower agreed to; it has to be rebooked.
+	"""
+	if not agreement:
+		return None
+	if flt(loan.loan_amount) == flt(agreement.offered_amount) and cint(
+		loan.repayment_periods
+	) == cint(agreement.term_months):
+		return None
 
-	_logger().info(f"disbursement {doc.name}: {amount} on {loan.name} by {user}")
-	return loan_account(user, application)
+	# Frappe renders GYD as a bare "$" — read as USD on a Guyanese loan. Same
+	# treatment as the Letter of Offer's own wording (offers._agreement_text).
+	def money(value) -> str:
+		return "G$" + fmt_money(flt(value), currency="GYD").replace("$", "").strip()
+
+	return _(
+		"Loan {0} is booked at {1} over {2} months, but the executed Letter of Offer {3} "
+		"is {4} over {5} months. It must be rebooked on the offer's terms before any "
+		"funds are released."
+	).format(
+		loan.name,
+		money(loan.loan_amount),
+		cint(loan.repayment_periods),
+		agreement.name,
+		money(agreement.offered_amount),
+		cint(agreement.term_months),
+	)

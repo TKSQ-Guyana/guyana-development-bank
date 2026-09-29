@@ -11,7 +11,7 @@ cluster service's rule.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, nowdate
+from frappe.utils import cint, flt, getdate, nowdate
 
 from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME
 from gdb_bank.utils.constants import (
@@ -21,7 +21,13 @@ from gdb_bank.utils.constants import (
 	NEW_ONLY,
 	SECTION_KEYS,
 )
-from gdb_bank.utils.formatters import _for_viewer, _normalised_phone, _portal_dict, _stage_context
+from gdb_bank.utils.formatters import (
+	_for_viewer,
+	_normalised_phone,
+	_portal_dict,
+	_schedule_instalments,
+	_stage_context,
+)
 from gdb_bank.utils.session import _as_system, _eids, _is_staff, _logger, _session_user
 from gdb_bank.services.cluster import _cluster_for, _clusters_of, _is_shared_with
 from gdb_bank.services.evidence import missing_evidence
@@ -32,6 +38,40 @@ def _blanked(fieldnames) -> dict:
 	"""Empty values for these fields, each of its own type."""
 	by_name = {f[0]: f[2] for f in APPLICATION_SECTIONS}
 	return {f: (0 if by_name.get(f) in ("Currency", "Int") else "") for f in fieldnames}
+
+
+def _use_of_funds_lines(raw) -> list[dict]:
+	"""The use-of-funds lines as child-table rows, from what the form sent.
+
+	The form sends a list of {item, amount} — as a list, or JSON-encoded the way
+	the portal always has. A line with no item is dropped, as the form drops it.
+	Plain text that is not a list (a caller from before the table existed) is
+	kept as one line with no amount rather than thrown away.
+	"""
+	if isinstance(raw, str):
+		text = raw.strip()
+		if not text:
+			return []
+		try:
+			raw = frappe.parse_json(text)
+		except Exception:
+			return [{"item": text, "amount": 0}]
+		if not isinstance(raw, list):
+			return [{"item": text, "amount": 0}]
+	if not isinstance(raw, list):
+		return []
+	lines = []
+	for row in raw:
+		if not isinstance(row, dict):
+			continue
+		item = (row.get("item") or "").strip() if isinstance(row.get("item"), str) else ""
+		if not item:
+			continue
+		amount = flt(row.get("amount"))
+		if amount < 0:
+			frappe.throw(_("A use-of-funds amount cannot be negative."))
+		lines.append({"item": item, "amount": amount})
+	return lines
 
 
 def _section_values(sections) -> dict:
@@ -55,6 +95,11 @@ def _section_values(sections) -> dict:
 		if key not in sections:
 			continue
 		raw = sections.get(key)
+		if key == "use_of_funds":
+			# Rows of the gdb_use_of_funds_lines child table, not text: each
+			# amount is then a Currency column Frappe can SUM.
+			values["gdb_use_of_funds_lines"] = _use_of_funds_lines(raw)
+			continue
 		if fieldtype == "Currency":
 			values[fieldname] = flt(raw)
 		elif fieldtype == "Int":
@@ -377,7 +422,111 @@ def _repayment_history(loan: str) -> list[dict]:
 	return rows
 
 
-def loan_account(user: str, application: str):
+# A statement line is lending's report row as it stands, less the loan and
+# currency columns the portal already carries.
+STATEMENT_LINE_FIELDS = (
+	"transaction_type",
+	"transaction_doctype",
+	"transaction_name",
+	"debit",
+	"credit",
+	"balance",
+	"remarks",
+)
+
+
+def _statement_of_account(loan, to_date) -> list[dict]:
+	"""Lending's Loan Statement of Account for this loan, from its booking to `to_date`.
+
+	The report the ERPNext desk shows for a loan, run through Frappe's own report
+	endpoint (frappe.desk.query_report.run), so every line and every running
+	balance is lending's. It is run from the day the loan was booked, never from
+	the period's start: the report's running balance starts at zero on its first
+	line, so only a run from the beginning gives a balance that is what is owed.
+
+	Elevated because the report belongs to Loan Manager, a role no portal user
+	holds. Who may read this loan has already been settled by
+	_readable_application, and the loan is fixed here, never taken from the
+	client: the report's own queries skip row-level permissions, so it must not
+	be handed a filter a citizen chose.
+	"""
+	from frappe.desk.query_report import run
+
+	booked = frappe.db.get_value(
+		"Loan", loan.name, ["applicant_type", "applicant", "posting_date"], as_dict=True
+	)
+	# A period that ends before the loan was booked has nothing on it, and the
+	# report refuses a run whose start is after its end.
+	if getdate(to_date) < getdate(booked.posting_date):
+		return []
+	with _as_system():
+		report = run(
+			"Loan Statement of Account",
+			filters={
+				"company": loan.company,
+				"applicant_type": booked.applicant_type,
+				"applicant": booked.applicant,
+				"loan": loan.name,
+				"from_date": str(getdate(booked.posting_date)),
+				"to_date": str(getdate(to_date)),
+			},
+		)
+	return [
+		{
+			"posting_date": str(getdate(line["posting_date"])),
+			**{field: line.get(field) for field in STATEMENT_LINE_FIELDS},
+		}
+		for line in report["result"]
+		if isinstance(line, dict)
+	]
+
+
+def _statement(sched: str | None, schedule: list, loan, from_date, to_date) -> dict:
+	"""A period's statement: lending's report cut to it, and what falls due in it.
+
+	What happened is lending's Loan Statement of Account for this loan
+	(_statement_of_account): every disbursement and payment with lending's
+	running balance. The period only decides where it is cut. The opening
+	balance is the report's balance on its last line before the period, and the
+	closing balance its balance on the last line inside it. Cutting between
+	days, never inside one, keeps both right whatever order lending lists one
+	day's lines in.
+
+	What is scheduled is kept apart, because a plan is not a receipt: the
+	repayment schedule's rows falling due in the period, and their SUM, which
+	Frappe's query builder runs over those same rows.
+	"""
+	start, end = getdate(from_date), getdate(to_date)
+	lines = _statement_of_account(loan, end)
+	before = [line for line in lines if getdate(line["posting_date"]) < start]
+	transactions = [line for line in lines if getdate(line["posting_date"]) >= start]
+	opening = flt(before[-1]["balance"]) if before else 0.0
+	rows = [r for r in schedule if start <= getdate(r.payment_date) <= end]
+	due = (
+		frappe.get_all(
+			"Repayment Schedule",
+			filters={
+				"parent": sched,
+				"parenttype": "Loan Repayment Schedule",
+				"payment_date": ["between", [start, end]],
+			},
+			fields=[{"SUM": "total_payment", "as": "instalments_due"}],
+		)
+		if sched
+		else []
+	)
+	return {
+		"from_date": str(start),
+		"to_date": str(end),
+		"transactions": transactions,
+		"opening_balance": opening,
+		"closing_balance": flt(transactions[-1]["balance"]) if transactions else opening,
+		"rows": rows,
+		"instalments_due": flt(due[0].instalments_due) if due else 0.0,
+	}
+
+
+def loan_account(user: str, application: str, from_date=None, to_date=None):
 	"""Booked loan, repayment schedule and what is left to pay.
 
 	Returns loan: None while the application is still with the underwriter.
@@ -387,8 +536,18 @@ def loan_account(user: str, application: str):
 	loan = frappe.db.get_value(
 		"Loan", {"loan_application": application}, LOAN_ACCOUNT_FIELDS, as_dict=True
 	)
+	case = _stage_context([application]).get(application) or {}
+	approved_amount, approved_term = case.get("approved_amount"), case.get("approved_term")
 	if not loan:
-		return {"application": application, "loan": None, "schedule": [], "next_due": None}
+		# Before booking, the terms booking will put into lending: the offer's.
+		return {
+			"application": application,
+			"loan": None,
+			"schedule": [],
+			"next_due": None,
+			"approved_amount": approved_amount,
+			"approved_term": approved_term,
+		}
 
 	# Whether this facility belongs to a group, said plainly rather than
 	# inferred from how many people happen to have paid so far. The first
@@ -452,6 +611,25 @@ def loan_account(user: str, application: str):
 		"schedule": schedule,
 		"dues": dues,
 		"disbursable": disbursable,
+		# The instalment lending bills is the current schedule's; the Loan's own
+		# monthly_repayment_amount is the figure at booking, which lending never
+		# revises when a smaller amount is released or a tranche is added.
+		"instalment": _schedule_instalments([loan.name]).get(loan.name)
+		or flt(loan.monthly_repayment_amount),
+		# The underwriter's decision, and whether lending was booked on it. False
+		# only for a Loan booked before book_loan took the offer's terms: its
+		# drawable ceiling is the requested amount, and release refuses it.
+		"approved_amount": approved_amount,
+		"approved_term": approved_term,
+		"booked_on_offer": None
+		if approved_amount is None
+		else (
+			flt(loan.loan_amount) == flt(approved_amount)
+			and cint(loan.repayment_periods) == cint(approved_term)
+		),
+		"statement": _statement(sched, schedule, loan, from_date, to_date)
+		if from_date and to_date
+		else None,
 		"cluster": cluster,
 		"payments": _repayment_history(loan.name),
 	}

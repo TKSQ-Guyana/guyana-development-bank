@@ -33,9 +33,10 @@ export function Disbursement({
 
   const apply = useCallback((a: LoanAccountType) => {
     setAccount(a);
-    // The server tells us what is drawable; the client never works it out.
+    // The server tells us what is drawable; the client never works it out, and
+    // passes lending's figure through exactly rather than rounding it.
     const drawable = a.disbursable ?? 0;
-    if (drawable > 0) setAmount(String(Math.round(drawable)));
+    if (drawable > 0) setAmount(String(drawable));
   }, []);
 
   useEffect(() => {
@@ -65,6 +66,9 @@ export function Disbursement({
   const drawable = account.disbursable ?? 0;
   const awaitingRelease =
     !!loan && drawable > 0 && (loan.status === 'Sanctioned' || loan.status === 'Partially Disbursed');
+  // Booked on the requested amount rather than the executed offer: lending's
+  // drawable is then too high, and the server refuses release until rebooked.
+  const mustRebook = awaitingRelease && account.booked_on_offer === false;
   // One authority for both halves: is_disbursement, split out from is_finance
   // (books only) — see api.DISBURSEMENT_ROLES. A pure Finance Officer reads
   // this exactly like the underwriter does: told whose desk booking and
@@ -91,6 +95,21 @@ export function Disbursement({
       {error && (
         <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
           {error}
+        </p>
+      )}
+
+      {account.approved_amount != null && (
+        <p className="mb-3 text-sm text-slate-600">
+          Executed Letter of Offer: <strong>{formatGyd(account.approved_amount)}</strong> over{' '}
+          {account.approved_term} months.
+        </p>
+      )}
+
+      {mustRebook && loan && (
+        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
+          This loan was booked at {formatGyd(loan.loan_amount)} over {loan.repayment_periods}{' '}
+          months, which is not what the borrower signed. It must be rebooked on the offer&rsquo;s
+          terms before any funds are released.
         </p>
       )}
       {note && <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{note}</p>}
@@ -124,7 +143,7 @@ export function Disbursement({
         </p>
       )}
 
-      {awaitingRelease && mayRelease && (
+      {awaitingRelease && mayRelease && !mustRebook && (
         <form onSubmit={disburse}>
           <p className="mb-3 text-sm text-slate-600">
             {formatGyd(drawable)} of {formatGyd(loan.loan_amount)} is available to disburse.

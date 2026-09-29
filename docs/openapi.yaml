@@ -1059,6 +1059,11 @@ paths:
               required: [application]
               properties:
                 application: { type: string, example: ACC-LOAP-2026-00001 }
+                from_date:
+                  type: string
+                  format: date
+                  description: With `to_date`, also answer `statement` for that period.
+                to_date: { type: string, format: date }
       responses:
         '200':
           description: Loan account
@@ -1447,6 +1452,61 @@ components:
             limit, and is 0 while a secured loan is in security shortfall.
             Returned only to underwriters; null for everyone else. Clients
             must not derive this from loan_amount - disbursed_amount.
+        instalment:
+          type: number
+          nullable: true
+          description: |
+            The instalment lending bills — the current repayment schedule's,
+            else the Loan's. `loan.monthly_repayment_amount` is only the figure
+            at booking and goes stale once a smaller amount is released.
+        approved_amount:
+          type: number
+          nullable: true
+          description: The executed Letter of Offer's amount — what booking puts into lending.
+        approved_term: { type: integer, nullable: true }
+        booked_on_offer:
+          type: boolean
+          nullable: true
+          description: |
+            False only for a Loan booked on the requested amount rather than the
+            offer; disburse_loan refuses it until it is rebooked.
+        statement:
+          type: object
+          nullable: true
+          description: |
+            Present when from_date and to_date are sent. Every figure lending's.
+            What happened is lending's Loan Statement of Account report — the one
+            the ERPNext desk shows for this loan — run from the loan's booking
+            to to_date and cut at from_date. What was planned (`rows`,
+            `instalments_due`) is the repayment schedule, kept apart.
+          properties:
+            from_date: { type: string, format: date }
+            to_date: { type: string, format: date }
+            transactions:
+              type: array
+              description: The report's lines dated inside the period, in the report's order.
+              items:
+                type: object
+                properties:
+                  posting_date: { type: string, format: date }
+                  transaction_type: { type: string, example: Disbursement }
+                  transaction_doctype: { type: string, enum: [Loan Disbursement, Loan Repayment, Loan Demand] }
+                  transaction_name: { type: string, example: LM-DIS-00047 }
+                  debit: { type: number }
+                  credit: { type: number }
+                  balance: { type: number, description: "Lending's running balance after this line." }
+                  remarks: { type: string, nullable: true }
+            opening_balance:
+              type: number
+              description: The report's balance on its last line before from_date; 0 when there is none.
+            closing_balance:
+              type: number
+              description: The report's balance on its last line in the period; the opening balance when there is none.
+            rows:
+              type: array
+              items: { type: object }
+              description: Repayment-schedule rows falling due in the period — a plan, not payments.
+            instalments_due: { type: number, description: Sum of those rows' total_payment. }
         dues:
           type: object
           description: Relayed from lending's calculate_amounts, keys unchanged.
@@ -1491,9 +1551,51 @@ components:
           example: 592-1111-0001
           description: How GDB staff identify an applicant. Null if they have never used an e-ID.
         applicant_name: { type: string, example: Demo Citizen }
-        loan_amount: { type: number, example: 2500000 }
+        loan_amount: { type: number, example: 2500000, description: What was REQUESTED. }
         purpose: { type: string }
-        term_months: { type: integer, example: 36 }
+        term_months: { type: integer, example: 36, description: The term REQUESTED. }
+        approved_amount:
+          type: number
+          nullable: true
+          description: The live Letter of Offer's amount — the underwriter's decision.
+        approved_term: { type: integer, nullable: true }
+        sanctioned_amount:
+          type: number
+          nullable: true
+          description: The booked Loan's amount, as lending holds it.
+        facility_amount:
+          type: number
+          description: Whichever of sanctioned, approved, requested stands now.
+        facility_term: { type: integer }
+        booked_on_offer: { type: boolean, nullable: true }
+        loan_status: { type: string, nullable: true, description: lending's status on the booked Loan. }
+        drawable:
+          type: number
+          nullable: true
+          description: all_loans only — lending's get_disbursal_amount for a loan awaiting release.
+        monthly_repayment:
+          type: number
+          nullable: true
+          description: |
+            lending's instalment at this stage: the repayment schedule's once
+            disbursed, else the booked Loan's, else the offer's, else the
+            application's indicative figure. Never computed by the portal.
+        use_of_funds:
+          type: array
+          description: |
+            Section C's use-of-funds lines — rows of the GDB Use Of Funds Line
+            child table on Loan Application. Sent in as `sections.use_of_funds`
+            (a list, or its JSON encoding); `sections.use_of_funds` on the way
+            out is only the legacy text of an application from before the lines.
+          items:
+            type: object
+            properties:
+              item: { type: string, example: New freezer }
+              amount: { type: number, example: 30000 }
+        use_of_funds_total:
+          type: number
+          nullable: true
+          description: Frappe's SUM of the lines' amounts; null when there are none.
         monthly_income: { type: number, example: 450000 }
         phone: { type: string, nullable: true }
         status:

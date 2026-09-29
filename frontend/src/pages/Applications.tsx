@@ -124,9 +124,9 @@ function ApplicationRow({
 
         <div className="flex-none text-right">
           <p className="text-sm font-bold tabular-nums text-slate-900">
-            {formatGyd(loan.loan_amount)}
+            {formatGyd(loan.facility_amount)}
           </p>
-          <p className="hidden text-xs text-slate-400 sm:block">{loan.term_months} months</p>
+          <p className="hidden text-xs text-slate-400 sm:block">{loan.facility_term} months</p>
         </div>
 
         <div className="hidden flex-none sm:block">
@@ -153,8 +153,11 @@ function ApplicationRow({
           )}
 
           <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <Fact label="Amount" value={formatGyd(loan.loan_amount)} />
-            <Fact label="Term" value={`${loan.term_months} months`} />
+            <Fact label="Amount requested" value={formatGyd(loan.loan_amount)} />
+            {loan.approved_amount != null && (
+              <Fact label="Amount approved" value={formatGyd(loan.approved_amount)} />
+            )}
+            <Fact label="Term" value={`${loan.facility_term} months`} />
             {loan.rate_of_interest !== null && (
               <Fact
                 label="Interest"

@@ -12,7 +12,7 @@ from gdb_bank.security.conflict import is_same_person
 from gdb_bank.services.evidence import missing_by_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_FROM_PORTAL
 from gdb_bank.utils.formatters import _portal_dict, _stage_context
-from gdb_bank.utils.session import _eids, _logger
+from gdb_bank.utils.session import _as_system, _eids, _logger
 
 
 def _case(name: str) -> dict:
@@ -32,7 +32,39 @@ def all_loans(status: str | None = None) -> list[dict]:
 	eids = _eids([r.gdb_owner for r in rows])
 	ctx = _stage_context([r.name for r in rows])
 	missing = missing_by_application(rows)
-	return [dict(_portal_dict(r, eids, ctx), evidence_missing=missing.get(r.name, [])) for r in rows]
+	drawable = _drawable(ctx)
+	return [
+		dict(
+			_portal_dict(r, eids, ctx),
+			evidence_missing=missing.get(r.name, []),
+			drawable=drawable.get(r.name),
+		)
+		for r in rows
+	]
+
+
+AWAITING_RELEASE = ("Sanctioned", "Partially Disbursed")
+
+
+def _drawable(ctx: dict) -> dict:
+	"""{application: what lending says is still drawable} for loans awaiting release.
+
+	lending's get_disbursal_amount — the same figure the release panel offers
+	and Loan Disbursement validates against — so the queue never works out
+	"sanctioned minus disbursed" for itself. Only for loans still awaiting a
+	draw: it takes a row lock, and a closed or fully drawn loan has nothing to
+	release. Elevated because it gates on a Loan permission portal roles lack.
+	"""
+	from lending.loan_management.doctype.loan_disbursement.loan_disbursement import (
+		get_disbursal_amount,
+	)
+
+	out = {}
+	with _as_system():
+		for application, case in ctx.items():
+			if case.get("loan") and case.get("loan_status") in AWAITING_RELEASE:
+				out[application] = flt(get_disbursal_amount(case["loan"])[0])
+	return out
 
 
 def review_loan(user: str, name: str, action: str, remarks: str | None = None) -> dict:

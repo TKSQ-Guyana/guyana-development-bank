@@ -37,9 +37,11 @@ export function LoanAccount({
     // `||`, not `??`: nothing overdue comes back as 0, not null, and a citizen
     // paying on time is the normal case — falling through to the instalment is
     // what makes the box usable before the first demand is raised. The backend
-    // posts that as an Advance Payment.
-    const due = a?.dues?.overdue_total_amount || a?.loan?.monthly_repayment_amount;
-    if (due) setAmount(String(Math.round(due)));
+    // posts that as an Advance Payment. Both figures are lending's, passed
+    // through exactly: `instalment` is the current schedule's, not the Loan's
+    // booking-time figure, and neither is rounded here.
+    const due = a?.dues?.overdue_total_amount || a?.instalment;
+    if (due) setAmount(String(due));
   }, []);
 
   const load = useCallback(() => {
@@ -94,14 +96,14 @@ export function LoanAccount({
           </p>
         </div>
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-          0% interest
+          {loan.rate_of_interest}% interest
         </span>
       </div>
 
       <dl className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           { label: 'Disbursed', value: formatGyd(loan.disbursed_amount) },
-          { label: 'Instalment', value: formatGyd(loan.monthly_repayment_amount) },
+          { label: 'Instalment', value: account.instalment ? formatGyd(account.instalment) : '—' },
           { label: 'Paid so far', value: formatGyd(loan.total_amount_paid) },
           {
             label: 'Principal outstanding',
