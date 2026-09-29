@@ -36,10 +36,17 @@ if [ ! -d "sites/$SITE" ]; then
     --install-app lending \
     --install-app gdb_bank \
     --set-default
-else
-  echo "Site $SITE exists — migrating ..."
-  bench --site "$SITE" migrate
 fi
+
+# Always, including immediately after new-site. `bench new-site` fires each
+# app's after_install hook but NOT after_migrate, and gdb_bank does most of its
+# setup in after_migrate: the account-check fields on Bank Account, the bank
+# list a payout destination links to, the loan GL accounts, the product's rate.
+# A site created and never migrated runs without all of it, and the first
+# citizen to reach the payout step gets a 500 from a column that was never
+# created. Idempotent, so it costs a no-op on every later boot.
+echo "Migrating $SITE ..."
+migratebench --site "$SITE" 
 
 # Demo personas, on every boot rather than only at site creation. It is
 # idempotent (each user is created only if absent), and running it only on a

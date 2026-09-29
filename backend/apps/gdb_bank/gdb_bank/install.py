@@ -2,6 +2,8 @@ import os
 
 import frappe
 
+from gdb_bank.utils import policy
+
 # (role_name, desk_access) — Citizen is a website-user role (no desk); the
 # staff roles are system roles so GDB staff can also use the ERPNext desk.
 #
@@ -889,7 +891,10 @@ def ensure_lending_defaults():
 				"product_name": LOAN_PRODUCT_NAME,
 				"is_term_loan": 1,
 				"repayment_schedule_type": "Monthly as per repayment start date",
-				"rate_of_interest": 8.0,
+				# The configured rate at birth, not a placeholder corrected later
+				# by ensure_product_terms: a site whose after_migrate never ran
+				# would otherwise lend at whatever was hard-coded here.
+				"rate_of_interest": policy.rate_of_interest(),
 				"maximum_loan_amount": 0,
 				"collection_offset_sequence_for_standard_asset": OFFSET_ORDER_TITLE,
 				"collection_offset_sequence_for_sub_standard_asset": OFFSET_ORDER_TITLE,
@@ -904,9 +909,10 @@ def ensure_lending_defaults():
 
 
 def ensure_product_terms():
-	"""GDB lends interest-free, so the product carries a 0% rate — otherwise
-	lending computes interest into every schedule and the portal shows citizens
-	interest they will never be charged. `validate_normal_repayment` puts a
+	"""Hold the product at the configured rate — zero unless a deployment says
+	otherwise (utils/policy) — because lending computes interest into every
+	schedule from it and the portal would show citizens interest they were
+	promised they would never be charged. `validate_normal_repayment` puts a
 	ceiling on a Normal Repayment so a payment cannot exceed what is due;
 	api.make_repayment picks Advance Payment when a citizen pays ahead, which
 	is the type that ceiling does not apply to. Idempotent."""
@@ -914,7 +920,8 @@ def ensure_product_terms():
 	if not product:
 		return
 
-	terms = {"rate_of_interest": 0, "validate_normal_repayment": 1}
+	rate, rate_source = policy.resolve()
+	terms = {"rate_of_interest": rate, "validate_normal_repayment": 1}
 	current = frappe.db.get_value("Loan Product", product, list(terms), as_dict=True)
 	if all(current.get(k) == v for k, v in terms.items()):
 		return
@@ -923,7 +930,7 @@ def ensure_product_terms():
 	doc.update(terms)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
-	print(f"set interest-free terms on {product}: {terms}")
+	print(f"set terms on {product} from {rate_source}: {terms}")
 
 
 def _group_account(company: str, base_name: str) -> str | None:
