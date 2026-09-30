@@ -13,6 +13,7 @@ import { IssueOffer } from '../components/IssueOffer';
 import { LoanAccount } from '../components/LoanAccount';
 import { OfferPanel } from '../components/OfferPanel';
 import { ApplicantCaseView } from '../features/applications/ApplicantCaseView';
+import { QuickDecision } from '../features/quick-loan/QuickDecision';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardLabel } from '../components/ui/Card';
@@ -91,6 +92,11 @@ export function LoanDetail() {
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
   const reviewable = loan.status === 'Submitted';
+  // A Quick Loan has no underwriter decision and no Letter of Offer: the
+  // Disbursement Officer decides and pays it in one act (QuickDecision).
+  const quick = loan.product === 'quick';
+  const underwriterDecides = Boolean(user?.is_underwriter) && reviewable && !quick;
+  const trade = (key: string) => (loan.sections?.[key] as string | null) || '—';
   const mine = loan.applicant === user?.user;
   // NOT shared/personas.isStaff, and the difference is deliberate: that one
   // answers "is this a staff account?" for barring the citizen pages, and it
@@ -152,6 +158,7 @@ export function LoanDetail() {
           <Card>
             <CardLabel>Case facts</CardLabel>
             <div className="mt-2">
+              <Row label="Product" value={quick ? <Badge tone="warning">Quick Loan</Badge> : 'SME loan'} />
               <Row label="Amount requested" value={formatGyd(loan.loan_amount)} />
               <Row label="Term requested" value={`${loan.term_months} months`} />
               {loan.approved_amount != null && (
@@ -180,8 +187,21 @@ export function LoanDetail() {
               {loan.monthly_repayment != null && (
                 <Row label="Monthly repayment" value={formatGyd(loan.monthly_repayment)} />
               )}
-              <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
-              <Row label="Business" value={loan.business_stage || '—'} />
+              {quick ? (
+                <>
+                  <Row label="Business location" value={trade('trade_location')} />
+                  <Row label="In business" value={trade('trading_since')} />
+                  <Row
+                    label="Terms accepted"
+                    value={loan.terms_accepted_on ? formatDate(loan.terms_accepted_on) : '—'}
+                  />
+                </>
+              ) : (
+                <>
+                  <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
+                  <Row label="Business" value={loan.business_stage || '—'} />
+                </>
+              )}
               <Row label="Phone" value={loan.phone || '—'} />
               <Row label="Submitted" value={formatDate(loan.creation)} />
             </div>
@@ -239,7 +259,7 @@ export function LoanDetail() {
               // landing on Application that a decision is waiting, now that
               // it is no longer a button sitting in the sidebar the whole
               // time.
-              t.id === 'offer' && user?.is_underwriter && reviewable
+              t.id === 'offer' && (underwriterDecides || (quick && reviewable && user?.is_disbursement))
                 ? {
                     ...t,
                     label: (
@@ -260,12 +280,36 @@ export function LoanDetail() {
           />
 
           <Panel active={tab === 'application'}>
-            <ApplicationSections
-              sections={loan.sections}
-              businessStage={loan.business_stage}
-              useOfFunds={loan.use_of_funds ?? []}
-              useOfFundsTotal={loan.use_of_funds_total}
-            />
+            {quick ? (
+              <Card>
+                <CardLabel>Business description</CardLabel>
+                <div className="mt-2">
+                  <Row label="Business name" value={loan.business_name || '�'} />
+                  <Row label="Region" value={trade('trade_region')} />
+                  <Row
+                    label="Priority groups"
+                    value={
+                      [
+                        Number(loan.sections?.youth_entrepreneur) === 1 && 'Youth',
+                        Number(loan.sections?.woman_entrepreneur) === 1 && 'Woman',
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'None'
+                    }
+                  />
+                  <Row label="What the business sells or does" value={trade('trade_activity')} />
+                  <Row label="Business location" value={trade('trade_location')} />
+                  <Row label="In business" value={trade('trading_since')} />
+                </div>
+              </Card>
+            ) : (
+              <ApplicationSections
+                sections={loan.sections}
+                businessStage={loan.business_stage}
+                useOfFunds={loan.use_of_funds ?? []}
+                useOfFundsTotal={loan.use_of_funds_total}
+              />
+            )}
           </Panel>
 
           <Panel active={tab === 'evidence'}>
@@ -292,7 +336,9 @@ export function LoanDetail() {
                 is what turns this same tab into the offer and conditions
                 workspace below — same gates as before (is_underwriter,
                 reviewable, busy, error), just relocated from the sidebar. */}
-            {user?.is_underwriter && reviewable && (
+            {quick && reviewable && user?.is_disbursement && <QuickDecision loan={loan} onDecided={load} />}
+
+            {underwriterDecides && (
               <Card className="border border-gdb-gold/60">
                 <CardLabel>Decision</CardLabel>
                 {error && (
@@ -318,14 +364,14 @@ export function LoanDetail() {
               </Card>
             )}
 
-            {loan.status === 'Approved' && name ? (
+            {quick ? null : loan.status === 'Approved' && name ? (
               <>
                 {user?.is_underwriter && <IssueOffer application={name} onIssued={bump} />}
                 <OfferPanel key={`offer-${accountKey}`} application={name} onExecuted={bump} />
                 <Conditions key={`cp-${accountKey}`} application={name} onChange={bump} />
               </>
             ) : (
-              !(user?.is_underwriter && reviewable) && (
+              !underwriterDecides && (
                 <Card>
                   <p className="text-sm text-slate-500">
                     Available once the case is approved — nothing to offer or condition before then.

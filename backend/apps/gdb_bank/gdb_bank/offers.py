@@ -25,7 +25,6 @@ from gdb_bank.services import cluster as cluster_service
 from gdb_bank.services.application import _readable_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_TO_PORTAL
 from gdb_bank.utils.session import _as_system, _logger, _require_underwriter, _session_user
-from gdb_bank.install import LOAN_PRODUCT_NAME
 from gdb_bank.services.notification import notify
 
 OFFER_FIELDS = [
@@ -272,6 +271,12 @@ def issue_offer(
 	row = frappe.db.get_value("Loan Application", application, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(application))
+	# A Quick Loan has no Letter of Offer: its borrower accepted the terms on
+	# submission, and it is decided and paid in one act (services/quick_loan).
+	from gdb_bank.services.quick_loan import is_quick
+
+	if is_quick(row.loan_product):
+		frappe.throw(_("A Quick Loan has no Letter of Offer."))
 	if row.status != "Approved":
 		frappe.throw(
 			_("Only an approved application can be offered ({0} is {1}).").format(
@@ -311,7 +316,9 @@ def issue_offer(
 				)
 			)
 
-	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
+	# The ceiling of the product this case is filed on — not the standard
+	# product's, which would let any other product's cap be offered past.
+	product = row.loan_product
 	amount = flt(offered_amount) or flt(row.loan_amount)
 	term = cint(term_months) or cint(row.repayment_periods)
 

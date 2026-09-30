@@ -14,11 +14,23 @@ from frappe.utils import cint, flt
 
 from gdb_bank.utils.constants import (
 	GUYANA_DIAL_CODE,
+	PORTAL_PRODUCTS,
+	QUICK_PRODUCT,
 	SECTION_KEYS,
 	STAGE_LABELS,
+	STANDARD_PRODUCT,
 	STATUS_TO_PORTAL,
 )
 from gdb_bank.utils.session import _eids, _is_staff
+
+
+def _portal_product(loan_product: str | None) -> str:
+	"""The portal key of the lending Loan Product a case is filed on."""
+	if loan_product and frappe.get_cached_value("Loan Product", loan_product, "product_name") == (
+		PORTAL_PRODUCTS[QUICK_PRODUCT]
+	):
+		return QUICK_PRODUCT
+	return STANDARD_PRODUCT
 
 
 def _normalised_phone(phone: str | None) -> str:
@@ -266,6 +278,12 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 	stage, stage_label = _stage_for(status, case)
 	return {
 		"name": get("name"),
+		# `standard` or `quick`. The two are applied for on different forms, and
+		# the review queue and case view show which one a case is.
+		"product": _portal_product(get("loan_product")),
+		# When a Quick Loan's borrower accepted its terms (it has no offer to sign).
+		"terms_accepted_on": get("gdb_terms_accepted_on"),
+		"credit_consent_on": get("gdb_credit_consent_on"),
 		"applicant": get("gdb_owner"),
 		"applicant_eid": eids.get(owner),
 		"cluster": get("gdb_cluster"),

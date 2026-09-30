@@ -57,13 +57,27 @@ DEFAULT_RATE = 0.0
 # compute a schedule from it.
 MAX_RATE = 100.0
 
+# The Quick Loan — the informal traders' product — is announced at up to
+# G$300,000 over at most twelve months. Both are programme terms, so both are
+# read the same way the rate is, and a value that cannot be one is refused in
+# favour of the announced figure.
+QUICK_CEILING_KEY = "gdb_quick_loan_ceiling"
+QUICK_CEILING_ENV = "GDB_QUICK_LOAN_CEILING"
+DEFAULT_QUICK_CEILING = 300000.0
 
-def _configured() -> tuple[str, str | None]:
+QUICK_TERM_KEY = "gdb_quick_loan_max_term_months"
+QUICK_TERM_ENV = "GDB_QUICK_LOAN_MAX_TERM_MONTHS"
+DEFAULT_QUICK_TERM = 12
+# Lending's own bound on a term; anything longer is a typo, not a policy.
+MAX_TERM = 360
+
+
+def _configured(key: str = RATE_KEY, env: str = RATE_ENV) -> tuple[str, str | None]:
 	"""(raw value, source) straight from configuration, unvalidated."""
-	value = str(frappe.conf.get(RATE_KEY) or "").strip()
+	value = str(frappe.conf.get(key) or "").strip()
 	if value:
 		return value, "site_config"
-	value = (os.environ.get(RATE_ENV) or "").strip()
+	value = (os.environ.get(env) or "").strip()
 	if value:
 		return value, "environment"
 	return "", None
@@ -104,3 +118,34 @@ def rate_of_interest() -> float:
 def source() -> str:
 	"""Which of the three answered: site_config, environment or default."""
 	return resolve()[1]
+
+
+def _refused(key: str, source: str | None, value: str, default) -> None:
+	_logger().error(f"{key} from {source} is not usable ({value!r}) — refusing it and using {default}")
+
+
+def quick_loan_ceiling() -> float:
+	"""The most one Quick Loan may be for. Held on the Loan Product as lending's
+	own maximum_loan_amount, so lending refuses a larger application itself."""
+	value, source = _configured(QUICK_CEILING_KEY, QUICK_CEILING_ENV)
+	if not value:
+		return DEFAULT_QUICK_CEILING
+	try:
+		amount = float(value)
+	except (TypeError, ValueError):
+		amount = 0.0
+	if amount <= 0:
+		_refused(QUICK_CEILING_KEY, source, value, DEFAULT_QUICK_CEILING)
+		return DEFAULT_QUICK_CEILING
+	return amount
+
+
+def quick_loan_max_term() -> int:
+	"""The longest term, in months, a Quick Loan may be asked for."""
+	value, source = _configured(QUICK_TERM_KEY, QUICK_TERM_ENV)
+	if not value:
+		return DEFAULT_QUICK_TERM
+	if not value.isdigit() or not (1 <= int(value) <= MAX_TERM):
+		_refused(QUICK_TERM_KEY, source, value, DEFAULT_QUICK_TERM)
+		return DEFAULT_QUICK_TERM
+	return int(value)

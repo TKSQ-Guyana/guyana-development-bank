@@ -41,6 +41,7 @@ DECLARED_FIELDS = (
 	"phone",
 	"email",
 	"date_of_birth",
+	"national_id",
 	"occupation",
 	"region",
 	"village_or_town",

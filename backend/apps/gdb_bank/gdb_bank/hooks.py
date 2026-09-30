@@ -17,12 +17,14 @@ permission_query_conditions = {
 	"Loan": "gdb_bank.permissions.loan_query_conditions",
 	"GDB Applicant Document": "gdb_bank.permissions.own_records_query_conditions",
 	"GDB Information Request": "gdb_bank.permissions.own_records_query_conditions",
+	"GDB Field Officer Request": "gdb_bank.permissions.own_records_query_conditions",
 	"GDB Citizen Profile": "gdb_bank.permissions.profile_query_conditions",
 }
 has_permission = {
 	"Loan": "gdb_bank.permissions.loan_has_permission",
 	"GDB Applicant Document": "gdb_bank.permissions.own_record_has_permission",
 	"GDB Information Request": "gdb_bank.permissions.own_record_has_permission",
+	"GDB Field Officer Request": "gdb_bank.permissions.own_record_has_permission",
 	"GDB Citizen Profile": "gdb_bank.permissions.profile_has_permission",
 }
 

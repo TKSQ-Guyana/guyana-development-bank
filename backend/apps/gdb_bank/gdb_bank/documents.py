@@ -44,6 +44,8 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	REPLACED,
 	REQUEST_DOCTYPE,
 	REVIEWED,
+	accepted_extensions,
+	is_what_it_claims,
 	missing_evidence,
 	required_types,
 )
@@ -88,6 +90,8 @@ def _settings(types: tuple = DOCUMENT_TYPES) -> dict:
 		"types": list(types),
 		"personal_types": list(PERSONAL_TYPES),
 		"accepts": ",".join(ALLOWED_EXTENSIONS),
+		# Per type, for the types that take photographs as well as PDFs.
+		"accepts_by_type": {t: ",".join(accepted_extensions(t)) for t in types},
 		"max_bytes": MAX_FILE_BYTES,
 	}
 
@@ -179,12 +183,28 @@ def validate_attachment(doc, method=None):
 
 	name = (doc.file_name or "").strip()
 	extension = os.path.splitext(name)[-1].lower()
-	if extension not in ALLOWED_EXTENSIONS:
+	document_type = frappe.db.get_value(DOCTYPE, doc.attached_to_name, "document_type")
+	accepted = accepted_extensions(document_type)
+	if extension not in accepted:
+		if accepted == ALLOWED_EXTENSIONS:
+			frappe.throw(
+				_("{0} is not a PDF. GDB accepts PDF documents only.").format(name or _("This file"))
+			)
 		frappe.throw(
-			_("{0} is not a PDF. GDB accepts PDF documents only.").format(name or _("This file"))
+			_("{0}: upload {1}.").format(
+				name or _("This file"), ", ".join(e.lstrip(".").upper() for e in accepted)
+			)
 		)
 
 	content = doc.get_content() if hasattr(doc, "get_content") else None
+	if isinstance(content, str):
+		content = content.encode()
+	if content and not is_what_it_claims(extension, content):
+		frappe.throw(
+			_("{0} is not a real {1} file.").format(
+				name, extension.lstrip(".").upper()
+			)
+		)
 	size = len(content) if content else cint(doc.file_size)
 	if size > MAX_FILE_BYTES:
 		frappe.throw(

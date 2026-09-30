@@ -6,6 +6,9 @@ prompts from these rules and the review queue flags a thin case with them.
 
 import frappe
 
+from gdb_bank.utils.constants import QUICK_PRODUCT
+from gdb_bank.utils.formatters import _portal_product
+
 DOCTYPE = "GDB Applicant Document"
 REQUEST_DOCTYPE = "GDB Information Request"
 
@@ -19,6 +22,11 @@ DOCUMENT_TYPES = (
 	"Business Plan",
 	"Bank Statement",
 	"Quotation",
+	# The Quick Loan's evidence. An informal trader proves they trade with a
+	# phone camera — the stall, the goods, whatever receipts they happen to keep
+	# — never with registration, accounts or a plan.
+	"Trading Photo",
+	"Receipts or Records",
 	"Other",
 )
 
@@ -30,10 +38,49 @@ PERSONAL_TYPES = ("Identity", "Proof of Address", "Personal Financials")
 # What every individual on a group's case is asked for — the head and each member.
 PERSONAL_EVIDENCE = ("Identity", "Personal Financials")
 
-# PDF only, and small enough for a phone connection in Region 9. Enforced on
+# PDF, and small enough for a phone connection in Region 9. Enforced on
 # Frappe's own upload path (documents.validate_attachment).
 ALLOWED_EXTENSIONS = (".pdf",)
 MAX_FILE_BYTES = 10 * 1024 * 1024
+
+# Photographs, for the two types a trader produces with a phone. A photo of the
+# stall is a photo; receipts may be photographed or scanned.
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png")
+ACCEPTED_BY_TYPE = {
+	"Trading Photo": PHOTO_EXTENSIONS,
+	"Receipts or Records": PHOTO_EXTENSIONS + ALLOWED_EXTENSIONS,
+}
+
+# What each format's file begins with. A name is what the uploader typed; these
+# bytes are what the file is. Frappe itself parses a PDF (for JavaScript) and a
+# JPEG (for EXIF) on the way in, but nothing looks inside a PNG — so the
+# signature is checked here for every format, and a renamed file is refused
+# with a reason rather than stored.
+SIGNATURES = {
+	".pdf": b"%PDF-",
+	".jpg": b"\xff\xd8\xff",
+	".jpeg": b"\xff\xd8\xff",
+	".png": b"\x89PNG\r\n\x1a\n",
+}
+
+
+def accepted_extensions(document_type: str | None) -> tuple:
+	"""The file formats GDB accepts for this type of evidence."""
+	return ACCEPTED_BY_TYPE.get(document_type or "", ALLOWED_EXTENSIONS)
+
+
+def is_what_it_claims(extension: str, content: bytes) -> bool:
+	"""Whether the file's own first bytes match the format its name claims.
+
+	A PDF may carry a little junk before its header (the format allows it within
+	the first KB), so only a PDF is searched rather than matched at the start.
+	"""
+	signature = SIGNATURES.get(extension)
+	if not signature:
+		return False
+	if extension == ".pdf":
+		return signature in content[:1024]
+	return content.startswith(signature)
 
 OPEN = "Open"
 RECEIVED = "Received"
@@ -41,13 +88,16 @@ REPLACED = "Replaced"
 REVIEWED = ("Accepted", "Rejected")
 
 
-def required_types(business_stage: str | None, cluster: bool = False) -> tuple:
+def required_types(business_stage: str | None, cluster: bool = False, quick: bool = False) -> tuple:
 	"""What the Bank expects from the applicant of an application.
 
 	Identity always — plus, on a group's case, the head's own personal
 	financials. Beyond that an existing business owes its financials and a
-	start-up its business plan.
+	start-up its business plan. A Quick Loan owes a photograph of the trade and
+	nothing else: receipts are welcome and never expected.
 	"""
+	if quick:
+		return ("Identity", "Trading Photo")
 	base = PERSONAL_EVIDENCE if cluster else ("Identity",)
 	stage = (business_stage or "").strip().title()
 	if stage == "Existing":
@@ -55,6 +105,15 @@ def required_types(business_stage: str | None, cluster: bool = False) -> tuple:
 	if stage == "New":
 		return base + ("Business Plan",)
 	return base
+
+
+def _expected(row) -> tuple:
+	"""required_types for one Loan Application row (needs stage, cluster, product)."""
+	return required_types(
+		row.gdb_business_stage,
+		bool(row.gdb_cluster),
+		quick=_portal_product(row.get("loan_product")) == QUICK_PRODUCT,
+	)
 
 
 def _counts_for(doc, application: str | None) -> bool:
@@ -79,13 +138,16 @@ def missing_evidence(application: str, person: str | None = None) -> list:
 	evidence is the head's.
 	"""
 	row = frappe.db.get_value(
-		"Loan Application", application, ["gdb_owner", "gdb_business_stage", "gdb_cluster"], as_dict=True
+		"Loan Application",
+		application,
+		["gdb_owner", "gdb_business_stage", "gdb_cluster", "loan_product"],
+		as_dict=True,
 	)
 	if not row:
 		return []
 	person = person or row.gdb_owner
 	if person == row.gdb_owner:
-		expected = required_types(row.gdb_business_stage, bool(row.gdb_cluster))
+		expected = _expected(row)
 	else:
 		expected = PERSONAL_EVIDENCE
 	held = _held_types(application, person)
@@ -112,6 +174,6 @@ def missing_by_application(rows) -> dict:
 	missing = {}
 	for row in rows:
 		held = {d.document_type for d in by_owner.get(row.gdb_owner, []) if _counts_for(d, row.name)}
-		expected = required_types(row.gdb_business_stage, bool(row.gdb_cluster))
+		expected = _expected(row)
 		missing[row.name] = [t for t in expected if t not in held]
 	return missing

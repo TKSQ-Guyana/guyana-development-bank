@@ -49,6 +49,22 @@ BANKS = (
 LOAN_PRODUCT_NAME = "GDB Standard Loan"
 OFFSET_ORDER_TITLE = "GDB Standard Offset Order"
 
+# The informal traders' product: market vendors and small services, with no
+# TIN, no DCRA registration and no receipts. A second lending Loan Product
+# rather than a mode of the first, so lending itself holds its ceiling
+# (maximum_loan_amount, from utils/policy) and every downstream step — offer,
+# booking, disbursement, repayment — already reads the product off the case.
+QUICK_LOAN_PRODUCT_NAME = "GDB Quick Loan"
+QUICK_LOAN_PRODUCT_CODE = "GDB-QCK"
+
+# Every product GDB lends on. Terms and ledger wiring are held on all of them.
+GDB_PRODUCT_NAMES = (LOAN_PRODUCT_NAME, QUICK_LOAN_PRODUCT_NAME)
+
+# The Quick Loan's two closed questions — the Select options on the Custom
+# Fields below, so Frappe itself refuses an answer outside them.
+QUICK_TRADE_LOCATIONS = ("From home", "Fixed location", "Mobile")
+QUICK_TRADING_SINCE = ("Less than 6 months", "6 months to 1 year", "1 to 3 years", "More than 3 years")
+
 # The sixteen accounts lending makes mandatory on a Loan Product once
 # `enable_loan_accounting` is set on the Company (loan_product.set_optional_accounts).
 # Without them every accounting hook is an early `return`, so disbursements and
@@ -173,6 +189,18 @@ APPLICATION_SECTIONS = (
 	("gdb_initial_costs", "Initial Start-up Costs", "Currency"),
 	("gdb_expected_cash_position", "Expected Monthly Cash Position", "Currency"),
 	("gdb_assumptions", "Assumptions Behind Projections", "Small Text"),
+	# Q — the Quick Loan, INSTEAD of B-H. An informal trader has no
+	# registration, accounts or plan to describe; what an underwriter needs is
+	# what they do, where they do it and for how long. Where they trade is asked
+	# apart from what they do, so "roadside" is never mistaken for a trade.
+	("gdb_trade_activity", "What the Business Sells or Does (Quick Loan)", "Small Text"),
+	("gdb_trade_location", "Business Location (Quick Loan)", "Select", "\n" + "\n".join(QUICK_TRADE_LOCATIONS)),
+	("gdb_trading_since", "Time in Business (Quick Loan)", "Select", "\n" + "\n".join(QUICK_TRADING_SINCE)),
+	("gdb_trade_region", "Business Region (Quick Loan)", "Data"),
+	# Priority groups, as the applicant declares them — a declaration, kept apart
+	# from the sector, never a decision.
+	("gdb_youth_entrepreneur", "Youth Entrepreneur (Declared)", "Check"),
+	("gdb_woman_entrepreneur", "Woman Entrepreneur (Declared)", "Check"),
 )
 
 
@@ -253,6 +281,24 @@ CUSTOM_FIELDS = {
 			"insert_after": "gdb_dcra_number",
 		},
 		*_section_custom_fields(),
+		# A Quick Loan has no Letter of Offer to sign, so the borrower accepts its
+		# terms — amount, term, zero interest — when they submit, and this is when.
+		# Set by submit_application, never by the form.
+		{
+			"fieldname": "gdb_terms_accepted_on",
+			"label": "Quick Loan Terms Accepted On",
+			"fieldtype": "Datetime",
+			"read_only": 1,
+			"insert_after": "gdb_woman_entrepreneur",
+		},
+		# The borrower's consent to a credit-bureau check, given on the submit page.
+		{
+			"fieldname": "gdb_credit_consent_on",
+			"label": "Credit Check Consent Given On",
+			"fieldtype": "Datetime",
+			"read_only": 1,
+			"insert_after": "gdb_terms_accepted_on",
+		},
 		# Section C's use of funds as real rows, one Currency amount each, so the
 		# total is Frappe's SUM over the lines rather than an addition done by a
 		# client over a JSON string. Supersedes the gdb_use_of_funds text, which
@@ -924,31 +970,70 @@ def ensure_lending_defaults():
 	frappe.db.commit()
 
 	ensure_loan_accounting(company)
+	ensure_quick_loan_product()
+
+
+def ensure_quick_loan_product():
+	"""Seed the Quick Loan as a copy of the standard product, so it inherits the
+	company, the offset order and all sixteen ledger accounts — lending makes
+	those mandatory once loan accounting is on, and a Quick Loan disbursed
+	against different accounts would be money the ledger reports apart from
+	the rest of the book. Only the name, the code and the ceiling differ.
+	Idempotent."""
+	if frappe.db.get_value("Loan Product", {"product_name": QUICK_LOAN_PRODUCT_NAME}):
+		return
+	standard = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
+	if not standard:
+		print(f"Loan Product {LOAN_PRODUCT_NAME} not found — skipping {QUICK_LOAN_PRODUCT_NAME}")
+		return
+
+	product = frappe.copy_doc(frappe.get_doc("Loan Product", standard))
+	product.update(
+		{
+			"product_code": QUICK_LOAN_PRODUCT_CODE,
+			"product_name": QUICK_LOAN_PRODUCT_NAME,
+			"rate_of_interest": policy.rate_of_interest(),
+			"maximum_loan_amount": policy.quick_loan_ceiling(),
+		}
+	)
+	product.insert(ignore_permissions=True)
+	frappe.db.commit()
+	print(f"created Loan Product: {QUICK_LOAN_PRODUCT_NAME}")
+
+
+def _product_terms(product_name: str, rate: float) -> dict:
+	terms = {"rate_of_interest": rate, "validate_normal_repayment": 1}
+	if product_name == QUICK_LOAN_PRODUCT_NAME:
+		terms["maximum_loan_amount"] = policy.quick_loan_ceiling()
+	return terms
 
 
 def ensure_product_terms():
-	"""Hold the product at the configured rate — zero unless a deployment says
-	otherwise (utils/policy) — because lending computes interest into every
+	"""Hold every GDB product at the configured rate — zero unless a deployment
+	says otherwise (utils/policy) — because lending computes interest into every
 	schedule from it and the portal would show citizens interest they were
 	promised they would never be charged. `validate_normal_repayment` puts a
 	ceiling on a Normal Repayment so a payment cannot exceed what is due;
 	api.make_repayment picks Advance Payment when a citizen pays ahead, which
-	is the type that ceiling does not apply to. Idempotent."""
-	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
-	if not product:
-		return
-
+	is the type that ceiling does not apply to. The Quick Loan's ceiling is held
+	the same way, so changing it is a configuration change, never a release.
+	Idempotent."""
 	rate, rate_source = policy.resolve()
-	terms = {"rate_of_interest": rate, "validate_normal_repayment": 1}
-	current = frappe.db.get_value("Loan Product", product, list(terms), as_dict=True)
-	if all(current.get(k) == v for k, v in terms.items()):
-		return
+	for product_name in GDB_PRODUCT_NAMES:
+		product = frappe.db.get_value("Loan Product", {"product_name": product_name})
+		if not product:
+			continue
 
-	doc = frappe.get_doc("Loan Product", product)
-	doc.update(terms)
-	doc.save(ignore_permissions=True)
-	frappe.db.commit()
-	print(f"set terms on {product} from {rate_source}: {terms}")
+		terms = _product_terms(product_name, rate)
+		current = frappe.db.get_value("Loan Product", product, list(terms), as_dict=True)
+		if all(current.get(k) == v for k, v in terms.items()):
+			continue
+
+		doc = frappe.get_doc("Loan Product", product)
+		doc.update(terms)
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		print(f"set terms on {product} from {rate_source}: {terms}")
 
 
 def _group_account(company: str, base_name: str) -> str | None:
@@ -1024,15 +1109,20 @@ def ensure_loan_accounting(company: str | None = None):
 		frappe.db.set_value("Company", company, "enable_loan_accounting", 1)
 		print(f"enabled loan accounting on {company}")
 
-	product_doc = frappe.get_doc("Loan Product", product)
-	changed = False
-	for field, value in accounts.items():
-		if product_doc.get(field) != value:
-			product_doc.set(field, value)
-			changed = True
-	if changed:
-		product_doc.save(ignore_permissions=True)
-		print(f"wired {len(accounts)} GL accounts onto {product}")
+	# Every GDB product posts to the same sixteen accounts: one loan book.
+	for name in GDB_PRODUCT_NAMES:
+		product = frappe.db.get_value("Loan Product", {"product_name": name})
+		if not product:
+			continue
+		product_doc = frappe.get_doc("Loan Product", product)
+		changed = False
+		for field, value in accounts.items():
+			if product_doc.get(field) != value:
+				product_doc.set(field, value)
+				changed = True
+		if changed:
+			product_doc.save(ignore_permissions=True)
+			print(f"wired {len(accounts)} GL accounts onto {product}")
 
 	frappe.db.commit()
 

@@ -391,6 +391,11 @@ export function Apply() {
         navigate(`/loans/${name}`, { replace: true });
         return;
       }
+      if (loan.product === 'quick') {
+        // A Quick Loan draft is resumed on its own form.
+        navigate(`/apply/quick/${name}`, { replace: true });
+        return;
+      }
       setDraft(loan);
       setStage((loan.business_stage as '' | 'Existing' | 'New') ?? '');
       const filedAs = ((loan.sections?.legal_structure as Structure) ?? '') as Structure;
@@ -1309,10 +1314,10 @@ export function Apply() {
             <>
               <Section
                 letter="1"
-                title="Is this an existing business or a new venture?"
+                title="Is this an existing business, a new venture, or a quick loan?"
                 blurb="Asked first because it decides what the rest of the application may ask you for. A trading business is asked what it has earned; a new venture what it expects to."
               >
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <ChoiceCard
                     title="Existing business"
                     body="Already trading, and registered with DCRA."
@@ -1343,6 +1348,16 @@ export function Apply() {
                       setDcraRecord(null);
                       setDcraNote(null);
                     }}
+                  />
+                  {/* A different product on its own short form, not a third
+                      stage of this one: an informal trader has no
+                      registration, accounts or plan for this form to ask about. */}
+                  <ChoiceCard
+                    title="Quick Loan"
+                    body="For market vendors, small services and other small businesses."
+                    note="No business registration needed."
+                    selected={false}
+                    onSelect={() => navigate('/apply/quick')}
                   />
                 </div>
               </Section>

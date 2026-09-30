@@ -35,6 +35,12 @@ export interface OwnershipRow {
 
 export interface LoanApplication {
   name: string;
+  /** Which product the case is filed on. A Quick Loan is applied for on its own
+   *  form, has no Letter of Offer, and is decided and paid by a Disbursement
+   *  Officer in one act (gdb_bank.api.decide_quick_loan). */
+  product: 'standard' | 'quick';
+  /** When a Quick Loan's borrower accepted its terms, at submission. */
+  terms_accepted_on: string | null;
   applicant: string;
   /** The applicant's national e-ID. This, not the mailbox in `applicant`, is
    *  how GDB staff identify a person — so every staff-facing view shows it. */
@@ -148,6 +154,8 @@ export interface DocumentSettings {
   types: string[];
   personal_types: string[];
   accepts: string;
+  /** Per type — a Trading Photo takes photographs, not only PDFs. */
+  accepts_by_type?: Record<string, string>;
   max_bytes: number;
 }
 
@@ -236,6 +244,8 @@ export interface CitizenProfile extends DeclaredFinancials {
   phone: string | null;
   email: string | null;
   date_of_birth: string | null;
+  /** Declared by the applicant on the Quick Loan's About you step. */
+  national_id: string | null;
   occupation: string | null;
   region: string | null;
   village_or_town: string | null;

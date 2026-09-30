@@ -6,7 +6,7 @@ seed masters), so this module is safe to import from anywhere — utils, service
 and api.py all read the same single source of truth for these values.
 """
 
-from gdb_bank.install import APPLICATION_SECTIONS
+from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME, QUICK_LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
 
@@ -78,6 +78,9 @@ STAGE_LABELS = {
 
 LOAN_FIELDS = [
 	"name",
+	"loan_product",
+	"gdb_terms_accepted_on",
+	"gdb_credit_consent_on",
 	"gdb_owner",
 	"gdb_cluster",
 	"gdb_business_stage",
@@ -122,6 +125,25 @@ NEW_ONLY = (
 	"gdb_expected_cash_position",
 	"gdb_assumptions",
 )
+
+# The Quick Loan's own section, and everything it asks INSTEAD of. The same
+# rule as the stage split above: switching product clears the other product's
+# answers, so a market vendor is never decided on an SME's blank accounts and
+# an SME never carries a stall's answers.
+QUICK_ONLY = (
+	"gdb_trade_activity",
+	"gdb_trade_location",
+	"gdb_trading_since",
+	"gdb_trade_region",
+	"gdb_youth_entrepreneur",
+	"gdb_woman_entrepreneur",
+)
+SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY)
+
+# Portal product key -> the lending Loan Product it is filed on.
+STANDARD_PRODUCT = "standard"
+QUICK_PRODUCT = "quick"
+PORTAL_PRODUCTS = {STANDARD_PRODUCT: LOAN_PRODUCT_NAME, QUICK_PRODUCT: QUICK_LOAN_PRODUCT_NAME}
 
 # One person's own finances, declared on their GDB Citizen Profile. Asked of
 # every individual on a group's case; staff read them from the cluster roster.

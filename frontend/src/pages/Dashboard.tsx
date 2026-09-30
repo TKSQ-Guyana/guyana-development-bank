@@ -29,6 +29,11 @@ const QUICK_LINKS = [
     body: 'The cluster head applies for the group. Every member keeps their own record.',
     to: '/cluster',
   },
+  {
+    title: 'Quick Loan',
+    body: 'For market vendors, small services and other small businesses. No business registration needed.',
+    to: '/apply/quick',
+  },
 ];
 
 function nextInstalment(account: LoanAccount | null): { date: string; amount: number } | null {

@@ -11,20 +11,27 @@ cluster service's rule.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, getdate, nowdate
+from frappe.utils import cint, flt, getdate, now_datetime, nowdate
 
-from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME
+from gdb_bank.install import APPLICATION_SECTIONS
+from gdb_bank.utils import policy
 from gdb_bank.utils.constants import (
 	EXISTING_ONLY,
 	LOAN_ACCOUNT_FIELDS,
 	LOAN_FIELDS,
 	NEW_ONLY,
+	PORTAL_PRODUCTS,
+	QUICK_ONLY,
+	QUICK_PRODUCT,
 	SECTION_KEYS,
+	SME_ONLY,
+	STANDARD_PRODUCT,
 )
 from gdb_bank.utils.formatters import (
 	_for_viewer,
 	_normalised_phone,
 	_portal_dict,
+	_portal_product,
 	_schedule_instalments,
 	_stage_context,
 )
@@ -42,7 +49,24 @@ from gdb_bank.services.user import _get_or_create_customer
 def _blanked(fieldnames) -> dict:
 	"""Empty values for these fields, each of its own type."""
 	by_name = {f[0]: f[2] for f in APPLICATION_SECTIONS}
-	return {f: (0 if by_name.get(f) in ("Currency", "Int") else "") for f in fieldnames}
+	return {f: (0 if by_name.get(f) in ("Currency", "Int", "Percent", "Check") else "") for f in fieldnames}
+
+
+def _product(product: str | None) -> str:
+	"""The portal product key the caller asked for; omitted means the standard loan."""
+	key = (product or STANDARD_PRODUCT).strip().lower()
+	if key not in PORTAL_PRODUCTS:
+		frappe.throw(_("{0} is not a GDB loan product.").format(product))
+	return key
+
+
+# What a Quick Loan must say about the trade, and how the form is told it did not.
+_QUICK_REQUIRED = {
+	"gdb_trade_activity": "Tell us what your business sells or does.",
+	"gdb_trade_region": "Choose the region you do business in.",
+	"gdb_trading_since": "Tell us how long you have been in business.",
+	"gdb_trade_location": "Choose your business location.",
+}
 
 
 def _use_of_funds_lines(raw) -> list[dict]:
@@ -112,7 +136,7 @@ def _section_values(sections) -> dict:
 			continue
 		if fieldtype in ("Currency", "Percent"):
 			values[fieldname] = flt(raw)
-		elif fieldtype == "Int":
+		elif fieldtype in ("Int", "Check"):
 			values[fieldname] = cint(raw)
 		else:
 			values[fieldname] = (raw or "").strip() if isinstance(raw, str) else (raw or "")
@@ -192,45 +216,63 @@ def _validated(
 	business_name: str | None = None,
 	sections=None,
 	user: str | None = None,
+	product: str | None = None,
 ) -> dict:
 	"""Check what the applicant typed, and answer the fields to write.
 
 	Shared by the draft save and the one-shot apply, so that a draft cannot hold
 	anything a submitted application would have refused.
+
+	`product` is the portal key — `standard` (the default) or `quick`. The Quick
+	Loan's ceiling is not checked here: it is the product's own
+	maximum_loan_amount, which lending's Loan Application refuses on save.
 	"""
 	user = user or _session_user()
+	product = _product(product)
+	quick = product == QUICK_PRODUCT
 
 	loan_amount = flt(loan_amount)
 	term_months = cint(term_months)
 	purpose = (purpose or "").strip()
+	longest = policy.quick_loan_max_term() if quick else policy.MAX_TERM
 	if loan_amount <= 0:
 		frappe.throw(_("Loan amount must be greater than zero."))
-	if not (1 <= term_months <= 360):
-		frappe.throw(_("Term must be between 1 and 360 months."))
+	if not (1 <= term_months <= longest):
+		frappe.throw(_("Term must be between 1 and {0} months.").format(longest))
 	if not purpose:
 		frappe.throw(_("Purpose is required."))
 
+	# A Quick Loan is one trader's own. Refused rather than ignored, because a
+	# head who names their group is asking for something this product is not.
+	if quick and (cluster or "").strip():
+		frappe.throw(_("A Quick Loan cannot be filed for a group."))
 	cluster = _cluster_for(user, cluster)
 
-	# Existing vs new business is a real fork, not a label: an existing trading
-	# business is expected to name its DCRA registration, a start-up has none
-	# to give. Enforce that here so an underwriter never sees "Existing" with
-	# nothing behind it.
-	business_stage = (business_stage or "").strip().title()
-	if business_stage and business_stage not in ("Existing", "New"):
-		frappe.throw(_("Business stage must be Existing or New."))
-	dcra_number = (dcra_number or "").strip().upper()
-	business_name = (business_name or "").strip()
-	if business_stage == "Existing" and not dcra_number:
-		frappe.throw(_("Give the DCRA registration number of your existing business."))
-	if business_stage == "New":
-		# A start-up has no registration yet, so never carry one over.
-		dcra_number = ""
-	if business_stage and not business_name:
-		frappe.throw(_("Business name is required."))
+	if quick:
+		# No registration and no stage: neither is a question an informal trader
+		# can answer. The name they trade under, if they have one, is optional.
+		business_stage, dcra_number = "", ""
+		business_name = (business_name or "").strip()
+	else:
+		# Existing vs new business is a real fork, not a label: an existing
+		# trading business is expected to name its DCRA registration, a start-up
+		# has none to give. Enforce that here so an underwriter never sees
+		# "Existing" with nothing behind it.
+		business_stage = (business_stage or "").strip().title()
+		if business_stage and business_stage not in ("Existing", "New"):
+			frappe.throw(_("Business stage must be Existing or New."))
+		dcra_number = (dcra_number or "").strip().upper()
+		business_name = (business_name or "").strip()
+		if business_stage == "Existing" and not dcra_number:
+			frappe.throw(_("Give the DCRA registration number of your existing business."))
+		if business_stage == "New":
+			# A start-up has no registration yet, so never carry one over.
+			dcra_number = ""
+		if business_stage and not business_name:
+			frappe.throw(_("Business name is required."))
 
-	product = frappe.db.get_value("Loan Product", {"product_name": LOAN_PRODUCT_NAME})
-	if not product:
+	loan_product = frappe.db.get_value("Loan Product", {"product_name": PORTAL_PRODUCTS[product]})
+	if not loan_product:
 		frappe.throw(_("Loan Product is not configured. Contact the administrator."))
 
 	values = {
@@ -239,9 +281,9 @@ def _validated(
 		"applicant_name": frappe.utils.get_fullname(user),
 		"applicant_email_address": user,
 		"applicant_phone_number": _normalised_phone(phone),
-		"company": frappe.db.get_value("Loan Product", product, "company"),
+		"company": frappe.db.get_value("Loan Product", loan_product, "company"),
 		"posting_date": nowdate(),
-		"loan_product": product,
+		"loan_product": loan_product,
 		"loan_amount": loan_amount,
 		"is_term_loan": 1,
 		"repayment_method": "Repay Over Number of Periods",
@@ -256,6 +298,17 @@ def _validated(
 		"gdb_business_name": business_name,
 	}
 	values.update(_section_values(sections))
+	if quick:
+		# Sections B-H are the SME's, so a Quick Loan carries none of them —
+		# including the use-of-funds and ownership rows.
+		values.update(_blanked(SME_ONLY))
+		values["gdb_use_of_funds_lines"] = []
+		values["gdb_ownership_lines"] = []
+		for fieldname, message in _QUICK_REQUIRED.items():
+			if not values.get(fieldname):
+				frappe.throw(_(message))
+	else:
+		values.update(_blanked(QUICK_ONLY))
 	# The stage decides which financial block is meaningful, so switching it
 	# clears the other one. Same reasoning as dropping the DCRA number above:
 	# a start-up must never carry filed accounts, and a trading business must
@@ -295,6 +348,7 @@ def save_application(
 	business_name: str | None = None,
 	sections=None,
 	name: str | None = None,
+	product: str | None = None,
 ):
 	"""Create or update the applicant's own DRAFT application.
 
@@ -319,6 +373,7 @@ def save_application(
 		business_name=business_name,
 		sections=sections,
 		user=user,
+		product=product,
 	)
 
 	if name:
@@ -334,7 +389,7 @@ def save_application(
 	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
 
 
-def submit_application(user: str, name: str):
+def submit_application(user: str, name: str, accept_terms=None, credit_check_consent=None):
 	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
 
 	Documents used to gate this call. They no longer do: an applicant on a
@@ -348,11 +403,21 @@ def submit_application(user: str, name: str):
 	What is outstanding at the moment of submission goes in the log, because a
 	case that arrived incomplete is a fact about the case and not just about
 	the screen it was typed on.
+
+	A Quick Loan is paid without a Letter of Offer (services/quick_loan), so its
+	borrower accepts the terms HERE — `accept_terms` — and the moment is recorded.
 	"""
 	_own_draft(name, user)
 	outstanding = missing_evidence(name)
 
 	doc = frappe.get_doc("Loan Application", name)
+	if _portal_product(doc.loan_product) == QUICK_PRODUCT:
+		if not cint(accept_terms):
+			frappe.throw(_("Accept the terms to submit."))
+		if not cint(credit_check_consent):
+			frappe.throw(_("Give your consent for the credit check to submit."))
+		doc.gdb_terms_accepted_on = now_datetime()
+		doc.gdb_credit_consent_on = now_datetime()
 	doc.flags.ignore_permissions = True
 	doc.submit()
 	frappe.db.commit()
@@ -392,6 +457,9 @@ def apply_loan(
 	dcra_number: str | None = None,
 	business_name: str | None = None,
 	sections=None,
+	product: str | None = None,
+	accept_terms=None,
+	credit_check_consent=None,
 ):
 	"""Save and submit in one call, for an applicant with evidence already filed.
 
@@ -413,8 +481,11 @@ def apply_loan(
 		dcra_number=dcra_number,
 		business_name=business_name,
 		sections=sections,
+		product=product,
 	)
-	return submit_application(user, draft["name"])
+	return submit_application(
+		user, draft["name"], accept_terms=accept_terms, credit_check_consent=credit_check_consent
+	)
 
 
 def my_loans(user: str):

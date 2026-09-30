@@ -72,8 +72,13 @@ def save_application(
 	business_name: str | None = None,
 	sections=None,
 	name: str | None = None,
+	product: str | None = None,
 ):
-	"""Create or update the applicant's own DRAFT application."""
+	"""Create or update the applicant's own DRAFT application.
+
+	`product` is `standard` (the default) or `quick` — the informal traders'
+	loan, which asks sections.trade_* instead of a business stage and sections B-H.
+	"""
 	return application_service.save_application(
 		_session_user(),
 		loan_amount,
@@ -87,13 +92,20 @@ def save_application(
 		business_name=business_name,
 		sections=sections,
 		name=name,
+		product=product,
 	)
 
 
 @frappe.whitelist()
-def submit_application(name: str):
-	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking."""
-	return application_service.submit_application(_session_user(), name)
+def submit_application(name: str, accept_terms=None, credit_check_consent=None):
+	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
+
+	A Quick Loan also needs `accept_terms` — it has no Letter of Offer to sign —
+	and `credit_check_consent`, both recorded with the time.
+	"""
+	return application_service.submit_application(
+		_session_user(), name, accept_terms=accept_terms, credit_check_consent=credit_check_consent
+	)
 
 
 @frappe.whitelist()
@@ -115,6 +127,9 @@ def apply_loan(
 	dcra_number: str | None = None,
 	business_name: str | None = None,
 	sections=None,
+	product: str | None = None,
+	accept_terms=None,
+	credit_check_consent=None,
 ):
 	"""Save and submit in one call, for an applicant with evidence already filed.
 
@@ -134,6 +149,9 @@ def apply_loan(
 		dcra_number=dcra_number,
 		business_name=business_name,
 		sections=sections,
+		product=product,
+		accept_terms=accept_terms,
+		credit_check_consent=credit_check_consent,
 	)
 
 
@@ -527,30 +545,71 @@ def disburse_loan(application: str, amount=None):
 			)
 		)
 
+	from gdb_bank.services.disbursement import release_funds
+
 	with _as_system() as caller:
 		amount = flt(amount) if amount else flt(get_disbursal_amount(loan.name)[0])
 		if amount <= 0:
 			frappe.throw(
 				_("Nothing is available to disburse on {0} right now.").format(loan.name)
 			)
-		doc = frappe.get_doc(
-			{
-				"doctype": "Loan Disbursement",
-				"against_loan": loan.name,
-				"company": loan.company,
-				"applicant_type": loan.applicant_type,
-				"applicant": loan.applicant,
-				"posting_date": nowdate(),
-				"disbursement_date": nowdate(),
-				"disbursed_amount": amount,
-				"gdb_disbursed_by": caller,
-			}
-		)
-		doc.insert()
-		doc.submit()
+		doc = release_funds(loan, amount, caller)
 		frappe.db.commit()
 
 	_logger().info(f"disbursement {doc.name}: {amount} on {loan.name} by {user}")
+	return loan_account(application)
+
+
+@frappe.whitelist()
+def quick_loan_terms():
+	"""The Quick Loan's ceiling, longest term, rate and closed answers, as the
+	server will enforce them. Any signed-in user; nothing here is private."""
+	from gdb_bank.services import quick_loan
+
+	_session_user()
+	return quick_loan.terms()
+
+
+@frappe.whitelist(methods=["POST"])
+def request_field_officer(
+	applicant_name: str, phone: str, business_type: str, region: str, best_time: str | None = None
+):
+	"""Ask a GDB field officer to call and complete a Quick Loan with the caller."""
+	from gdb_bank.services import quick_loan
+
+	return quick_loan.request_field_officer(
+		_session_user(), applicant_name, phone, business_type, region, best_time
+	)
+
+
+@frappe.whitelist()
+def my_field_officer_request():
+	"""The caller's latest field officer request, or None."""
+	from gdb_bank.services import quick_loan
+
+	return quick_loan.my_field_officer_request(_session_user())
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_field_officer_request(name: str):
+	"""Cancel the caller's own waiting request."""
+	from gdb_bank.services import quick_loan
+
+	return quick_loan.cancel_field_officer_request(_session_user(), name)
+
+
+@frappe.whitelist()
+def decide_quick_loan(application: str, action: str, remarks: str | None = None):
+	"""Approve-and-pay, or decline, a Quick Loan. UNDERWRITER OR DISBURSEMENT OFFICER.
+
+	The one path on which the officer who decides also pays — GDB's exception for
+	the Quick Loan, with the controls that replace the four eyes set out in
+	services/quick_loan. `action` is approve | decline; `remarks` is required.
+	"""
+	from gdb_bank.services import quick_loan
+	from gdb_bank.utils.session import _require_underwriter_or_disbursement
+
+	quick_loan.decide(_require_underwriter_or_disbursement(), application, action, remarks)
 	return loan_account(application)
 
 
@@ -605,7 +664,9 @@ def my_bank_details():
 
 
 @frappe.whitelist()
-def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None = None):
+def save_bank_details(
+	bank: str, bank_account_no: str, branch_code: str | None = None, account_name: str | None = None
+):
 	"""Record (or update) where this citizen should be paid.
 
 	One account per citizen: a second call replaces the first rather than
@@ -626,6 +687,9 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 
 	customer = _get_or_create_customer(user)
 	full_name = frappe.utils.get_fullname(user)
+	# The name as the applicant says their bank holds it. Recorded as given; the
+	# check below still compares the account against the person signed in.
+	holder = (account_name or "").strip() or full_name
 
 	# Check the account before recording it, whether it was picked from the
 	# switch or typed. Advisory, never a gate: a bank holding a maiden name is
@@ -657,6 +721,7 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 					"bank": bank,
 					"bank_account_no": bank_account_no,
 					"branch_code": branch_code,
+					"account_name": holder,
 					**verification,
 				}
 			)
@@ -669,7 +734,7 @@ def save_bank_details(bank: str, bank_account_no: str, branch_code: str | None =
 			doc = frappe.get_doc(
 				{
 					"doctype": "Bank Account",
-					"account_name": full_name,
+					"account_name": holder,
 					"bank": bank,
 					"party_type": "Customer",
 					"party": customer,

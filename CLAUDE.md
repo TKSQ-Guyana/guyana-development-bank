@@ -167,6 +167,20 @@ underwriter review queue. The official name everywhere is
   records a staff member's national e-ID in `User.gdb_staff_eid`, and
   `review_loan` / `disburse_loan` refuse when the officer and the applicant
   (or approver) share an account OR an e-ID.
+- **Quick Loan — the one four-eyes EXCEPTION** (`services/quick_loan.py`,
+  decided 2026-09-30). A second lending Loan Product, "GDB Quick Loan"
+  (GDB-QCK), for informal traders: no TIN, no DCRA, no sections B-H, its
+  ceiling (G$300,000) and longest term (12) from `utils/policy` and held on the
+  product by `ensure_product_terms`. Applied for on its own SPA form
+  (`/apply/quick`, `save_application(product="quick")`); the borrower accepts
+  the terms at `submit_application(accept_terms=1)` because there is NO Letter
+  of Offer. A Disbursement Officer decides AND pays it in one transaction
+  (`decide_quick_loan`); `review_loan` and `issue_offer` refuse it. The
+  replacement controls: ceiling re-checked at payment, never the officer's own
+  application, a required reason, a payout account on file (its bank check is
+  logged but, by GDB's decision, does NOT gate payment), one commit.
+  Evidence: `Trading Photo` (JPEG/PNG) and optional `Receipts or Records`,
+  checked by file signature in `documents.validate_attachment`.
 - `make_repayment` is the BORROWER's (or a cluster member's). Staff are
   refused: bank-side receipts go through `collections.apply_receipt`, which
   starts from a Bank Transaction — i.e. from money that actually arrived.

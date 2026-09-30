@@ -30,6 +30,7 @@ const NAV_ITEMS: SidebarItem[] = [
  *  reads as the application module. */
 const MODULE_TITLES: [string, string][] = [
   ['/apply/new', 'New application'],
+  ['/apply/quick', 'Quick Loan'],
   ['/apply', 'My applications'],
   ['/payments/history', 'Payment history'],
   ['/payments', 'Payments'],

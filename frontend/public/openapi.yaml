@@ -309,6 +309,20 @@ paths:
                 business_stage: { type: string, enum: [Existing, New] }
                 dcra_number: { type: string, nullable: true }
                 business_name: { type: string, nullable: true }
+                product:
+                  type: string
+                  enum: [standard, quick]
+                  default: standard
+                  description: |
+                    `quick` is the informal traders' Quick Loan: filed on the
+                    GDB Quick Loan product, whose configured ceiling
+                    (maximum_loan_amount) lending itself enforces. It asks no
+                    business stage, DCRA number or sections B-H — those are
+                    cleared — and requires `sections.trade_activity` and
+                    `sections.trade_location` (Market | Roadside | Mobile |
+                    Home | Other); `sections.trading_since` is optional. The
+                    term may not exceed the configured Quick Loan maximum, and
+                    no `cluster` may be named.
                 name:
                   type: string
                   nullable: true
@@ -346,6 +360,13 @@ paths:
               required: [name]
               properties:
                 name: { type: string, example: ACC-LOAP-2026-00028 }
+                accept_terms:
+                  type: integer
+                  enum: [0, 1]
+                  description: |
+                    Required (1) for a Quick Loan, which has no Letter of Offer:
+                    the borrower accepts its terms here, and the moment is
+                    recorded as `terms_accepted_on`. Ignored for other products.
       responses:
         '200':
           description: The submitted application, status `Submitted`
@@ -1000,6 +1021,71 @@ paths:
                   message: { $ref: '#/components/schemas/LoanAccount' }
         '403': { description: Caller is not the disbursement officer }
         '417': { description: Not Approved, already booked, or no accepted offer }
+
+  /api/method/gdb_bank.api.quick_loan_terms:
+    post:
+      tags: [citizen]
+      summary: The Quick Loan's ceiling, longest term, rate and closed answers
+      description: |
+        What the Quick Loan form needs, as the server enforces it. The ceiling
+        and rate are the GDB Quick Loan product's own; the longest term is
+        policy (`gdb_quick_loan_max_term_months`).
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: The terms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      ceiling: { type: number, example: 300000 }
+                      max_term: { type: integer, example: 12 }
+                      rate_of_interest: { type: number, example: 0 }
+                      trade_locations: { type: array, items: { type: string } }
+                      trading_since: { type: array, items: { type: string } }
+
+  /api/method/gdb_bank.api.decide_quick_loan:
+    post:
+      tags: [finance]
+      summary: Approve-and-pay, or decline, a Quick Loan (Disbursement Officer)
+      description: |
+        GDB's one exception to four-eyes: a Quick Loan is decided AND paid by
+        one Disbursement Officer, with no underwriter and no Letter of Offer.
+        `approve` sets the application Approved, books the Loan on its own
+        amount and term, and submits a Loan Disbursement for the full amount —
+        in one transaction. Refused when: the case is not a Quick Loan; it is
+        not Open (a retry pays nothing more); the officer is the applicant on
+        any account; `remarks` is blank; no payout account is on file (its
+        bank check is logged, not a gate); the amount exceeds the product's
+        ceiling now. `review_loan` and
+        `issue_offer` refuse a Quick Loan, so this is its only path to money.
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [application, action, remarks]
+              properties:
+                application: { type: string, example: ACC-LOAP-2026-00031 }
+                action: { type: string, enum: [approve, decline] }
+                remarks: { type: string, example: Stall seen at Bourda Market; trading two years. }
+      responses:
+        '200':
+          description: The loan account after the decision (no loan on a decline)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/LoanAccount' }
+        '403': { description: Not a Disbursement Officer, or the officer's own application }
+        '417': { description: Not a Quick Loan, already decided, no reason, no payout account, or over the ceiling }
 
   /api/method/gdb_bank.api.disburse_loan:
     post:

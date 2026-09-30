@@ -14,6 +14,7 @@ import { Ledger } from './pages/Finance/Ledger';
 import { RuleProposals } from './pages/Finance/RuleProposals';
 import { Dashboard } from './pages/Dashboard';
 import { MyFinancialsPage } from './features/personal-financials/MyFinancialsPage';
+import { QuickApplyPage } from './features/quick-loan/QuickApplyPage';
 import { Landing } from './pages/Landing';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
@@ -153,6 +154,11 @@ export function App() {
             <Route element={<CitizenOnly />}>
               <Route path="/apply" element={<Applications />} />
               <Route path="/apply/new" element={<Apply />} />
+              {/* The Quick Loan is a different product on its own form. A
+                  static segment outranks `:name`, so /apply/quick is never
+                  read as a draft called "quick". */}
+              <Route path="/apply/quick" element={<QuickApplyPage />} />
+              <Route path="/apply/quick/:name" element={<QuickApplyPage />} />
               <Route path="/apply/:name" element={<Apply />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/payments/history" element={<PaymentHistoryPage />} />

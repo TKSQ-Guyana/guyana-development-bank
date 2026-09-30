@@ -10,7 +10,7 @@ computes money: every figure is lending's own.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, fmt_money
+from frappe.utils import cint, flt, fmt_money, nowdate
 
 
 def create_loan_on_offer(application: str, agreement):
@@ -26,14 +26,23 @@ def create_loan_on_offer(application: str, agreement):
 
 	The caller has settled who may book and holds the system elevation.
 	"""
+	return book_on_terms(application, agreement.offered_amount, agreement.term_months)
+
+
+def book_on_terms(application: str, amount, term_months):
+	"""Book and submit the Loan for `application` at this amount and term.
+
+	The terms are the credit decision's: a Letter of Offer's for a standard loan,
+	the accepted application's own for a Quick Loan, which has no offer.
+	"""
 	from lending.loan_management.doctype.loan_application.loan_application import create_loan
 	from lending.loan_management.doctype.loan_repayment_schedule.utils import (
 		get_monthly_repayment_amount,
 	)
 
 	loan = create_loan(application)  # lending's mapper, unsaved
-	loan.loan_amount = flt(agreement.offered_amount)
-	loan.repayment_periods = cint(agreement.term_months)
+	loan.loan_amount = flt(amount)
+	loan.repayment_periods = cint(term_months)
 	# The rate lending itself fetches onto the Loan (fetch_from loan_product).
 	rate = flt(frappe.db.get_value("Loan Product", loan.loan_product, "rate_of_interest"))
 	loan.monthly_repayment_amount = get_monthly_repayment_amount(
@@ -41,6 +50,31 @@ def create_loan_on_offer(application: str, agreement):
 	)
 	loan.submit()
 	return loan
+
+
+def release_funds(loan, amount, released_by: str):
+	"""Submit lending's Loan Disbursement for `amount` on a booked loan.
+
+	Its submit is what generates the repayment schedule and posts the GL entries.
+	The caller has settled who may release and holds the system elevation;
+	`released_by` is the officer, stamped on the record.
+	"""
+	doc = frappe.get_doc(
+		{
+			"doctype": "Loan Disbursement",
+			"against_loan": loan.name,
+			"company": loan.company,
+			"applicant_type": loan.applicant_type,
+			"applicant": loan.applicant,
+			"posting_date": nowdate(),
+			"disbursement_date": nowdate(),
+			"disbursed_amount": flt(amount),
+			"gdb_disbursed_by": released_by,
+		}
+	)
+	doc.insert()
+	doc.submit()
+	return doc
 
 
 def offer_mismatch(loan, agreement) -> str | None:

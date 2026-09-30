@@ -136,6 +136,16 @@ export function Review() {
                     {loan.name}
                   </Link>
                   <span className="block text-xs text-slate-500">{loan.applicant_name}</span>
+                  {/* Visible here, decided elsewhere: a Disbursement Officer
+                      decides and pays a Quick Loan (decide_quick_loan). */}
+                  {loan.product === 'quick' && (
+                    <span
+                      className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                      title="Decided and paid by a Disbursement Officer"
+                    >
+                      Quick Loan
+                    </span>
+                  )}
                 </>
               ),
             },

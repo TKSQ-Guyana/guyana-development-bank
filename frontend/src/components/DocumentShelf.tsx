@@ -32,6 +32,21 @@ const STATUS_STYLE: Record<string, string> = {
   Replaced: 'bg-amber-100 text-amber-800',
 };
 
+/** The formats the server accepts for one type — photos for a Trading Photo,
+ *  PDF for everything the shelf held before it. */
+function acceptsFor(settings: Shelf['settings'], type: string): string {
+  return settings.accepts_by_type?.[type] ?? settings.accepts;
+}
+
+/** ".jpg,.jpeg,.png" → "JPG, JPEG or PNG" */
+function formatsLabel(accepts: string): string {
+  const names = accepts
+    .split(',')
+    .map((e) => e.trim().replace(/^\./, '').toUpperCase())
+    .filter(Boolean);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
+}
+
 function sizeLabel(bytes: number | null): string {
   if (!bytes) return '';
   const mb = bytes / 1024 / 1024;
@@ -98,17 +113,14 @@ export function DocumentShelf({
     // oversize body never reaches Frappe's check, it dies at nginx, and an
     // nginx 413 is HTML the applicant cannot act on. Checked here, they are
     // told the size and the limit the moment they pick the file.
-    const accepted = shelf?.settings.accepts
+    const accepts = shelf ? acceptsFor(shelf.settings, type) : '';
+    const accepted = accepts
       .split(',')
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean);
     const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    if (accepted?.length && !accepted.includes(extension)) {
-      setError(
-        `${file.name} is not a ${accepted.join(' or ')} file. GDB can only read ${accepted.join(
-          ' or ',
-        )} documents — export or scan it as ${accepted[0]} and try again.`,
-      );
+    if (accepted.length && !accepted.includes(extension)) {
+      setError(`${file.name}: use ${formatsLabel(accepts)}.`);
       if (fileInput.current) fileInput.current.value = '';
       return;
     }
@@ -193,7 +205,7 @@ export function DocumentShelf({
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-semibold">{title}</h2>
         <span className="text-xs text-slate-500">
-          PDF only · up to {maxMb} MB each
+          {formatsLabel(acceptsFor(shelf.settings, type))} · up to {maxMb} MB each
         </span>
       </div>
 
@@ -312,7 +324,7 @@ export function DocumentShelf({
             <input
               ref={fileInput}
               type="file"
-              accept={shelf.settings.accepts}
+              accept={acceptsFor(shelf.settings, type)}
               disabled={busy}
               onChange={(e) => {
                 const file = e.target.files?.[0];

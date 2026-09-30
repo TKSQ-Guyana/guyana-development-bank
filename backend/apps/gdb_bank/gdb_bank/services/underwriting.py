@@ -71,6 +71,14 @@ def review_loan(user: str, name: str, action: str, remarks: str | None = None) -
 	"""Approve or reject an open application."""
 	doc = frappe.get_doc("Loan Application", name)
 
+	# A Quick Loan is decided and paid in one act by a Disbursement Officer
+	# (services/quick_loan). A second door to its approval would be an approval
+	# nobody pays on, or one paid without the checks that path carries.
+	from gdb_bank.services.quick_loan import is_quick
+
+	if is_quick(doc.loan_product):
+		frappe.throw(_("Use Approve and pay on a Quick Loan — it is decided and paid in one step."))
+
 	# Segregation of duties: an underwriter may also be a borrower, and must
 	# never decide their own case — not from the same account, and not from a
 	# staff account belonging to the same person (security/conflict.py).

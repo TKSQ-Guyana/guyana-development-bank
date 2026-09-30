@@ -35,6 +35,8 @@ import { formatGyd, formatDate } from '../utils';
 const AWAITING_RELEASE = ['Sanctioned', 'Partially Disbursed'];
 
 interface Queue {
+  /** Submitted Quick Loans — this officer decides AND pays them. */
+  quick: LoanApplication[];
   booking: LoanApplication[];
   release: LoanApplication[];
   released: LoanApplication[];
@@ -85,9 +87,13 @@ export function Disbursements() {
 
   const load = useCallback(() => {
     setError(null);
-    call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Approved' })
-      .then((approved) =>
+    Promise.all([
+      call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Approved' }),
+      call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Submitted' }),
+    ])
+      .then(([approved, submitted]) =>
         setQueue({
+          quick: submitted.filter((a) => a.product === 'quick'),
           booking: approved.filter((a) => !a.loan),
           release: approved.filter((a) => a.loan_status && AWAITING_RELEASE.includes(a.loan_status)),
           // Everything with a loan that is no longer awaiting a draw. Closed
@@ -121,7 +127,8 @@ export function Disbursements() {
       <p className="text-sm text-slate-500">Money going out to borrowers, booked and released.</p>
       <p className="mt-0.5 text-xs text-slate-400">
         Four-eyes rule: the officer who approved a case, and the officer who releases its funds, are
-        never the same login — enforced server-side even when one account holds both roles.
+        never the same login — enforced server-side even when one account holds both roles. Quick Loans
+        excepted.
       </p>
 
       <div className="mb-4 mt-3">
@@ -144,7 +151,14 @@ export function Disbursements() {
 
       {view === 'queue' && queue && (
         <>
-          <div className="mb-5 grid gap-3 sm:grid-cols-3">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="p-3">
+              <CardLabel>Quick Loans to decide</CardLabel>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.quick.length}</p>
+              <p className="text-xs text-slate-500">
+                {formatGyd(queue.quick.reduce((sum, a) => sum + a.loan_amount, 0))} requested
+              </p>
+            </Card>
             <Card className="p-3">
               <CardLabel>Awaiting release</CardLabel>
               <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.release.length}</p>
@@ -161,6 +175,63 @@ export function Disbursements() {
               <p className="text-xs text-slate-500">{formatGyd(releasedTotal)} paid out</p>
             </Card>
           </div>
+
+          <TableSection
+            title="Quick Loans to decide"
+            caption="Open to approve and pay, or decline."
+          >
+            <DataTable
+              caption="Submitted Quick Loans awaiting a decision"
+              columns={[
+                APPLICATION,
+                APPLICANT,
+                {
+                  key: 'trade',
+                  header: 'Trade',
+                  cell: (a) => (
+                    <>
+                      <span className="block text-slate-700">{String(a.sections?.trade_activity ?? '—')}</span>
+                      <span className="block text-xs text-slate-400">{String(a.sections?.trade_location ?? '')}</span>
+                    </>
+                  ),
+                },
+                {
+                  key: 'requested',
+                  header: 'Requested',
+                  align: 'right',
+                  className: 'font-semibold text-slate-900',
+                  cell: (a) => formatGyd(a.loan_amount),
+                },
+                {
+                  key: 'term',
+                  header: 'Term',
+                  align: 'right',
+                  cell: (a) => `${a.term_months} months`,
+                },
+                {
+                  key: 'evidence',
+                  header: 'Evidence',
+                  cell: (a) =>
+                    a.evidence_missing?.length ? (
+                      <Badge tone="warning">Missing {a.evidence_missing.join(', ')}</Badge>
+                    ) : (
+                      <Badge tone="success">Complete</Badge>
+                    ),
+                },
+                {
+                  key: 'submitted',
+                  header: 'Submitted',
+                  nowrap: true,
+                  className: 'text-slate-500',
+                  cell: (a) => formatDate(a.modified ?? a.creation),
+                },
+              ]}
+              rows={queue.quick}
+              rowKey={(a) => a.name}
+              minWidth="62rem"
+              empty="No Quick Loan is waiting for a decision."
+            />
+          </TableSection>
 
           <TableSection
             title="Awaiting release"
