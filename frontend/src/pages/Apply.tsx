@@ -81,6 +81,46 @@ const SECTORS = [
  *  and how it is owned is the next question rather than the first one. */
 type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported' | 'Incorporated (Inc.)';
 
+/** What DCRA's own `business_type` means in the words this form uses. The
+ *  register tells three kinds of ownership apart and the portal asks the same
+ *  three, so a business that already has a registration is never asked to
+ *  repeat what the register already says — the applicant cannot answer it
+ *  better than DCRA can, and two answers to one question is how a company
+ *  reaches the Bank filed as a sole trader.
+ *
+ *  'Cluster-supported' is deliberately ABSENT. DCRA does not record one,
+ *  because borrowing as a group is a decision about this loan, not a fact
+ *  about the business — so it stays a question, asked separately. */
+const DCRA_STRUCTURE: Record<string, Structure> = {
+  'Business Name': 'Sole Trader',
+  Company: 'Incorporated (Inc.)',
+  Partnership: 'Partnership',
+};
+
+/** How each structure reads in a sentence, for the line that tells the
+ *  applicant what was taken from the register on their behalf. Silently
+ *  deciding this for somebody and never saying so is how they reach the review
+ *  step and find "Applying as" holding a word they never chose. */
+const STRUCTURE_LABEL: Record<string, string> = {
+  'Sole Trader': 'Sole proprietorship',
+  'Incorporated (Inc.)': 'Incorporated (Inc.)',
+  Partnership: 'Partnership',
+};
+
+const STRUCTURE_PROSE: Record<string, string> = {
+  'Sole Trader': 'a sole proprietorship',
+  'Incorporated (Inc.)': 'an incorporated company',
+  Partnership: 'a partnership',
+};
+
+/** The ownership DCRA asserts for a registration, or '' when the register
+ *  cannot answer: no registration against the e-ID, details the applicant
+ *  typed themselves, DCRA unreachable, or a `business_type` this portal does
+ *  not recognise. Every one of those falls back to ASKING, because the
+ *  alternative is filing somebody as something nobody chose. */
+const deriveStructure = (b: DcraRecord | null): Structure =>
+  (b?.business_type && DCRA_STRUCTURE[b.business_type]) || '';
+
 type StepId =
   | 'consent'
   | 'route'
@@ -124,6 +164,7 @@ type Sections = Record<string, string>;
 interface Saved {
   stage: '' | 'Existing' | 'New';
   structure: Structure;
+  applyAsCluster: boolean | null;
   coApplicants: string[];
   amount: string;
   term: string;
@@ -166,6 +207,11 @@ export function Apply() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [stage, setStage] = useState<'' | 'Existing' | 'New'>('');
   const [structure, setStructure] = useState<Structure>('');
+  // null = not answered yet. Asked of an existing business INSTEAD of the
+  // ownership cards, and held apart from `structure` on purpose: once the
+  // register supplies the ownership, `structure` is never empty, so it can no
+  // longer tell an unanswered cluster question from a "No" nobody gave.
+  const [applyAsCluster, setApplyAsCluster] = useState<boolean | null>(null);
   // Named partners, as declared. Naming somebody is not the same as that
   // person agreeing — a co-applicant consents through their own sign-in.
   const [coApplicants, setCoApplicants] = useState<string[]>([EMPTY_EID]);
@@ -254,6 +300,30 @@ export function Apply() {
   // trader owns all of it; a cluster is a group of separate borrowers, not a
   // jointly-owned company.
   const sharesApply = structure === 'Partnership' || structure === 'Incorporated (Inc.)';
+
+  // What the register says this business is, and whether it said anything at
+  // all. When it did, the ownership cards come off the screen: DCRA has
+  // already answered, and the only thing asking again can add is a different
+  // answer to the same question. When it did not, they stay — see
+  // `deriveStructure` for every way that happens.
+  const registryStructure = deriveStructure(dcraRecord);
+  const registryAnswers = stage === 'Existing' && Boolean(registryStructure);
+
+  // Who owns a REGISTERED business is the register's answer too — DCRA names
+  // the proprietors of the registration this application is filed against, and
+  // they are shown on the business step from the record itself. So the
+  // ownership block is asked only where nothing answered it: a new venture,
+  // or an existing one DCRA could not speak for.
+  const askOwnership = sharesApply && !registryAnswers;
+
+  // The register has not spoken YET — the lookup is still running, or it
+  // returned businesses and none has been picked. Neither is an answer of
+  // "DCRA cannot help", and treating them as one is what put the ownership
+  // cards on screen for as long as the fetch took, only to replace them the
+  // moment the record landed.
+  const registryPending =
+    stage === 'Existing' &&
+    (looking || myBusinesses === null || ((myBusinesses?.length ?? 0) > 0 && !dcraRecord));
   // Rows that actually name somebody. A blank line in a form is not a co-owner.
   const namedOwners = owners.filter((o) => isCompleteEid(o.eid) || o.name.trim());
   const sharesDeclared =
@@ -325,7 +395,13 @@ export function Apply() {
       }
       setDraft(loan);
       setStage((loan.business_stage as '' | 'Existing' | 'New') ?? '');
-      setStructure(((loan.sections?.legal_structure as Structure) ?? '') as Structure);
+      const filedAs = ((loan.sections?.legal_structure as Structure) ?? '') as Structure;
+      setStructure(filedAs);
+      // A draft that was already filed has answered the cluster question by
+      // filing — re-asking it on resume would block a returning applicant on a
+      // decision they have made. A draft holding no structure at all never got
+      // that far, so it is still unanswered.
+      setApplyAsCluster(filedAs ? filedAs === 'Cluster-supported' : null);
       setAmount(loan.loan_amount ? String(loan.loan_amount) : '');
       setTerm(loan.term_months ? String(loan.term_months) : '12');
       setIncome(loan.monthly_income ? String(loan.monthly_income) : '');
@@ -397,6 +473,7 @@ export function Apply() {
       const s = JSON.parse(raw) as Saved;
       setStage(s.stage ?? '');
       setStructure(s.structure ?? '');
+      setApplyAsCluster(s.applyAsCluster ?? null);
       setCoApplicants(s.coApplicants?.length ? s.coApplicants : [EMPTY_EID]);
       setAmount(s.amount ?? '');
       setTerm(s.term ?? '12');
@@ -456,6 +533,7 @@ export function Apply() {
     const payload: Saved = {
       stage,
       structure,
+      applyAsCluster,
       coApplicants,
       amount,
       term,
@@ -483,6 +561,7 @@ export function Apply() {
   }, [
     stage,
     structure,
+    applyAsCluster,
     coApplicants,
     amount,
     term,
@@ -618,13 +697,39 @@ export function Apply() {
   const businessOption = (b: DcraRecord) =>
     `${b.business_name ?? b.registration_number} (${b.registration_number})`;
 
-  const selectBusiness = (b: DcraRecord) => {
+  const selectBusiness = (b: DcraRecord, opts?: { keepStructure?: boolean }) => {
     setDcraRecord(b);
     setDcra(b.registration_number);
     setBusinessName(b.business_name ?? '');
     setDcraNote(null);
+    // The register's answer to "how is this owned", taken rather than asked.
+    // Only where it HAS one — an unrecognised `business_type` leaves the cards
+    // on screen rather than guessing.
+    const fromRegistry = deriveStructure(b);
+    if (fromRegistry) {
+      setStructure((current) => {
+        // A cluster answer belongs to the applicant, not to the register.
+        // Changing which business the loan is for must not silently un-choose
+        // it — that decision was about how they want to borrow.
+        if (current === 'Cluster-supported') return current;
+        // Auto-selection while a draft is being restored must not overwrite
+        // what the applicant already filed. Only an empty structure is filled
+        // in on that path; picking from the dropdown always re-derives.
+        if (opts?.keepStructure && current) return current;
+        return fromRegistry;
+      });
+    }
     if (b.region)
       setSections((s) => ({ ...s, operating_location: s.operating_location || matchRegion(b.region!) }));
+  };
+
+  /** The cluster question, asked of an existing business in place of the
+   *  ownership cards it no longer needs. Answering it is what sets
+   *  `structure`: "yes" files the application against the group, "no" returns
+   *  it to whatever the register said this business is. */
+  const chooseCluster = (wants: boolean) => {
+    setApplyAsCluster(wants);
+    setStructure(wants ? 'Cluster-supported' : registryStructure);
   };
 
   const loadMyBusinesses = async () => {
@@ -632,7 +737,13 @@ export function Apply() {
     try {
       const found = await call<DcraRecord[]>('gdb_bank.api.my_businesses');
       setMyBusinesses(found ?? []);
-      if (found?.length === 1) selectBusiness(found[0]);
+      // A resumed draft already knows its registration number but not the
+      // record behind it. Re-attaching it here is what puts the registry's
+      // ownership back on screen instead of falling back to the cards —
+      // `keepStructure` so what the applicant filed still wins over it.
+      const resumed = dcra.trim() && found?.find((b) => b.registration_number === dcra.trim());
+      if (resumed) selectBusiness(resumed, { keepStructure: true });
+      else if (found?.length === 1) selectBusiness(found[0], { keepStructure: true });
       if (!found?.length) {
         setManualEntry(true);
         setDcraNote('DCRA has no business registered to you. Enter the details yourself and GDB will verify them.');
@@ -758,8 +869,8 @@ export function Apply() {
         // Shares only where shares exist. A sole trader owns the whole thing
         // and a cluster is not owned in percentages, so sending a figure for
         // either would put a number in the Bank's record that means nothing.
-        applicant_share: sharesApply ? applicantShare || 0 : 0,
-        ownership_lines: sharesApply ? namedOwners : [],
+        applicant_share: askOwnership ? applicantShare || 0 : 0,
+        ownership_lines: askOwnership ? namedOwners : [],
       },
       name: draft?.name,
     });
@@ -801,18 +912,29 @@ export function Apply() {
       if (stage === 'Existing' && (myBusinesses?.length ?? 0) > 0 && !dcra.trim()) {
         return 'Tell us which business this application is for.';
       }
+      // Where the register answered the ownership, `structure` is already set
+      // and can no longer hold this screen open — so the cluster question
+      // blocks on its own. Without it, "No" would be applied to somebody who
+      // never read the question.
+      if (registryPending && looking) return 'Checking the register…';
+      if (registryAnswers && applyAsCluster === null) {
+        return 'Tell us whether you want to apply as a cluster.';
+      }
       if (!structure) return 'Tell us how you are applying.';
-      if (structure === 'Partnership' && namedOwners.length === 0) {
+      // These three hold the screen open on the ownership block. They are
+      // asked ONLY while that block is on it — a rule about a question the
+      // applicant cannot see is a dead end, not a check.
+      if (askOwnership && structure === 'Partnership' && namedOwners.length === 0) {
         return 'Name at least one partner, or apply as a sole proprietorship.';
       }
-      if (sharesApply && !applicantShare) {
+      if (askOwnership && !applicantShare) {
         return structure === 'Partnership'
           ? 'Tell us what share of the partnership is yours.'
           : 'Tell us what share of the company is yours.';
       }
       // Over 100% cannot be true of anything, and the server refuses it too.
       // Under 100% is deliberately allowed — see OwnershipBlock.
-      if (sharesApply && sharesDeclared > 100) {
+      if (askOwnership && sharesDeclared > 100) {
         return `The declared shares add up to ${sharesDeclared}%. They cannot exceed 100%.`;
       }
       if (forCluster) {
@@ -866,12 +988,17 @@ export function Apply() {
     consentChecked,
     stage,
     structure,
+    registryAnswers,
+    registryPending,
+    looking,
+    applyAsCluster,
     // The ownership block's state, all of it. Missing from here, the memo kept
     // answering "name at least one partner" after a partner had been named —
     // the rule was right and simply never re-ran.
     namedOwners.length,
     applicantShare,
     sharesApply,
+    askOwnership,
     sharesDeclared,
     forCluster,
     chosenCluster,
@@ -1147,7 +1274,12 @@ export function Apply() {
           </div>
         )}
 
-        <Card className="space-y-6">
+        {/* `pb-20` clears the sticky action bar below. Without it the bar
+            rests ON the card's last control once the page is scrolled to the
+            end — and the last control on this step is now a REQUIRED question,
+            so a translucent bar sitting over it is not a cosmetic problem: the
+            answer cannot be given, and the click lands on Continue instead. */}
+        <Card className="space-y-6 pb-20">
           {/* --------------------------------------------------- STEP: CONSENT */}
           {step === 'consent' && (
             <Section
@@ -1263,39 +1395,110 @@ export function Apply() {
                   business is owned is a fact about it whether or not it is
                   already trading, and an underwriter deciding a development
                   loan needs to know whether they are lending to one person or
-                  to their share of something larger. */}
+                  to their share of something larger.
+
+                  Where DCRA has already said which it is, it is STATED rather
+                  than asked — and the only thing left on this screen is the
+                  one question the register cannot answer. */}
               {stage && (
                 <Section
                   letter={stage === 'Existing' ? '3' : '2'}
                   title="Type of business"
                   blurb={
-                    stage === 'Existing'
-                      ? 'How the business you picked above is owned.'
-                      : 'How the business you intend to trade as will be owned.'
+                    registryAnswers
+                      ? 'Taken from the register — you are not asked to repeat it.'
+                      : stage === 'Existing'
+                        ? 'How the business you picked above is owned.'
+                        : 'How the business you intend to trade as will be owned.'
                   }
                 >
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <ChoiceCard
-                      title="Sole proprietorship"
-                      selected={structure === 'Sole Trader'}
-                      onSelect={() => setStructure('Sole Trader')}
-                    />
-                    <ChoiceCard
-                      title="Incorporated (Inc.)"
-                      selected={structure === 'Incorporated (Inc.)'}
-                      onSelect={() => setStructure('Incorporated (Inc.)')}
-                    />
-                    <ChoiceCard
-                      title="Partnership"
-                      selected={structure === 'Partnership'}
-                      onSelect={() => setStructure('Partnership')}
-                    />
-                    <ChoiceCard
-                      title="Cluster"
-                      selected={structure === 'Cluster-supported'}
-                      onSelect={() => setStructure('Cluster-supported')}
-                    />
-                  </div>
+                  {registryPending ? (
+                    <p className="text-sm text-slate-500">
+                      {looking
+                        ? 'Checking what the register says about this business…'
+                        : 'Pick the business above and the register will answer this.'}
+                    </p>
+                  ) : registryAnswers ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+                      <p className="text-sm leading-relaxed text-slate-700">
+                        DCRA has{' '}
+                        <span className="font-bold text-slate-900">
+                          {dcraRecord?.business_name ?? dcra}
+                        </span>{' '}
+                        registered as a{' '}
+                        <span className="font-bold text-slate-900">
+                          {dcraRecord?.business_type}
+                        </span>
+                        , so this application is filed as {STRUCTURE_PROSE[registryStructure]}.
+                      </p>
+                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                        If that is wrong, it is the registration that needs correcting at DCRA —
+                        GDB lends against the register, not against what the form was told.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <ChoiceCard
+                        title="Sole proprietorship"
+                        selected={structure === 'Sole Trader'}
+                        onSelect={() => setStructure('Sole Trader')}
+                      />
+                      <ChoiceCard
+                        title="Incorporated (Inc.)"
+                        selected={structure === 'Incorporated (Inc.)'}
+                        onSelect={() => setStructure('Incorporated (Inc.)')}
+                      />
+                      <ChoiceCard
+                        title="Partnership"
+                        selected={structure === 'Partnership'}
+                        onSelect={() => setStructure('Partnership')}
+                      />
+                      <ChoiceCard
+                        title="Cluster"
+                        selected={structure === 'Cluster-supported'}
+                        onSelect={() => setStructure('Cluster-supported')}
+                      />
+                    </div>
+                  )}
+
+                  {/* The one thing DCRA has no answer for. A registered
+                      business may still borrow as part of a group, so this is
+                      asked of every existing business whose ownership came off
+                      the register — and answering it is what sets the
+                      structure either way. */}
+                  {registryAnswers && (
+                    <div className="mt-5">
+                      <p className="text-sm font-bold text-slate-800">
+                        Do you want to apply as a cluster?
+                        <span className="ml-1 text-rose-600">*</span>
+                      </p>
+                      <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
+                        A cluster borrows as a group: the head applies for everyone, each member
+                        keeps their own record, and every one of them signs before GDB releases a
+                        dollar. This is about how you want to borrow, not about the business — so
+                        the register cannot answer it for you.
+                      </p>
+                      <div className="flex gap-2">
+                        {[
+                          { label: 'Yes, as a cluster', value: true },
+                          { label: 'No, on my own', value: false },
+                        ].map((opt) => (
+                          <button
+                            key={String(opt.value)}
+                            type="button"
+                            onClick={() => chooseCluster(opt.value)}
+                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                              applyAsCluster === opt.value
+                                ? 'bg-brand text-white'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* A partnership and an incorporated company ask the same
                       two things — what the applicant owns, and who owns the
@@ -1303,8 +1506,12 @@ export function Apply() {
                       because a partner and a shareholder are not the same word
                       to the person filling this in. Co-owners are named by
                       e-ID, never by mailbox: the e-ID is how GDB identifies a
-                      person everywhere else in the bank. */}
-                  {sharesApply && (
+                      person everywhere else in the bank.
+
+                      Not asked of a registered business: DCRA already names
+                      who owns it, and the record itself is shown on the
+                      business step. */}
+                  {askOwnership && (
                     <OwnershipBlock
                       structure={structure}
                       applicantShare={applicantShare}
@@ -1560,7 +1767,16 @@ export function Apply() {
                           {dcraRecord.business_type && (
                             <ReadOnlyField
                               label="Structure on the register"
-                              value={dcraRecord.business_type}
+                              // DCRA's own vocabulary is not the applicant's:
+                              // "Business Name" is what the register calls a
+                              // sole proprietorship, and nobody reading this
+                              // page is obliged to know that. The raw value
+                              // still shows where the portal has no word for
+                              // it, rather than leaving the field blank.
+                              value={
+                                STRUCTURE_LABEL[deriveStructure(dcraRecord)] ??
+                                dcraRecord.business_type
+                              }
                               source={dcraSourceLabel}
                             />
                           )}

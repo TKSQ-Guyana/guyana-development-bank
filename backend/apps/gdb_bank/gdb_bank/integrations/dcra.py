@@ -33,6 +33,15 @@ _HTTP_TIMEOUT = 10
 # `source` says "sandbox" on every one of these so nothing downstream can
 # mistake them for a registry confirmation. They exist so the application flow
 # can be built and tested end to end, which is what rule 15 asks for.
+#
+# `proprietors` MUST name the same people as `proprietor_eids`, in the same
+# order. Nothing enforces it: the lookup matches on the e-ID alone and never
+# reads the name, so a wrong name here is not an error anywhere — it is simply
+# displayed. Four of these rows once named people who had nothing to do with
+# the e-ID beside them, and the portal duly told Marcia Khan that the business
+# it had just confirmed was hers belonged to "J. Fraser". In production the two
+# CAN legitimately disagree, which is exactly why a disagreement invented by
+# the seed data is worth nothing to anybody testing against it.
 SANDBOX_REGISTER: dict[str, dict] = {
 	"BN-2024-004512": {
 		"registration_number": "BN-2024-004512",
@@ -51,7 +60,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"status": "Active",
 		"registered_on": "2023-07-02",
 		"region": "Region 4 - Demerara-Mahaica",
-		"proprietors": ["Asha Persaud"],
+		"proprietors": ["Hemanth Narine"],
 		"proprietor_eids": ["592-4444-0004"],
 	},
 	"C-2022-000734": {
@@ -61,7 +70,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"status": "Active",
 		"registered_on": "2022-11-25",
 		"region": "Region 6 - East Berbice-Corentyne",
-		"proprietors": ["S. Khan", "M. Edwards"],
+		"proprietors": ["Rani Singh", "Devon Baksh"],
 		"proprietor_eids": ["592-6666-0006", "592-7777-0007"],
 	},
 	"BN-2019-000442": {
@@ -73,7 +82,7 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"status": "Struck Off",
 		"registered_on": "2019-05-14",
 		"region": "Region 10 - Upper Demerara-Berbice",
-		"proprietors": ["J. Fraser"],
+		"proprietors": ["Marcia Khan"],
 		"proprietor_eids": ["592-8888-0008"],
 	},
 	"BN-2021-000856": {
@@ -85,6 +94,38 @@ SANDBOX_REGISTER: dict[str, dict] = {
 		"region": "Region 4 - Demerara-Mahaica",
 		"proprietors": ["Kwame Griffith"],
 		"proprietor_eids": ["592-9999-0009"],
+	},
+	# A PARTNERSHIP. DCRA tells three kinds of ownership apart — a Business
+	# Name, a Company and a Partnership — and the portal asks the same three,
+	# so the register can answer the question rather than the applicant. Until
+	# this row existed the middle case had no test data at all: every other
+	# registration here is a Business Name or a Company, and a partnership
+	# reaching the Bank could only ever be one the applicant typed.
+	"BN-2022-003310": {
+		"registration_number": "BN-2022-003310",
+		"business_name": "Pomeroon Craft Partners",
+		"business_type": "Partnership",
+		"status": "Active",
+		"registered_on": "2022-06-08",
+		"region": "Region 2 - Pomeroon-Supenaam",
+		"proprietors": ["Anita Ramkissoon", "Trevor Adams"],
+		"proprietor_eids": ["592-1010-0010", "592-1122-0011"],
+	},
+	# The SECOND registration for 592-1010-0010, and the only reason the
+	# business picker's dropdown is ever exercised. Every other e-ID in this
+	# register is a proprietor of exactly one business, which `my_businesses`
+	# auto-selects — so the case of a citizen who must CHOOSE which of their
+	# businesses is borrowing went untested, and it is the case where picking
+	# the wrong one puts the loan against the wrong trading concern.
+	"BN-2024-006120": {
+		"registration_number": "BN-2024-006120",
+		"business_name": "Ramkissoon Poultry Supplies",
+		"business_type": "Business Name",
+		"status": "Active",
+		"registered_on": "2024-01-22",
+		"region": "Region 3 - Essequibo Islands-West Demerara",
+		"proprietors": ["Anita Ramkissoon"],
+		"proprietor_eids": ["592-1010-0010"],
 	},
 }
 

@@ -46,7 +46,7 @@ fi
 # citizen to reach the payout step gets a 500 from a column that was never
 # created. Idempotent, so it costs a no-op on every later boot.
 echo "Migrating $SITE ..."
-migratebench --site "$SITE" 
+bench --site "$SITE" migrate 
 
 # Demo personas, on every boot rather than only at site creation. It is
 # idempotent (each user is created only if absent), and running it only on a
