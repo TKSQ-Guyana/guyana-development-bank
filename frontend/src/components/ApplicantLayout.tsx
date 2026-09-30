@@ -30,6 +30,7 @@ const NAV_ITEMS: SidebarItem[] = [
 const MODULE_TITLES: [string, string][] = [
   ['/apply/new', 'New application'],
   ['/apply', 'My applications'],
+  ['/payments/history', 'Payment history'],
   ['/payments', 'Payments'],
   ['/statements', 'Statements'],
   ['/training', 'Training'],

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, runReport } from '../api';
 import type { ReportColumn } from '../api';
+import { downloadCsv, toCsv } from '../shared/csv';
 import { formatGyd } from '../utils';
 
 /** The file the bank actually receives.
@@ -19,22 +20,6 @@ import { formatGyd } from '../utils';
  */
 
 const REPORT = 'GDB Disbursement Payment File';
-
-function csvEscape(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-function download(filename: string, body: string) {
-  const url = URL.createObjectURL(new Blob([body], { type: 'text/csv;charset=utf-8;' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
 
 export function PaymentFile({ company }: { company: string | null }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -88,12 +73,14 @@ export function PaymentFile({ company }: { company: string | null }) {
   const total = file?.total ? Number(file.total.amount ?? 0) : 0;
 
   const exportCsv = () => {
-    const head = columns.map((c) => csvEscape(c.label)).join(',');
-    const body = selected
-      .map((r) => columns.map((c) => csvEscape(r[c.fieldname])).join(','))
-      .join('\n');
     const tag = (bank || 'all-banks').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase();
-    download(`gdb-payment-file-${tag}-${to}.csv`, `${head}\n${body}`);
+    downloadCsv(
+      `gdb-payment-file-${tag}-${to}.csv`,
+      toCsv(
+        columns.map((c) => c.label),
+        selected.map((r) => columns.map((c) => r[c.fieldname])),
+      ),
+    );
   };
 
   if (denied) {

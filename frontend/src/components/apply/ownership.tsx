@@ -1,6 +1,6 @@
 import { EidWithName } from './EidWithName';
 import { Notice, TextField } from './fields';
-import { EMPTY_EID, isCompleteEid } from '../../eid';
+import { EMPTY_EID } from '../../eid';
 import type { OwnershipRow } from '../../types';
 
 /** Who owns the business, and how much of it each of them owns.
@@ -146,7 +146,3 @@ export function OwnershipBlock({
     </div>
   );
 }
-
-/** Rows that actually name somebody, in the shape the server stores. */
-export const namedOwnerRows = (owners: OwnershipRow[]) =>
-  owners.filter((o) => isCompleteEid(o.eid) || o.name.trim());

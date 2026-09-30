@@ -144,16 +144,24 @@ export function Payments() {
             <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
               Payments are allocated by the loan ledger against the oldest amount due first. A
               payment made before an instalment falls due is held as an advance and applied on the
-              due date. For a complete history of what was received and how it was allocated,
-              request a statement.
+              due date.
             </p>
-            <Link
-              to="/statements"
-              className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline"
-            >
-              Go to statements
-              <ArrowRightIcon className="h-4 w-4" />
-            </Link>
+            <div className="mt-3 flex flex-wrap items-center gap-5">
+              <Link
+                to="/payments/history"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline"
+              >
+                Payment history
+                <ArrowRightIcon className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/statements"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline"
+              >
+                Statements
+                <ArrowRightIcon className="h-4 w-4" />
+              </Link>
+            </div>
           </Card>
         </>
       )}

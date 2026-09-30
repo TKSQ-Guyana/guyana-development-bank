@@ -17,6 +17,7 @@ import { Landing } from './pages/Landing';
 import { LoanDetail } from './pages/LoanDetail';
 import { Login } from './pages/Login';
 import { Payments } from './pages/Payments';
+import { PaymentHistoryPage } from './features/payment-history/PaymentHistoryPage';
 import { Profile } from './pages/Profile';
 import { Statements } from './pages/Statements';
 import { Training } from './pages/Training';
@@ -131,6 +132,7 @@ export function App() {
             <Route path="/apply/new" element={<Apply />} />
             <Route path="/apply/:name" element={<Apply />} />
             <Route path="/payments" element={<Payments />} />
+            <Route path="/payments/history" element={<PaymentHistoryPage />} />
             <Route path="/statements" element={<Statements />} />
             <Route path="/training" element={<Training />} />
             <Route path="/cluster" element={<Cluster />} />
