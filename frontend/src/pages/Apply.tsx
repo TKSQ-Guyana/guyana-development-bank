@@ -1596,7 +1596,6 @@ export function Apply() {
                 onChange={setProfilePhone}
                 required
                 placeholder="600 1234"
-                hint="Guyana number. The +592 is added for you."
               />
               <TextField
                 label="Email address"
@@ -1957,32 +1956,27 @@ export function Apply() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <MoneyField
                   label="Annual revenue"
-                  tag="Declared"
                   value={val('annual_revenue')}
                   onChange={set('annual_revenue')}
                 />
                 <MoneyField
                   label="Cost of sales"
-                  tag="Declared"
                   value={val('cost_of_sales')}
                   onChange={set('cost_of_sales')}
                 />
                 <MoneyField
                   label="Operating expenses"
-                  tag="Declared"
                   value={val('operating_expenses')}
                   onChange={set('operating_expenses')}
                 />
                 <MoneyField
                   label="Existing loan obligations"
-                  tag="Declared"
                   value={val('existing_obligations')}
                   onChange={set('existing_obligations')}
                   hint="What you already repay each year to any lender."
                 />
                 <MoneyField
                   label="Current cash position"
-                  tag="Declared"
                   value={val('cash_position')}
                   onChange={set('cash_position')}
                 />
