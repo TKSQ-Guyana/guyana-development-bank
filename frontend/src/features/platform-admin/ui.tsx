@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
+import { RequiredMark } from '../../components/ui/RequiredMark';
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
@@ -103,6 +104,7 @@ export function ReasonField({
     <label className="block">
       <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
         Reason (kept in the access history)
+        <RequiredMark />
       </span>
       <input
         value={value}

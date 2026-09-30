@@ -169,7 +169,6 @@ interface Saved {
   amount: string;
   term: string;
   income: string;
-  phone: string;
   purpose: string;
   dcra: string;
   businessName: string;
@@ -218,7 +217,6 @@ export function Apply() {
   const [amount, setAmount] = useState('');
   const [term, setTerm] = useState('12');
   const [income, setIncome] = useState('');
-  const [phone, setPhone] = useState('');
   const [purpose, setPurpose] = useState('');
   const [dcra, setDcra] = useState('');
   const [businessName, setBusinessName] = useState('');
@@ -405,7 +403,7 @@ export function Apply() {
       setAmount(loan.loan_amount ? String(loan.loan_amount) : '');
       setTerm(loan.term_months ? String(loan.term_months) : '12');
       setIncome(loan.monthly_income ? String(loan.monthly_income) : '');
-      setPhone(loan.phone ?? '');
+      setProfilePhone((cur) => cur || loan.phone || '');
       setPurpose(loan.purpose ?? '');
       setDcra(loan.dcra_number ?? '');
       setBusinessName(loan.business_name ?? '');
@@ -478,7 +476,6 @@ export function Apply() {
       setAmount(s.amount ?? '');
       setTerm(s.term ?? '12');
       setIncome(s.income ?? '');
-      setPhone(s.phone ?? '');
       setPurpose(s.purpose ?? '');
       setDcra(s.dcra ?? '');
       setBusinessName(s.businessName ?? '');
@@ -538,7 +535,6 @@ export function Apply() {
       amount,
       term,
       income,
-      phone,
       purpose,
       dcra,
       businessName,
@@ -566,7 +562,6 @@ export function Apply() {
     amount,
     term,
     income,
-    phone,
     purpose,
     dcra,
     businessName,
@@ -612,10 +607,6 @@ export function Apply() {
         setProfilePhone((cur) => cur || p.phone || p.verified_phone || '');
         setProfileEmail((cur) => cur || p.email || p.verified_email || '');
         setProfileAddress((cur) => cur || p.address || p.verified_address || '');
-        // The funding step asks for a contact number of its own — default it
-        // from the same source so the applicant is not asked twice, without
-        // touching anything they may already have typed there.
-        setPhone((cur) => cur || p.phone || p.verified_phone || '');
       })
       .catch(() => setConsentAccepted(false));
   }, []);
@@ -846,7 +837,8 @@ export function Apply() {
       purpose,
       term_months: Number(term),
       monthly_income: income ? Number(income) : 0,
-      phone,
+      // Asked once, under "About you" — the same number goes on the application.
+      phone: profilePhone,
       business_stage: stage,
       dcra_number: dcra,
       business_name: businessName,
@@ -947,6 +939,7 @@ export function Apply() {
     }
     if (step === 'about') {
       if (!profileDob) return 'Give a date of birth.';
+      if (!profilePhone.trim()) return 'Give a phone number.';
       if (!profileEmail.trim()) return 'Give an email address.';
       if (!profileAddress.trim()) return 'Give a residential address.';
     }
@@ -1006,6 +999,7 @@ export function Apply() {
     wantsFacilitator,
     facilitatorEid,
     profileDob,
+    profilePhone,
     profileEmail,
     profileAddress,
     groupPurpose,
@@ -1600,6 +1594,7 @@ export function Apply() {
                 inputMode="tel"
                 value={profilePhone}
                 onChange={setProfilePhone}
+                required
                 placeholder="600 1234"
                 hint="Guyana number. The +592 is added for you."
               />
@@ -2084,7 +2079,7 @@ export function Apply() {
 
                 <div>
                   <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Use of funds<span className="ml-1.5 font-normal text-slate-400">(optional)</span>
+                    Use of funds
                   </span>
                   <DataTable
                     caption="What this loan will be spent on, line by line"
@@ -2185,15 +2180,6 @@ export function Apply() {
                     value={income}
                     onChange={setIncome}
                     hint="Your own income, if you want GDB to take it into account."
-                  />
-                  <TextField
-                    label="Phone"
-                    type="tel"
-                    inputMode="tel"
-                    value={phone}
-                    onChange={setPhone}
-                    placeholder="600 1234"
-                    hint="Guyana number. The +592 is added for you."
                   />
                 </div>
               </Section>

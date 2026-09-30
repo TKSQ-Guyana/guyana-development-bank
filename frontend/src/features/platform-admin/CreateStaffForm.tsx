@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { EidBoxes } from '../../components/EidBoxes';
+import { RequiredMark } from '../../components/ui/RequiredMark';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
 import { createStaffAccount } from './api';
 import type { CreateStaffResult } from './types';
@@ -67,11 +68,17 @@ export function CreateStaffForm({
         {error && <Notice tone="error">{error}</Notice>}
 
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700">Full name</span>
+          <span className="mb-1 block text-sm font-medium text-slate-700">
+            Full name
+            <RequiredMark />
+          </span>
           <input required value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={busy} className={inputClass} />
         </label>
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700">Work email</span>
+          <span className="mb-1 block text-sm font-medium text-slate-700">
+            Work email
+            <RequiredMark />
+          </span>
           <input
             required
             type="email"
@@ -99,7 +106,10 @@ export function CreateStaffForm({
         </div>
 
         <fieldset>
-          <legend className="mb-1 text-sm font-medium text-slate-700">Roles</legend>
+          <legend className="mb-1 text-sm font-medium text-slate-700">
+            Roles
+            <RequiredMark />
+          </legend>
           <div className="flex flex-wrap gap-3">
             {grantableRoles.map((role) => (
               <label key={role} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { call, uploadFile } from '../api';
 import { useAuth } from '../auth';
+import { RequiredMark } from './ui/RequiredMark';
 import type { ApplicantDocument, InformationRequest } from '../types';
 import { formatDate } from '../utils';
 
@@ -209,7 +210,10 @@ export function InformationRequests({
           <p className="mb-2 text-sm font-medium text-slate-700">Ask the applicant for something</p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-[16rem] flex-1 text-sm">
-              <span className="mb-1 block text-slate-500">What is needed</span>
+              <span className="mb-1 block text-slate-500">
+                What is needed
+                <RequiredMark />
+              </span>
               <input
                 value={item}
                 onChange={(e) => setItem(e.target.value)}

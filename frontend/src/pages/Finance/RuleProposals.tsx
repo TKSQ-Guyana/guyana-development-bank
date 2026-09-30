@@ -6,6 +6,7 @@ import { useAuth } from '../../auth';
 import { Card, CardLabel } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { RequiredMark } from '../../components/ui/RequiredMark';
 
 /** Propose a change to a lending rule, and decide one someone else proposed.
  *
@@ -140,7 +141,10 @@ export function RuleProposals() {
             />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Current value</span>
+            <span className="mb-1 block text-slate-600">
+              Current value
+              <RequiredMark />
+            </span>
             <input
               value={form.current_value}
               onChange={(e) => setForm({ ...form, current_value: e.target.value })}
@@ -149,7 +153,10 @@ export function RuleProposals() {
             />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Proposed value</span>
+            <span className="mb-1 block text-slate-600">
+              Proposed value
+              <RequiredMark />
+            </span>
             <input
               value={form.proposed_value}
               onChange={(e) => setForm({ ...form, proposed_value: e.target.value })}
@@ -158,7 +165,10 @@ export function RuleProposals() {
             />
           </label>
           <label className="text-sm sm:col-span-2">
-            <span className="mb-1 block text-slate-600">Justification</span>
+            <span className="mb-1 block text-slate-600">
+              Justification
+              <RequiredMark />
+            </span>
             <textarea
               rows={3}
               value={form.justification}

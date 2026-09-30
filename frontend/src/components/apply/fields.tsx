@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { RequiredMark } from '../ui/RequiredMark';
 
 /** Form primitives for the application wizard.
  *
@@ -40,7 +41,7 @@ export function Field({ label, hint, required, tag, children }: FieldProps) {
       <span className="mb-1.5 flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-slate-700">
           {label}
-          {!required && <span className="ml-1.5 font-normal text-slate-400">(optional)</span>}
+          {required && <RequiredMark />}
         </span>
         {tag && (
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">

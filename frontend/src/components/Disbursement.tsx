@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { RequiredMark } from './ui/RequiredMark';
 import type { LoanAccount as LoanAccountType } from '../types';
 import { formatGyd } from '../utils';
 
@@ -151,7 +152,10 @@ export function Disbursement({
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-sm">
-              <span className="mb-1 block text-slate-500">Amount (GYD)</span>
+              <span className="mb-1 block text-slate-500">
+                Amount (GYD)
+                <RequiredMark />
+              </span>
               <input
                 type="number"
                 min="1"

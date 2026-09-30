@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { EidBoxes } from '../components/EidBoxes';
+import { RequiredMark } from '../components/ui/RequiredMark';
 import { BankMark, FlagRibbon, goldActionClass, NotOpenIcon } from '../components/site/atoms';
 import { ArrowRight } from '../components/site/atoms';
 import { EMPTY_EID, isCompleteEid } from '../eid';
@@ -229,7 +230,7 @@ export function Login() {
                     {eidError}
                   </p>
                 )}
-                <span className={fieldLabel}>e-ID number</span>
+                <span className={fieldLabel}>e-ID number<RequiredMark /></span>
                 <div className="mt-2">
                   <EidBoxes
                     value={eid}
@@ -246,7 +247,7 @@ export function Login() {
               </div>
 
               <label className="mt-4 block">
-                <span className={fieldLabel}>Password</span>
+                <span className={fieldLabel}>Password<RequiredMark /></span>
                 <input
                   type="password"
                   required
@@ -304,7 +305,7 @@ export function Login() {
                   </div>
 
                   <label className="mt-4 block">
-                    <span className={fieldLabel}>New password</span>
+                    <span className={fieldLabel}>New password<RequiredMark /></span>
                     <input
                       type="password"
                       required
@@ -324,7 +325,7 @@ export function Login() {
                   </p>
 
                   <label className="mt-4 block">
-                    <span className={fieldLabel}>Confirm new password</span>
+                    <span className={fieldLabel}>Confirm new password<RequiredMark /></span>
                     <input
                       type="password"
                       required
@@ -363,7 +364,7 @@ export function Login() {
                       </p>
                     )}
                     <label className="block">
-                      <span className={fieldLabel}>Work email</span>
+                      <span className={fieldLabel}>Work email<RequiredMark /></span>
                       <input
                         type="email"
                         required
@@ -382,7 +383,7 @@ export function Login() {
                   </div>
 
                   <label className="mt-4 block">
-                    <span className={fieldLabel}>Password</span>
+                    <span className={fieldLabel}>Password<RequiredMark /></span>
                     <input
                       type="password"
                       required

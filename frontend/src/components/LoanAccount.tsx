@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { call } from '../api';
 import { Card, CardLabel } from './ui/Card';
+import { RequiredMark } from './ui/RequiredMark';
 import type { LoanAccount as LoanAccountType } from '../types';
 import { DataTable } from './ui/DataTable';
 import { formatGyd, formatDate } from '../utils';
@@ -310,7 +311,10 @@ export function LoanAccount({
           )}
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-slate-600">
-              Amount (GYD)
+              <span>
+                Amount (GYD)
+                <RequiredMark />
+              </span>
               <input
                 type="number"
                 min={1}

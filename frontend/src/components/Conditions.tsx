@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { call } from '../api';
 import { useAuth } from '../auth';
+import { RequiredMark } from './ui/RequiredMark';
 import { formatDate } from '../utils';
 
 /** Conditions precedent — what stands between an accepted offer and money.
@@ -195,6 +196,7 @@ export function Conditions({
         <form onSubmit={(e) => void add(e)} className="mt-4 border-t border-slate-200 pt-4">
           <label className="mb-2 block text-sm font-medium text-slate-700">
             Add a condition
+            <RequiredMark />
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

@@ -304,7 +304,7 @@ export function LoanDetail() {
                   rows={3}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Remarks for the applicant (optional)"
+                  placeholder="Remarks for the applicant"
                   className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
                 />
                 <div className="mt-3 flex flex-wrap gap-2">

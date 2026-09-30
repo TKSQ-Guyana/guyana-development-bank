@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { DocumentShelf } from '../components/DocumentShelf';
+import { RequiredMark } from '../components/ui/RequiredMark';
 import type { CitizenProfile } from '../types';
 import { formatDate } from '../utils';
 
@@ -39,6 +40,7 @@ export function Profile() {
   const [profile, setProfile] = useState<CitizenProfile | null>(null);
   const [form, setForm] = useState({
     phone: '',
+    email: '',
     date_of_birth: '',
     occupation: '',
     region: '',
@@ -54,7 +56,8 @@ export function Profile() {
   const apply = (p: CitizenProfile) => {
     setProfile(p);
     setForm({
-      phone: p.phone ?? '',
+      phone: p.phone || p.verified_phone || '',
+      email: p.email || p.verified_email || '',
       date_of_birth: p.date_of_birth ?? '',
       occupation: p.occupation ?? '',
       region: p.region ?? '',
@@ -76,9 +79,17 @@ export function Profile() {
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    setSaved(false);
+    if (!form.phone.trim()) {
+      setError('Give a phone number.');
+      return;
+    }
+    if (!form.email.trim()) {
+      setError('Give an email address.');
+      return;
+    }
     setBusy(true);
     setError(null);
-    setSaved(false);
     try {
       apply(await call<CitizenProfile>('gdb_bank.profiles.save_profile', form));
       setSaved(true);
@@ -147,10 +158,29 @@ export function Profile() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm">
-            <span className="mb-1 block text-slate-500">Phone</span>
+            <span className="mb-1 block text-slate-500">
+              Phone
+              <RequiredMark />
+            </span>
             <input
+              type="tel"
+              inputMode="tel"
+              required
               value={form.phone}
               onChange={(e) => set('phone')(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-slate-500">
+              Email address
+              <RequiredMark />
+            </span>
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => set('email')(e.target.value)}
               className={inputClass}
             />
           </label>
