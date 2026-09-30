@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
+import { DataTable } from '../../components/ui/DataTable';
 import { accessHistory } from './api';
 import type { AccessHistoryPage as HistoryPage } from './types';
 import { errorText, formatDateTime, Notice, PageHeader } from './ui';
@@ -26,42 +27,62 @@ export function AccessHistoryPage() {
         lede="Every account and integration change made in this console, with the reason given. Entries cannot be edited or deleted."
       />
       {error && <Notice tone="error">{error}</Notice>}
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase tracking-wide text-slate-400">
-            <tr>
-              <th className="px-4 py-2 font-medium">When</th>
-              <th className="px-4 py-2 font-medium">By</th>
-              <th className="px-4 py-2 font-medium">What</th>
-              <th className="px-4 py-2 font-medium">Change</th>
-              <th className="px-4 py-2 font-medium">Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            {page?.rows.map((row) => (
-              <tr key={row.name} className="border-t border-slate-100 align-top">
-                <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatDateTime(row.acted_on)}</td>
-                <td className="px-4 py-3">{row.actor}</td>
-                <td className="px-4 py-3">
+      <Card className="p-0">
+        <DataTable
+          bare
+          caption="Every account and integration change made in this console"
+          columns={[
+            {
+              key: 'when',
+              header: 'When',
+              nowrap: true,
+              className: 'align-top text-slate-500',
+              cell: (row) => formatDateTime(row.acted_on),
+            },
+            { key: 'by', header: 'By', className: 'align-top', cell: (row) => row.actor },
+            {
+              key: 'what',
+              header: 'What',
+              className: 'align-top',
+              cell: (row) => (
+                <>
                   <span className="font-medium text-slate-800">{row.action}</span>
                   <span className="block text-xs text-slate-400">{row.subject}</span>
-                </td>
-                <td className="px-4 py-3 text-xs">
-                  {row.old_value && <span className="block whitespace-pre-line text-slate-400 line-through">{row.old_value}</span>}
-                  {row.new_value && <span className="block whitespace-pre-line text-slate-700">{row.new_value}</span>}
-                </td>
-                <td className="px-4 py-3 text-slate-600">{row.reason}</td>
-              </tr>
-            ))}
-            {page && page.rows.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  No changes recorded yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                </>
+              ),
+            },
+            {
+              key: 'change',
+              header: 'Change',
+              className: 'align-top text-xs',
+              cell: (row) => (
+                <>
+                  {/* Struck-through old beside plain new: what it WAS and what
+                      it BECAME, which is the whole point of an audit line. */}
+                  {row.old_value && (
+                    <span className="block whitespace-pre-line text-slate-400 line-through">
+                      {row.old_value}
+                    </span>
+                  )}
+                  {row.new_value && (
+                    <span className="block whitespace-pre-line text-slate-700">{row.new_value}</span>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: 'reason',
+              header: 'Reason',
+              className: 'align-top text-slate-600',
+              cell: (row) => row.reason,
+            },
+          ]}
+          rows={page?.rows ?? []}
+          rowKey={(row) => row.name}
+          minWidth="56rem"
+          footnote={false}
+          empty="No changes recorded yet."
+        />
         {page && (start > 0 || page.has_more) && (
           <div className="flex justify-between border-t border-slate-100 p-3">
             <Button variant="secondary" disabled={start === 0} onClick={() => setStart(Math.max(0, start - 50))}>

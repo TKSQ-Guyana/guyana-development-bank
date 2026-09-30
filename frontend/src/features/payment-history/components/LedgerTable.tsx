@@ -1,11 +1,14 @@
 import { Badge } from '../../../components/ui/Badge';
+import { DataTable } from '../../../components/ui/DataTable';
 import type { LedgerEntry } from '../model/ledger';
 import { formatDate, formatGyd } from '../../../utils';
 
 /** The ledger itself: every release and every payment, newest first.
  *
  *  Money is right-aligned and tabular so a column of figures can be read down
- *  without re-reading each one — the whole reason a ledger is a table.
+ *  without re-reading each one — the whole reason a ledger is a table. That
+ *  rule now lives in `DataTable`, which this was the prototype for; the entry
+ *  shape and the wording are what remain here.
  *
  *  A release and a payment are told apart by a worded badge, never by colour
  *  alone: a borrower who cannot distinguish the two tones still reads
@@ -18,89 +21,76 @@ import { formatDate, formatGyd } from '../../../utils';
 
 export function LedgerTable({ entries }: { entries: LedgerEntry[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[46rem] border-collapse text-sm">
-          <caption className="sr-only">
-            Every payment and release recorded on this loan ledger, newest first
-          </caption>
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/80">
-              <Th>Date</Th>
-              <Th>Description</Th>
-              <Th>Reference</Th>
-              <Th>Channel</Th>
-              <Th align="right">Amount</Th>
-              <Th align="right">Balance</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr
-                key={entry.id}
-                className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
-              >
-                <Td className="whitespace-nowrap text-slate-600">{formatDate(entry.date)}</Td>
-                <Td>
-                  <span className="font-medium text-slate-800">{entry.description}</span>
-                  {/* On a cluster facility several members pay into one loan,
-                      so who paid is part of the record, not a detail. */}
-                  {entry.payer && (
-                    <span className="mt-0.5 block text-xs text-slate-400">
-                      {entry.payer}
-                      {entry.payerEid ? ` · ${entry.payerEid}` : ''}
-                    </span>
-                  )}
-                </Td>
-                <Td className="whitespace-nowrap font-mono text-xs text-slate-500">{entry.id}</Td>
-                <Td className="whitespace-nowrap text-slate-600">{entry.channel}</Td>
-                <Td align="right" className="whitespace-nowrap font-semibold tabular-nums text-slate-900">
-                  {formatGyd(entry.amount)}
-                </Td>
-                <Td align="right" className="whitespace-nowrap tabular-nums text-slate-600">
-                  {formatGyd(entry.balance)}
-                </Td>
-                <Td>
-                  <Badge tone={entry.kind === 'release' ? 'brand' : 'success'}>{entry.status}</Badge>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-400">
-        Showing {entries.length} of {entries.length} record{entries.length === 1 ? '' : 's'}
-      </p>
-    </div>
-  );
-}
-
-function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
-  return (
-    <th
-      scope="col"
-      className={`px-5 py-3 text-xs font-semibold text-slate-500 ${
-        align === 'right' ? 'text-right' : 'text-left'
+    <DataTable
+      caption="Every payment and release recorded on this loan ledger, newest first"
+      columns={[
+        {
+          key: 'date',
+          header: 'Date',
+          nowrap: true,
+          className: 'text-slate-600',
+          cell: (e) => formatDate(e.date),
+        },
+        {
+          key: 'description',
+          header: 'Description',
+          cell: (e) => (
+            <>
+              <span className="font-medium text-slate-800">{e.description}</span>
+              {/* On a cluster facility several members pay into one loan,
+                  so who paid is part of the record, not a detail. */}
+              {e.payer && (
+                <span className="mt-0.5 block text-xs text-slate-400">
+                  {e.payer}
+                  {e.payerEid ? ` · ${e.payerEid}` : ''}
+                </span>
+              )}
+            </>
+          ),
+        },
+        {
+          key: 'reference',
+          header: 'Reference',
+          nowrap: true,
+          className: 'font-mono text-xs text-slate-500',
+          cell: (e) => e.id,
+        },
+        {
+          key: 'channel',
+          header: 'Channel',
+          nowrap: true,
+          className: 'text-slate-600',
+          cell: (e) => e.channel,
+        },
+        {
+          key: 'amount',
+          header: 'Amount',
+          align: 'right',
+          className: 'font-semibold text-slate-900',
+          cell: (e) => formatGyd(e.amount),
+        },
+        {
+          key: 'balance',
+          header: 'Balance',
+          align: 'right',
+          className: 'text-slate-600',
+          cell: (e) => formatGyd(e.balance),
+        },
+        {
+          key: 'status',
+          header: 'Status',
+          cell: (e) => (
+            <Badge tone={e.kind === 'release' ? 'brand' : 'success'}>{e.status}</Badge>
+          ),
+        },
+      ]}
+      rows={entries}
+      rowKey={(e) => e.id}
+      minWidth="46rem"
+      footnote={`Showing ${entries.length} of ${entries.length} record${
+        entries.length === 1 ? '' : 's'
       }`}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  align = 'left',
-  className = '',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-  className?: string;
-}) {
-  return (
-    <td className={`px-5 py-3.5 ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}>
-      {children}
-    </td>
+      empty="Nothing has been recorded on this ledger yet."
+    />
   );
 }

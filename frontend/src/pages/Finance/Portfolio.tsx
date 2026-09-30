@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, getList, runReport } from '../../api';
 import type { ReportColumn } from '../../api';
-import { formatGyd } from '../../utils';
 import { Card } from '../../components/ui/Card';
+import { DataTable } from '../../components/ui/DataTable';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import { reportColumns, reportTotal, type ReportRow } from '../../shared/reportTable';
 
 /** The portfolio: what the Bank has lent, what has come back, what is still to come.
  *
@@ -14,8 +15,6 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
  *  desk report it came from. See install.ensure_lending_reports_read for the
  *  grant that makes this readable at all.
  */
-
-const CURRENCY_TYPES = new Set(['Currency', 'Float']);
 
 type TabId = 'outstanding' | 'future' | 'past' | 'closure';
 
@@ -58,7 +57,10 @@ const TABS: Tab[] = [
 
 interface View {
   columns: ReportColumn[];
-  rows: Record<string, unknown>[];
+  rows: ReportRow[];
+  /** Frappe's own total row when the report has Add Total Row set. Displayed,
+   *  never computed here — the Bank's books have one implementation. */
+  total: ReportRow | null;
 }
 
 export function Portfolio() {
@@ -92,8 +94,8 @@ export function Portfolio() {
     const filters: Record<string, unknown> = { company, as_on_date: today };
 
     try {
-      const { columns, rows } = await runReport(active.report, filters);
-      setView({ columns, rows });
+      const { columns, rows, total } = await runReport(active.report, filters);
+      setView({ columns, rows, total });
     } catch (err) {
       if (err instanceof ApiError && (err.status === 403 || /permission/i.test(err.message))) {
         setDenied(true);
@@ -107,83 +109,48 @@ export function Portfolio() {
     void load();
   }, [load]);
 
+  const columns = useMemo(() => reportColumns(view?.columns ?? []), [view]);
+
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-brand">Finance</p>
-      <h1 className="mt-1 text-3xl font-bold text-slate-900">Portfolio</h1>
-      <p className="mt-2 text-sm text-slate-500">
+      {/* No page title: the layout header already says FINANCE / Portfolio,
+          and repeating it pushed the first row of data below the fold. */}
+      <p className="text-sm text-slate-500">
         What GDB has lent and what is coming back, as at {today}.
       </p>
 
-      <div className="mt-6">
+      <div className="mt-3">
         <SegmentedControl value={tab} onChange={setTab} options={TABS.map((t) => ({ id: t.id, label: t.label }))} />
       </div>
 
-      <Card className="mt-6 border border-brand-light bg-brand-light/30">
-        <h2 className="text-sm font-semibold text-brand-text">{active.label}</h2>
-        <p className="mt-1 text-sm text-slate-700">{active.blurb}</p>
-      </Card>
+      <p className="mt-3 rounded-lg border border-brand-light bg-brand-light/30 px-3 py-2 text-xs leading-relaxed text-slate-700">
+        <span className="font-semibold text-brand-text">{active.label}.</span> {active.blurb}
+      </p>
 
       {denied && (
-        <Card className="mt-6 border border-amber-200 bg-amber-50 text-sm text-amber-900">
+        <Card className="mt-3 border border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-semibold">You do not have portfolio access.</p>
           <p className="mt-1">Reading the loan book needs the Finance Officer role. Ask an administrator to grant it.</p>
         </Card>
       )}
-      {error && <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
-      {!denied && !error && !view && <p className="mt-4 text-slate-500">Loading…</p>}
-      {view && view.rows.length === 0 && (
-        <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-          Nothing to show here yet.
-        </p>
-      )}
+      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
+      {!denied && !error && !view && <p className="mt-3 text-slate-500">Loading…</p>}
 
-      {view && view.rows.length > 0 && (
-        <>
-          <p className="mt-4 mb-2 text-xs text-slate-500">
-            {view.rows.length} {view.rows.length === 1 ? 'row' : 'rows'}
-          </p>
-          <Card className="overflow-x-auto p-0">
-            <table className="min-w-full divide-y divide-slate-100 text-sm">
-              <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                <tr>
-                  {view.columns.map((c) => (
-                    <th
-                      key={c.fieldname}
-                      className={`px-5 py-3 ${CURRENCY_TYPES.has(c.fieldtype ?? '') ? 'text-right' : ''}`}
-                    >
-                      {c.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {view.rows.map((row, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    {view.columns.map((c) => (
-                      <Cell key={c.fieldname} column={c} row={row} />
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </>
+      {view && (
+        <div className="mt-3">
+          <DataTable
+            caption={`${active.label} — ${active.blurb}`}
+            columns={columns}
+            rows={view.rows}
+            rowKey={(_, i) => String(i)}
+            total={reportTotal(view.columns, view.total)}
+            // Wide reports scroll rather than crushing a loan reference into
+            // four wrapped lines, which is what the old table did.
+            minWidth={`${Math.max(48, columns.length * 9)}rem`}
+            empty="Nothing to show here yet."
+          />
+        </div>
       )}
     </div>
-  );
-}
-
-function Cell({ column, row }: { column: ReportColumn; row: Record<string, unknown> }) {
-  const value = row[column.fieldname];
-  const isMoney = CURRENCY_TYPES.has(column.fieldtype ?? '');
-
-  let text: string;
-  if (value === null || value === undefined || value === '') text = '—';
-  else if (isMoney) text = formatGyd(Number(value));
-  else text = String(value);
-
-  return (
-    <td className={`px-5 py-3 ${isMoney ? 'text-right tabular-nums' : ''} text-slate-700`}>{text}</td>
   );
 }

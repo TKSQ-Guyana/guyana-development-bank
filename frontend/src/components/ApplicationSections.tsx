@@ -1,4 +1,5 @@
 import { Card, CardLabel } from './ui/Card';
+import { DataTable } from './ui/DataTable';
 import { Badge } from './ui/Badge';
 import type { UseOfFundsRow } from '../types';
 import { formatGyd } from '../utils';
@@ -199,24 +200,34 @@ export function ApplicationSections({
                           <div key={f.key} className="sm:col-span-2">
                             <dt className="mb-1 text-xs text-slate-500">{f.label}</dt>
                             {useOfFunds.length > 0 ? (
-                              <table className="w-full text-sm">
-                                <tbody className="divide-y divide-slate-100">
-                                  {useOfFunds.map((r, i) => (
-                                    <tr key={i}>
-                                      <td className="py-1 text-slate-700">{r.item}</td>
-                                      <td className="py-1 text-right font-medium tabular-nums text-slate-800">
-                                        {formatGyd(r.amount)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                  <tr className="border-t border-slate-200 font-semibold">
-                                    <td className="py-1 text-slate-800">Total</td>
-                                    <td className="py-1 text-right tabular-nums text-slate-900">
-                                      {useOfFundsTotal != null ? formatGyd(useOfFundsTotal) : '—'}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
+                              <DataTable
+                                caption="What the applicant declared this loan will be spent on"
+                                columns={[
+                                  {
+                                    key: 'item',
+                                    header: 'Item',
+                                    className: 'text-slate-700',
+                                    cell: (r) => r.item,
+                                  },
+                                  {
+                                    key: 'amount',
+                                    header: 'Amount',
+                                    align: 'right',
+                                    className: 'font-medium text-slate-900',
+                                    cell: (r) => formatGyd(r.amount),
+                                  },
+                                ]}
+                                rows={useOfFunds}
+                                rowKey={(_, i) => String(i)}
+                                dense
+                                footnote={false}
+                                total={{
+                                  item: 'Total',
+                                  // Frappe's SUM of the lines. Never added up here.
+                                  amount:
+                                    useOfFundsTotal != null ? formatGyd(useOfFundsTotal) : '—',
+                                }}
+                              />
                             ) : (
                               <dd className="whitespace-pre-wrap text-sm font-medium text-slate-800">
                                 {formatValue(raw)}

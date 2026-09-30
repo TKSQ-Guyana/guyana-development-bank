@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, getList, runReport } from '../../api';
 import type { ReportColumn } from '../../api';
-import { formatGyd } from '../../utils';
 import { Card } from '../../components/ui/Card';
+import { DataTable } from '../../components/ui/DataTable';
 import { SegmentedControl } from '../../components/ui/SegmentedControl';
+import {
+  reportColumns,
+  reportRowClass,
+  reportTotal,
+  type ReportRow,
+} from '../../shared/reportTable';
 
 /** The ledger: ERPNext's own accounting reports, rendered in the portal.
  *
@@ -16,8 +22,6 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl';
  *  role gets a 403 from the API and the explanation below, rather than an
  *  empty table that looks like a balanced book.
  */
-
-const CURRENCY_TYPES = new Set(['Currency', 'Float']);
 
 type TabId = 'trial_balance' | 'general_ledger' | 'balance_sheet' | 'profit_and_loss' | 'accounts';
 
@@ -39,7 +43,9 @@ interface AccountRow {
 
 interface View {
   columns: ReportColumn[];
-  rows: Record<string, unknown>[];
+  rows: ReportRow[];
+  /** Frappe's own total row when the report carries one. Never summed here. */
+  total: ReportRow | null;
 }
 
 export function Ledger() {
@@ -109,7 +115,8 @@ export function Ledger() {
             { label: 'Account Type', fieldname: 'account_type' },
             { label: 'Group', fieldname: 'is_group' },
           ],
-          rows: rows as unknown as Record<string, unknown>[],
+          rows: rows as unknown as ReportRow[],
+          total: null,
         });
         return;
       }
@@ -128,8 +135,8 @@ export function Ledger() {
             ? { with_period_closing_entry_for_opening: 0 }
             : {};
 
-      const { columns, rows } = await runReport(report, { ...base, ...extra });
-      setView({ columns, rows });
+      const { columns, rows, total } = await runReport(report, { ...base, ...extra });
+      setView({ columns, rows, total });
     } catch (err) {
       if (err instanceof ApiError && (err.status === 403 || /permission/i.test(err.message))) {
         setDenied(true);
@@ -143,18 +150,25 @@ export function Ledger() {
     void load();
   }, [load]);
 
+  // The account tree indents its first column the way the desk does; every
+  // other rule a Frappe report column needs lives in reportColumns.
+  const columns = useMemo(
+    () => reportColumns(view?.columns ?? [], { indentFirst: true }),
+    [view],
+  );
+
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-brand">Finance</p>
-      <h1 className="mt-1 text-3xl font-bold text-slate-900">Ledger</h1>
-      <p className="mt-2 text-sm text-slate-500">The bank&rsquo;s books for {year}, straight from the accounting ledger.</p>
+      <p className="text-sm text-slate-500">
+        The bank&rsquo;s books for {year}, straight from the accounting ledger.
+      </p>
 
-      <div className="mt-6">
+      <div className="mt-3">
         <SegmentedControl value={tab} onChange={setTab} options={TABS} />
       </div>
 
       {denied && (
-        <Card className="mt-6 border border-amber-200 bg-amber-50 text-sm text-amber-900">
+        <Card className="mt-3 border border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-semibold">You do not have accounting access.</p>
           <p className="mt-1">
             Viewing the ledger needs an accounts role on your Frappe user — ERPNext ships{' '}
@@ -163,71 +177,24 @@ export function Ledger() {
           </p>
         </Card>
       )}
-      {error && <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
-      {!denied && !error && !view && <p className="mt-4 text-slate-500">Loading…</p>}
-      {view && view.rows.length === 0 && (
-        <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-          Nothing posted for this period.
-        </p>
-      )}
+      {error && <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
+      {!denied && !error && !view && <p className="mt-3 text-slate-500">Loading…</p>}
 
-      {view && view.rows.length > 0 && (
-        <Card className="mt-4 overflow-x-auto p-0">
-          <table className="min-w-full divide-y divide-slate-100 text-sm">
-            <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <tr>
-                {view.columns.map((c) => (
-                  <th
-                    key={c.fieldname}
-                    className={`px-5 py-3 ${CURRENCY_TYPES.has(c.fieldtype ?? '') ? 'text-right' : ''}`}
-                  >
-                    {c.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {view.rows.map((row, i) => (
-                <tr key={i} className="hover:bg-slate-50">
-                  {view.columns.map((c, j) => (
-                    <Cell key={c.fieldname} column={c} row={row} first={j === 0} />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+      {view && (
+        <div className="mt-3">
+          <DataTable
+            caption={`${TABS.find((t) => t.id === tab)?.label ?? 'Ledger'} for ${year}`}
+            columns={columns}
+            rows={view.rows}
+            rowKey={(_, i) => String(i)}
+            total={reportTotal(view.columns, view.total)}
+            rowClassName={reportRowClass}
+            dense
+            minWidth={`${Math.max(48, columns.length * 9)}rem`}
+            empty="Nothing posted for this period."
+          />
+        </div>
       )}
     </div>
-  );
-}
-
-function Cell({
-  column,
-  row,
-  first,
-}: {
-  column: ReportColumn;
-  row: Record<string, unknown>;
-  first: boolean;
-}) {
-  const value = row[column.fieldname];
-  const isMoney = CURRENCY_TYPES.has(column.fieldtype ?? '');
-  const indent = first ? Number(row.indent ?? 0) : 0;
-  const bold = Boolean(row.is_group) || /total/i.test(String(row[column.fieldname] ?? ''));
-
-  let text: string;
-  if (value === null || value === undefined || value === '') text = first ? '' : '—';
-  else if (isMoney) text = formatGyd(Number(value));
-  else if (typeof value === 'number' && column.fieldname === 'is_group') text = value ? 'Group' : 'Ledger';
-  else text = String(value);
-
-  return (
-    <td
-      className={`px-5 py-2 ${isMoney ? 'text-right tabular-nums' : ''} ${bold ? 'font-semibold text-slate-800' : 'text-slate-600'}`}
-      style={indent ? { paddingLeft: `${1 + indent * 1.25}rem` } : undefined}
-    >
-      {text}
-    </td>
   );
 }

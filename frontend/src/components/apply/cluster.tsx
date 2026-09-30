@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { call } from '../../api';
+import { DataTable } from '../ui/DataTable';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
 import type { Cluster, ClusterPlan, ClusterPlanSection, Facilitator } from '../../types';
 import { EidWithName } from './EidWithName';
@@ -408,73 +409,76 @@ export function MembersTable({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-hidden rounded-xl border border-slate-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-2 font-semibold">e-ID</th>
-              <th className="px-4 py-2 font-semibold">Name</th>
-              <th className="px-4 py-2 font-semibold">Status</th>
-              <th className="px-4 py-2" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {roster.map((m) => (
-              <tr key={m.member ?? m.member_eid ?? m.member_name}>
-                <td className="px-4 py-2 font-mono text-xs text-slate-500">
-                  {m.member_eid ?? '—'}
-                </td>
-                <td className="px-4 py-2 text-slate-800">
-                  {m.member_name}
-                  {m.is_head && (
-                    <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
-                      Head
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-xs font-medium text-slate-500">
-                  {/* Plain words, not the stored state: "Invited" is a
-                      database value, "Invitation sent" is what happened. */}
-                  {m.member_status === 'Invited'
-                    ? 'Invitation sent'
-                    : m.member_status === 'Active'
-                      ? 'Member'
-                      : m.member_status === 'Declined'
-                        ? 'Declined'
-                        : 'No longer in this group'}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  {/* The head is not removable: a group with nobody who may
-                      act for it has no way forward. Neither is somebody who
-                      already declined or left — there is nothing left to
-                      remove. */}
-                  {!m.is_head && (m.member_status === 'Invited' || m.member_status === 'Active') && (
-                    <button
-                      type="button"
-                      onClick={() => void remove(m)}
-                      disabled={removing !== null}
-                      className="rounded-full px-3 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-                    >
-                      {removing === (m.member_eid ?? m.member)
-                        ? 'Removing…'
-                        : m.member_status === 'Invited'
-                          ? 'Withdraw'
-                          : 'Remove'}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {roster.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-4 text-sm text-slate-500">
-                  Nobody has been added yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        caption="The people in this group and where each invitation stands"
+        columns={[
+          {
+            key: 'eid',
+            header: 'e-ID',
+            nowrap: true,
+            className: 'font-mono text-xs text-slate-500',
+            cell: (m) => m.member_eid ?? '—',
+          },
+          {
+            key: 'name',
+            header: 'Name',
+            className: 'text-slate-800',
+            cell: (m) => (
+              <>
+                {m.member_name}
+                {m.is_head && (
+                  <span className="ml-2 rounded bg-gdb-gold/40 px-1.5 py-0.5 text-xs font-semibold text-brand-dark">
+                    Head
+                  </span>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'status',
+            header: 'Status',
+            className: 'text-xs font-medium text-slate-500',
+            // Plain words, not the stored state: "Invited" is a database
+            // value, "Invitation sent" is what happened.
+            cell: (m) =>
+              m.member_status === 'Invited'
+                ? 'Invitation sent'
+                : m.member_status === 'Active'
+                  ? 'Member'
+                  : m.member_status === 'Declined'
+                    ? 'Declined'
+                    : 'No longer in this group',
+          },
+          {
+            key: 'remove',
+            header: '',
+            align: 'right',
+            stackLabel: '',
+            // The head is not removable: a group with nobody who may act for
+            // it has no way forward. Neither is somebody who already declined
+            // or left — there is nothing left to remove.
+            cell: (m) =>
+              !m.is_head && (m.member_status === 'Invited' || m.member_status === 'Active') ? (
+                <button
+                  type="button"
+                  onClick={() => void remove(m)}
+                  disabled={removing !== null}
+                  className="rounded-full px-3 py-1 text-xs font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                >
+                  {removing === (m.member_eid ?? m.member)
+                    ? 'Removing…'
+                    : m.member_status === 'Invited'
+                      ? 'Withdraw'
+                      : 'Remove'}
+                </button>
+              ) : null,
+          },
+        ]}
+        rows={roster}
+        rowKey={(m) => m.member ?? m.member_eid ?? m.member_name}
+        footnote={false}
+        empty="Nobody has been added yet."
+      />
 
       {/* An invitation is not membership, and this is the screen where the
           head still has time to do something about it. Until they accept, an

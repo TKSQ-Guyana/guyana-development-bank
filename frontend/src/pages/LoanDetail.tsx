@@ -92,11 +92,18 @@ export function LoanDetail() {
 
   const reviewable = loan.status === 'Submitted';
   const mine = loan.applicant === user?.user;
-  const isStaff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  // NOT shared/personas.isStaff, and the difference is deliberate: that one
+  // answers "is this a staff account?" for barring the citizen pages, and it
+  // counts the Platform Admin. This asks who gets the CASE WORKSPACE, and the
+  // Platform Admin is in none of the authority sets (utils/constants.py) —
+  // every credit and money gate refuses it server-side, so handing it the
+  // underwriter's workspace would draw controls that only answer with a
+  // permission error.
+  const staff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
   // A staff account applying for their own loan reads this the way any
   // citizen does — the dense case workspace below is for deciding SOMEBODY
   // ELSE's case, never a mirror held up to your own.
-  const workspace = isStaff && !mine;
+  const workspace = staff && !mine;
   const backTo = user?.is_underwriter ? '/review' : user?.is_disbursement ? '/disbursements' : '/apply';
 
   const bump = () => setAccountKey((k) => k + 1);

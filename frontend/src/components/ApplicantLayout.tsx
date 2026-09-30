@@ -14,6 +14,7 @@ import {
   UsersIcon,
 } from './ui/icons';
 import { useAuth } from '../auth';
+import { isStaff } from '../shared/personas';
 import { NotificationBell } from '../features/notifications/NotificationBell';
 
 const NAV_ITEMS: SidebarItem[] = [
@@ -62,13 +63,12 @@ export function ApplicantLayout() {
     navigate('/login');
   };
 
-  // Staff aren't applying for anything themselves, so the citizen rail
-  // (applications, payments, statements, cluster, ...) is noise here —
-  // their destinations are the "Bank" group below.
-  const isStaff = Boolean(
-    user?.is_underwriter || user?.is_finance || user?.is_disbursement || user?.is_platform_admin,
-  );
-  const items = isStaff ? [] : NAV_ITEMS;
+  // Staff aren't applying for anything themselves, and the routes behind the
+  // citizen rail now refuse a staff account outright (App.CitizenOnly) — so
+  // drawing them here would be offering doors that answer with a redirect.
+  // Their destinations are the "Bank" group below.
+  const staff = isStaff(user);
+  const items = staff ? [] : NAV_ITEMS;
 
   const staffItems: SidebarItem[] = [];
   if (user?.is_underwriter) {
@@ -89,7 +89,7 @@ export function ApplicantLayout() {
     <div className="flex min-h-screen">
       <Sidebar
         variant="wide"
-        brand={{ title: 'Guyana Development Bank', subtitle: 'Citizen portal' }}
+        brand={{ title: 'Guyana Development Bank', subtitle: staff ? 'Staff portal' : 'Citizen portal' }}
         items={items}
         groups={groups}
         account={
@@ -109,7 +109,7 @@ export function ApplicantLayout() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
-        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-6 py-4 backdrop-blur lg:px-10">
+        <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-3 backdrop-blur lg:px-8">
           <div className="leading-tight">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
               SME loan programme
@@ -146,7 +146,7 @@ export function ApplicantLayout() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8 lg:px-10">
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-5 py-6 lg:px-8">
           <Outlet />
         </main>
       </div>

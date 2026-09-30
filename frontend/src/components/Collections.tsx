@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { call } from '../api';
+import { DataTable } from './ui/DataTable';
 import { formatGyd } from '../utils';
 
 /** Collections — repayments arriving from a bank rather than the portal.
@@ -220,43 +221,56 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
 
 function RowTable({ rows }: { rows: Row[] }) {
   return (
-    <div className="overflow-x-auto rounded-xl bg-white shadow">
-      <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-3">Reference</th>
-            <th className="px-4 py-3">Borrower</th>
-            <th className="px-4 py-3 text-right">Amount</th>
-            <th className="px-4 py-3">Value date</th>
-            <th className="px-4 py-3">Outcome</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((r, i) => (
-            <tr key={i} className={r.problem ? 'bg-red-50/50' : 'hover:bg-slate-50'}>
-              <td className="px-4 py-2 font-mono text-xs text-slate-600">{r.reference}</td>
-              <td className="px-4 py-2 text-slate-600">{r.borrower ?? '—'}</td>
-              <td className="px-4 py-2 text-right font-semibold tabular-nums text-slate-800">
-                {formatGyd(r.amount)}
-              </td>
-              <td className="px-4 py-2 text-slate-500">{r.value_date}</td>
-              <td className="px-4 py-2">
-                {r.problem ? (
-                  <span className="text-red-700">{r.problem}</span>
-                ) : r.repayment ? (
-                  <span className="text-green-800">
-                    Posted · {r.repayment} · {r.repayment_type}
-                  </span>
-                ) : (
-                  <span className="text-slate-600">
-                    {r.repayment_type} → {r.loan}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      caption="Bank receipts in this file and what became of each"
+      columns={[
+        {
+          key: 'reference',
+          header: 'Reference',
+          nowrap: true,
+          className: 'font-mono text-xs text-slate-600',
+          cell: (r) => r.reference,
+        },
+        { key: 'borrower', header: 'Borrower', cell: (r) => r.borrower ?? '—' },
+        {
+          key: 'amount',
+          header: 'Amount',
+          align: 'right',
+          className: 'font-semibold text-slate-900',
+          cell: (r) => formatGyd(r.amount),
+        },
+        {
+          key: 'value_date',
+          header: 'Value date',
+          nowrap: true,
+          className: 'text-slate-500',
+          cell: (r) => r.value_date,
+        },
+        {
+          key: 'outcome',
+          header: 'Outcome',
+          cell: (r) =>
+            r.problem ? (
+              <span className="text-red-700">{r.problem}</span>
+            ) : r.repayment ? (
+              <span className="text-green-800">
+                Posted · {r.repayment} · {r.repayment_type}
+              </span>
+            ) : (
+              <span className="text-slate-600">
+                {r.repayment_type} → {r.loan}
+              </span>
+            ),
+        },
+      ]}
+      rows={rows}
+      rowKey={(_, i) => String(i)}
+      // A row that could not be posted is tinted AND says why in its own
+      // column — colour alone never carries the outcome.
+      rowClassName={(r) => (r.problem ? 'bg-red-50/60' : '')}
+      dense
+      minWidth="54rem"
+      empty="No rows in this file."
+    />
   );
 }

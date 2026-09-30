@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, runReport } from '../api';
 import type { ReportColumn } from '../api';
 import { downloadCsv, toCsv } from '../shared/csv';
+import { DataTable } from './ui/DataTable';
 import { formatGyd } from '../utils';
 
 /** The file the bank actually receives.
@@ -185,48 +186,26 @@ export function PaymentFile({ company }: { company: string | null }) {
             </div>
           )}
 
-          {selected.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-              Nothing to pay for this period.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-xl bg-white shadow">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    {columns.map((c) => (
-                      <th
-                        key={c.fieldname}
-                        className={`px-4 py-3 ${c.fieldtype === 'Currency' ? 'text-right' : ''}`}
-                      >
-                        {c.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {selected.map((r, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      {columns.map((c) => (
-                        <td
-                          key={c.fieldname}
-                          className={`px-4 py-2 ${
-                            c.fieldtype === 'Currency'
-                              ? 'text-right font-semibold tabular-nums text-slate-800'
-                              : 'text-slate-600'
-                          }`}
-                        >
-                          {c.fieldtype === 'Currency'
-                            ? formatGyd(Number(r[c.fieldname] ?? 0))
-                            : String(r[c.fieldname] ?? '—')}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            caption="Payment instructions in this file"
+            columns={columns.map((c) => ({
+              key: c.fieldname,
+              header: c.label,
+              align: c.fieldtype === 'Currency' ? ('right' as const) : ('left' as const),
+              nowrap: c.fieldtype !== 'Data',
+              className:
+                c.fieldtype === 'Currency' ? 'font-semibold text-slate-900' : 'text-slate-600',
+              cell: (r: Record<string, unknown>) =>
+                c.fieldtype === 'Currency'
+                  ? formatGyd(Number(r[c.fieldname] ?? 0))
+                  : String(r[c.fieldname] ?? '—'),
+            }))}
+            rows={selected}
+            rowKey={(_, i) => String(i)}
+            dense
+            minWidth={`${Math.max(48, columns.length * 9)}rem`}
+            empty="Nothing to pay for this period."
+          />
         </>
       )}
     </div>

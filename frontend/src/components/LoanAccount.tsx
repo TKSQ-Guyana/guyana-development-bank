@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { call } from '../api';
 import { Card, CardLabel } from './ui/Card';
 import type { LoanAccount as LoanAccountType } from '../types';
+import { DataTable } from './ui/DataTable';
 import { formatGyd, formatDate } from '../utils';
 
 /** Repayment schedule and payments for a booked loan. Shown to the borrower
@@ -147,38 +148,52 @@ export function LoanAccount({
         )}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[32rem] text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-              <th className="py-2 font-semibold">Due</th>
-              <th className="py-2 text-right font-semibold">Instalment</th>
-              <th className="py-2 text-right font-semibold">Principal</th>
-              <th className="py-2 text-right font-semibold">Interest</th>
-              <th className="py-2 text-right font-semibold">Balance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.payment_date} className="border-b border-slate-50 last:border-0">
-                <td className="py-2.5 text-slate-600">{formatDate(r.payment_date)}</td>
-                <td className="py-2.5 text-right font-semibold tabular-nums text-slate-800">
-                  {formatGyd(r.total_payment)}
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-slate-500">
-                  {formatGyd(r.principal_amount)}
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-slate-500">
-                  {formatGyd(r.interest_amount)}
-                </td>
-                <td className="py-2.5 text-right tabular-nums text-slate-500">
-                  {formatGyd(r.balance_loan_amount)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        caption="The repayment schedule lending issued at disbursement"
+        columns={[
+          {
+            key: 'due',
+            header: 'Due',
+            nowrap: true,
+            className: 'text-slate-600',
+            cell: (r) => formatDate(r.payment_date),
+          },
+          {
+            key: 'instalment',
+            header: 'Instalment',
+            align: 'right',
+            className: 'font-semibold text-slate-900',
+            cell: (r) => formatGyd(r.total_payment),
+          },
+          {
+            key: 'principal',
+            header: 'Principal',
+            align: 'right',
+            className: 'text-slate-500',
+            cell: (r) => formatGyd(r.principal_amount),
+          },
+          {
+            key: 'interest',
+            header: 'Interest',
+            align: 'right',
+            className: 'text-slate-500',
+            cell: (r) => formatGyd(r.interest_amount),
+          },
+          {
+            key: 'balance',
+            header: 'Balance',
+            align: 'right',
+            className: 'text-slate-500',
+            cell: (r) => formatGyd(r.balance_loan_amount),
+          },
+        ]}
+        rows={rows}
+        rowKey={(r) => r.payment_date}
+        dense
+        minWidth="34rem"
+        footnote={false}
+        empty="No schedule yet — one is issued when funds are released."
+      />
 
       {account.schedule.length > 6 && (
         <button
@@ -220,41 +235,59 @@ export function LoanAccount({
               forCluster ? 'border-gdb-gold/50 bg-white' : 'border-slate-200'
             }`}
           >
-            <table className="w-full text-left text-sm">
-              <thead
-                className={`text-xs uppercase tracking-wide ${
-                  forCluster ? 'bg-gdb-gold/25 text-brand-dark' : 'bg-slate-50 text-slate-500'
-                }`}
-              >
-                <tr>
-                  <th className="px-4 py-2 font-semibold">Date</th>
-                  {showPayer && <th className="px-4 py-2 font-semibold">Paid by</th>}
-                  <th className="px-4 py-2 font-semibold">Type</th>
-                  <th className="px-4 py-2 text-right font-semibold">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {payments.map((p) => (
-                  <tr key={p.name}>
-                    <td className="px-4 py-2 text-slate-600">{formatDate(p.posting_date)}</td>
-                    {showPayer && (
-                      <td className="px-4 py-2 font-medium text-slate-800">
-                        {p.paid_by_name ?? 'Received by GDB'}
-                        {p.paid_by_eid && (
-                          <span className="ml-2 font-mono text-xs text-slate-400">
-                            {p.paid_by_eid}
-                          </span>
-                        )}
-                      </td>
-                    )}
-                    <td className="px-4 py-2 text-xs text-slate-500">{p.repayment_type}</td>
-                    <td className="px-4 py-2 text-right font-medium text-slate-800">
-                      {formatGyd(p.amount_paid)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              bare
+              caption="Payments received against this facility"
+              columns={[
+                {
+                  key: 'date',
+                  header: 'Date',
+                  nowrap: true,
+                  className: 'text-slate-600',
+                  cell: (p) => formatDate(p.posting_date),
+                },
+                ...(showPayer
+                  ? [
+                      {
+                        key: 'payer',
+                        header: 'Paid by',
+                        className: 'font-medium text-slate-800',
+                        cell: (p: (typeof payments)[number]) => (
+                          <>
+                            {p.paid_by_name ?? 'Received by GDB'}
+                            {p.paid_by_eid && (
+                              <span className="block font-mono text-xs font-normal text-slate-400">
+                                {p.paid_by_eid}
+                              </span>
+                            )}
+                          </>
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'type',
+                  header: 'Type',
+                  className: 'text-xs text-slate-500',
+                  cell: (p) => p.repayment_type,
+                },
+                {
+                  key: 'amount',
+                  header: 'Amount',
+                  align: 'right',
+                  className: 'font-semibold text-slate-900',
+                  cell: (p) => formatGyd(p.amount_paid),
+                },
+              ]}
+              rows={payments}
+              rowKey={(p) => p.name}
+              dense
+              total={{
+                type: 'Total received',
+                amount: formatGyd(payments.reduce((sum, p) => sum + (p.amount_paid ?? 0), 0)),
+              }}
+              footnote={false}
+            />
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { DocumentShelf } from '../components/DocumentShelf';
+import { DataTable } from '../components/ui/DataTable';
 import { Card } from '../components/ui/Card';
 import { ArrowRightIcon, CheckIcon } from '../components/ui/icons';
 import {
@@ -1869,79 +1870,90 @@ export function Apply() {
                   <span className="mb-1.5 block text-sm font-medium text-slate-700">
                     Use of funds<span className="ml-1.5 font-normal text-slate-400">(optional)</span>
                   </span>
-                  <div className="overflow-hidden rounded-xl border border-slate-200">
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        <tr>
-                          <th className="px-3 py-2">Item</th>
-                          <th className="px-3 py-2 text-right">Amount</th>
-                          <th className="w-8" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {useOfFunds.map((row, i) => (
-                          <tr key={i}>
-                            <td className="px-3 py-1.5">
-                              <input
-                                value={row.item}
-                                onChange={(e) =>
-                                  setUseOfFunds((rows) =>
-                                    rows.map((r, j) => (j === i ? { ...r, item: e.target.value } : r)),
-                                  )
-                                }
-                                placeholder="e.g. New freezer"
-                                className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-sm focus:border-brand focus:bg-white focus:outline-none"
-                              />
-                            </td>
-                            <td className="px-3 py-1.5">
-                              <input
-                                type="number"
-                                min={0}
-                                value={row.amount || ''}
-                                onChange={(e) =>
-                                  setUseOfFunds((rows) =>
-                                    rows.map((r, j) =>
-                                      j === i ? { ...r, amount: Number(e.target.value) || 0 } : r,
-                                    ),
-                                  )
-                                }
-                                className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-right text-sm tabular-nums focus:border-brand focus:bg-white focus:outline-none"
-                              />
-                            </td>
-                            <td className="px-1 text-center">
-                              {useOfFunds.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setUseOfFunds((rows) => rows.filter((_, j) => j !== i))}
-                                  className="text-slate-300 hover:text-rose-500"
-                                  aria-label="Remove line"
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        {/* The total is Frappe's SUM of the lines as saved on the
-                            draft — never added up here. Before the first save
-                            there is nothing for Frappe to total yet. */}
-                        <tr className="border-t border-slate-200 bg-slate-50/60 font-semibold text-slate-800">
-                          <td className="px-3 py-2">
-                            Total{' '}
-                            <span className="font-normal text-slate-400">
-                              {draft?.use_of_funds_total != null ? '(as saved)' : '(worked out when you save)'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {draft?.use_of_funds_total != null ? formatGyd(draft.use_of_funds_total) : '—'}
-                          </td>
-                          <td />
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
+                  <DataTable
+                    caption="What this loan will be spent on, line by line"
+                    columns={[
+                      {
+                        key: 'item',
+                        header: 'Item',
+                        cell: (row, i) => (
+                          <input
+                            value={row.item}
+                            onChange={(e) =>
+                              setUseOfFunds((rows) =>
+                                rows.map((r, j) => (j === i ? { ...r, item: e.target.value } : r)),
+                              )
+                            }
+                            aria-label={`Use of funds line ${i + 1}, item`}
+                            placeholder="e.g. New freezer"
+                            className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-sm focus:border-brand focus:bg-white focus:outline-none"
+                          />
+                        ),
+                      },
+                      {
+                        key: 'amount',
+                        header: 'Amount',
+                        align: 'right',
+                        cell: (row, i) => (
+                          <input
+                            type="number"
+                            min={0}
+                            value={row.amount || ''}
+                            onChange={(e) =>
+                              setUseOfFunds((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, amount: Number(e.target.value) || 0 } : r,
+                                ),
+                              )
+                            }
+                            aria-label={`Use of funds line ${i + 1}, amount in Guyanese dollars`}
+                            className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-right text-sm tabular-nums focus:border-brand focus:bg-white focus:outline-none"
+                          />
+                        ),
+                      },
+                      {
+                        key: 'remove',
+                        header: '',
+                        align: 'right',
+                        stackLabel: '',
+                        className: 'w-8',
+                        cell: (_, i) =>
+                          useOfFunds.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => setUseOfFunds((rows) => rows.filter((_, j) => j !== i))}
+                              className="text-slate-300 hover:text-rose-500"
+                              aria-label={`Remove use of funds line ${i + 1}`}
+                            >
+                              ×
+                            </button>
+                          ) : null,
+                      },
+                    ]}
+                    rows={useOfFunds}
+                    rowKey={(_, i) => String(i)}
+                    dense
+                    footnote={false}
+                    total={{
+                      // The total is Frappe's SUM of the lines as saved on the
+                      // draft — never added up here. Before the first save
+                      // there is nothing for Frappe to total yet.
+                      item: (
+                        <>
+                          Total{' '}
+                          <span className="font-normal text-slate-400">
+                            {draft?.use_of_funds_total != null
+                              ? '(as saved)'
+                              : '(worked out when you save)'}
+                          </span>
+                        </>
+                      ),
+                      amount:
+                        draft?.use_of_funds_total != null
+                          ? formatGyd(draft.use_of_funds_total)
+                          : '—',
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => setUseOfFunds((rows) => [...rows, { item: '', amount: 0 }])}

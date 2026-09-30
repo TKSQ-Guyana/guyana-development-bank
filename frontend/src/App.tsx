@@ -1,6 +1,7 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
+import { deskFor, isStaff } from './shared/personas';
 import { ApplicantLayout } from './components/ApplicantLayout';
 import { FinanceLayout } from './components/FinanceLayout';
 import { Applications } from './pages/Applications';
@@ -75,12 +76,33 @@ function RequireUnderwriter({ children }: { children: ReactNode }) {
 }
 
 /** Staff have no loans of their own, so the citizen dashboard has nothing for
- *  them — land each on the desk they actually work from. */
+ *  them — land each on the desk they actually work from. Finance and the
+ *  disbursement officer used to fall through to the borrower's dashboard here,
+ *  which is the citizen portal, not theirs. */
 function Index() {
   const { user } = useAuth();
-  if (user?.is_platform_admin) return <Navigate to="/admin/users" replace />;
-  if (user?.is_underwriter) return <Navigate to="/review" replace />;
+  const desk = deskFor(user);
+  if (desk) return <Navigate to={desk} replace />;
   return <Dashboard />;
+}
+
+/** The citizen half of the portal: applying, paying, statements, the cluster,
+ *  your own details.
+ *
+ *  A GDB staff account is refused all of it and sent back to its own desk. Not
+ *  because the data would leak — every one of these screens reads the signed-in
+ *  account's own records, and an underwriter's staff account has none — but
+ *  because a staff login sitting on "Apply for a loan" invites exactly the act
+ *  the separation of duties exists to prevent, and the human's citizen account
+ *  is where those pages actually belong.
+ *
+ *  `/loans/:name` is deliberately NOT in here: it is the shared case URL, and
+ *  the staff workspace is the whole point of it. */
+function CitizenOnly() {
+  const { user } = useAuth();
+  const desk = deskFor(user);
+  if (isStaff(user) && desk) return <Navigate to={desk} replace />;
+  return <Outlet />;
 }
 
 /** Accounts, roles, health and integration settings are the platform
@@ -128,17 +150,23 @@ export function App() {
                 be holding, which meant "start an application" continued an
                 abandoned one and the server draft it belonged to was
                 orphaned. */}
-            <Route path="/apply" element={<Applications />} />
-            <Route path="/apply/new" element={<Apply />} />
-            <Route path="/apply/:name" element={<Apply />} />
-            <Route path="/payments" element={<Payments />} />
-            <Route path="/payments/history" element={<PaymentHistoryPage />} />
-            <Route path="/statements" element={<Statements />} />
-            <Route path="/training" element={<Training />} />
-            <Route path="/cluster" element={<Cluster />} />
-            <Route path="/profile" element={<Profile />} />
+            <Route element={<CitizenOnly />}>
+              <Route path="/apply" element={<Applications />} />
+              <Route path="/apply/new" element={<Apply />} />
+              <Route path="/apply/:name" element={<Apply />} />
+              <Route path="/payments" element={<Payments />} />
+              <Route path="/payments/history" element={<PaymentHistoryPage />} />
+              <Route path="/statements" element={<Statements />} />
+              <Route path="/training" element={<Training />} />
+              <Route path="/cluster" element={<Cluster />} />
+              <Route path="/profile" element={<Profile />} />
+              {/* Declaring your own financials is the member's own act — staff
+                  read the same figures from the case workspace instead. */}
+              <Route path="/loans/:name/my-financials" element={<MyFinancialsPage />} />
+            </Route>
+            {/* The shared case URL. Staff get the workspace, the applicant gets
+                their own case — LoanDetail decides which. */}
             <Route path="/loans/:name" element={<LoanDetail />} />
-            <Route path="/loans/:name/my-financials" element={<MyFinancialsPage />} />
             <Route
               path="/review"
               element={

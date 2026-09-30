@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { Badge } from '../components/ui/Badge';
+import { DataTable } from '../components/ui/DataTable';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { StageBadge } from '../components/ui/Stepper';
 import type { LoanApplication, LoanStage } from '../types';
@@ -90,10 +91,10 @@ export function Review() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold">Application Review Queue</h1>
-      <p className="mb-6 text-sm text-slate-500">Every citizen loan application submitted to GDB.</p>
+      {/* The layout header already says SME LOAN PROGRAMME / Review queue. */}
+      <p className="text-sm text-slate-500">Every citizen loan application submitted to GDB.</p>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 mt-3 flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           options={STAGES.map((s) => ({ id: s, label: counts[s] ? `${s} (${counts[s]})` : s }))}
           value={stage}
@@ -117,69 +118,84 @@ export function Review() {
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
       {!error && !loans && <p className="text-slate-500">Loading queue…</p>}
-      {loans && rows.length === 0 && (
-        <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
-          No applications{stage !== 'All' ? ` in stage “${stage}”` : ''}.
-        </p>
-      )}
 
-      {loans && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-xl bg-white shadow">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Application</th>
-                <th className="px-4 py-3">e-ID</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Stage</th>
-                <th className="px-4 py-3">Age in stage</th>
-                <th className="px-4 py-3">Evidence</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map((loan) => {
-                const evidenceKnown = loan.evidence_missing !== undefined;
-                const evidenceComplete = evidenceKnown && loan.evidence_missing!.length === 0;
+      {loans && (
+        <DataTable
+          caption="Every citizen loan application submitted to GDB"
+          columns={[
+            {
+              key: 'application',
+              header: 'Application',
+              nowrap: true,
+              cell: (loan) => (
+                <>
+                  <Link
+                    to={`/loans/${loan.name}`}
+                    className="font-medium text-brand hover:underline"
+                  >
+                    {loan.name}
+                  </Link>
+                  <span className="block text-xs text-slate-500">{loan.applicant_name}</span>
+                </>
+              ),
+            },
+            {
+              key: 'eid',
+              header: 'e-ID',
+              nowrap: true,
+              className: 'font-mono text-xs text-slate-500',
+              cell: (loan) => loan.applicant_eid ?? '—',
+            },
+            {
+              key: 'amount',
+              header: 'Amount',
+              align: 'right',
+              className: 'font-medium text-slate-900',
+              cell: (loan) => (
+                <>
+                  {formatGyd(loan.loan_amount)}
+                  {loan.approved_amount != null && (
+                    <span className="block text-xs font-normal text-slate-500">
+                      approved {formatGyd(loan.approved_amount)}
+                    </span>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: 'stage',
+              header: 'Stage',
+              cell: (loan) => <StageBadge stage={loan.stage} />,
+            },
+            {
+              key: 'age',
+              header: 'Age in stage',
+              nowrap: true,
+              className: 'text-slate-600',
+              cell: (loan) => (
+                <span title={formatDate(stageSince(loan))}>{formatAge(stageSince(loan))}</span>
+              ),
+            },
+            {
+              key: 'evidence',
+              header: 'Evidence',
+              cell: (loan) => {
+                const known = loan.evidence_missing !== undefined;
+                if (!known) return <span className="text-slate-400">—</span>;
+                const complete = loan.evidence_missing!.length === 0;
                 return (
-                  <tr key={loan.name} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link to={`/loans/${loan.name}`} className="font-medium text-brand hover:underline">
-                        {loan.name}
-                      </Link>
-                      <p className="text-xs text-slate-500">{loan.applicant_name}</p>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                      {loan.applicant_eid ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 font-medium tabular-nums text-slate-800">
-                      {formatGyd(loan.loan_amount)}
-                      {loan.approved_amount != null && (
-                        <p className="text-xs font-normal text-slate-500">
-                          approved {formatGyd(loan.approved_amount)}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StageBadge stage={loan.stage} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-600" title={formatDate(stageSince(loan))}>
-                      {formatAge(stageSince(loan))}
-                    </td>
-                    <td className="px-4 py-3">
-                      {!evidenceKnown ? (
-                        <span className="text-slate-400">—</span>
-                      ) : (
-                        <Badge tone={evidenceComplete ? 'success' : 'warning'}>
-                          {evidenceComplete ? 'Complete' : `${loan.evidence_missing!.length} missing`}
-                        </Badge>
-                      )}
-                    </td>
-                  </tr>
+                  <Badge tone={complete ? 'success' : 'warning'}>
+                    {complete ? 'Complete' : `${loan.evidence_missing!.length} missing`}
+                  </Badge>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              },
+            },
+          ]}
+          rows={rows}
+          rowKey={(loan) => loan.name}
+          minWidth="58rem"
+          empty={`No applications${stage !== 'All' ? ` in stage “${stage}”` : ''}.`}
+        />
       )}
     </div>
   );

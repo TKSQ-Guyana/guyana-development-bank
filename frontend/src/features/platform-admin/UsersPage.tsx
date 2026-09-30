@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
+import { DataTable } from '../../components/ui/DataTable';
 import { PlusIcon } from '../../components/ui/icons';
 import { AccountPanel } from './AccountPanel';
 import { listAccounts } from './api';
@@ -93,55 +94,70 @@ export function UsersPage() {
             </div>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th className="px-4 py-2 font-medium">{kind === 'staff' ? 'Roles' : 'e-ID'}</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2 font-medium">Last sign-in</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page?.users.map((u) => {
-                  const selected = side.mode === 'account' && side.name === u.name;
-                  return (
-                    <tr
-                      key={u.name}
-                      onClick={() => setSide({ mode: 'account', name: u.name })}
-                      className={`cursor-pointer border-t border-slate-100 ${selected ? 'bg-brand-light/40' : 'hover:bg-slate-50'}`}
-                    >
-                      <td className="px-4 py-3">
-                        <span className="font-medium text-slate-800">{u.full_name}</span>
-                        {kind === 'staff' && <span className="block text-xs text-slate-400">{u.name}</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        {kind === 'staff' ? (
-                          <span className="flex flex-wrap gap-1">
-                            {u.roles.length ? u.roles.map((r) => <Badge key={r}>{r}</Badge>) : <span className="text-slate-400">—</span>}
-                          </span>
-                        ) : (
-                          <span className="font-mono">{u.eid ?? '—'}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={u.enabled ? 'success' : 'danger'}>{u.enabled ? 'Active' : 'Disabled'}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{formatDateTime(u.last_login)}</td>
-                    </tr>
-                  );
-                })}
-                {page && page.users.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400">
-                      No accounts match.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            bare
+            caption={kind === 'staff' ? 'GDB staff accounts' : 'Citizen accounts'}
+            columns={[
+              {
+                key: 'name',
+                header: 'Name',
+                cell: (u) => (
+                  <>
+                    <span className="font-medium text-slate-800">{u.full_name}</span>
+                    {kind === 'staff' && (
+                      <span className="block text-xs text-slate-400">{u.name}</span>
+                    )}
+                  </>
+                ),
+              },
+              {
+                key: 'identity',
+                // Staff sign in by work email and citizens by e-ID, so the
+                // column that identifies an account is a different fact for
+                // each — named as the one it actually holds.
+                header: kind === 'staff' ? 'Roles' : 'e-ID',
+                nowrap: kind !== 'staff',
+                className: kind === 'staff' ? '' : 'font-mono',
+                cell: (u) =>
+                  kind === 'staff' ? (
+                    <span className="flex flex-wrap gap-1">
+                      {u.roles.length ? (
+                        u.roles.map((r) => <Badge key={r}>{r}</Badge>)
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </span>
+                  ) : (
+                    (u.eid ?? '—')
+                  ),
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                cell: (u) => (
+                  <Badge tone={u.enabled ? 'success' : 'danger'}>
+                    {u.enabled ? 'Active' : 'Disabled'}
+                  </Badge>
+                ),
+              },
+              {
+                key: 'last_login',
+                header: 'Last sign-in',
+                nowrap: true,
+                className: 'text-slate-500',
+                cell: (u) => formatDateTime(u.last_login),
+              },
+            ]}
+            rows={page?.users ?? []}
+            rowKey={(u) => u.name}
+            onRowClick={(u) => setSide({ mode: 'account', name: u.name })}
+            rowClassName={(u) =>
+              side.mode === 'account' && side.name === u.name ? 'bg-brand-light/40' : ''
+            }
+            minWidth="36rem"
+            footnote={false}
+            empty="No accounts match."
+          />
 
           {page && (start > 0 || page.has_more) && (
             <div className="flex justify-between border-t border-slate-100 p-3">

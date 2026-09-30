@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { Card } from '../components/ui/Card';
+import { DataTable } from '../components/ui/DataTable';
 import { ArrowRightIcon } from '../components/ui/icons';
 import type { LoanAccount, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
@@ -224,86 +225,107 @@ export function Statements() {
                 <p id="statement-transactions" className="mb-3 text-sm font-bold text-slate-800">
                   Transactions in this period
                 </p>
-                {period.transactions.length === 0 ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                    Nothing was released or paid between {formatDate(from)} and {formatDate(to)}.
-                  </p>
-                ) : (
-                  <table aria-labelledby="statement-transactions" className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                        <th className="py-2 font-semibold">Date</th>
-                        <th className="py-2 font-semibold">Transaction</th>
-                        <th className="py-2 font-semibold">Reference</th>
-                        <th className="py-2 text-right font-semibold">Debit</th>
-                        <th className="py-2 text-right font-semibold">Credit</th>
-                        <th className="py-2 text-right font-semibold">Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {period.transactions.map((t) => (
-                        <tr key={t.transaction_name} className="border-b border-slate-100 last:border-0">
-                          <td className="py-2.5 text-slate-600">{formatDate(t.posting_date)}</td>
-                          <td className="py-2.5 text-slate-800">{t.transaction_type}</td>
-                          <td className="py-2.5 font-mono text-xs text-slate-500">
-                            {t.transaction_name}
-                          </td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-600">
-                            {formatGyd(t.debit)}
-                          </td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-600">
-                            {formatGyd(t.credit)}
-                          </td>
-                          <td className="py-2.5 text-right font-semibold tabular-nums text-slate-900">
-                            {formatGyd(t.balance)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <DataTable
+                  bare
+                  caption="Transactions in this period"
+                  columns={[
+                    {
+                      key: 'date',
+                      header: 'Date',
+                      nowrap: true,
+                      className: 'text-slate-600',
+                      cell: (t) => formatDate(t.posting_date),
+                    },
+                    { key: 'type', header: 'Transaction', cell: (t) => t.transaction_type },
+                    {
+                      key: 'reference',
+                      header: 'Reference',
+                      nowrap: true,
+                      className: 'font-mono text-xs text-slate-500',
+                      cell: (t) => t.transaction_name,
+                    },
+                    {
+                      key: 'debit',
+                      header: 'Debit',
+                      align: 'right',
+                      className: 'text-slate-600',
+                      cell: (t) => formatGyd(t.debit),
+                    },
+                    {
+                      key: 'credit',
+                      header: 'Credit',
+                      align: 'right',
+                      className: 'text-slate-600',
+                      cell: (t) => formatGyd(t.credit),
+                    },
+                    {
+                      key: 'balance',
+                      header: 'Balance',
+                      align: 'right',
+                      className: 'font-semibold text-slate-900',
+                      cell: (t) => formatGyd(t.balance),
+                    },
+                  ]}
+                  rows={period.transactions}
+                  rowKey={(t) => t.transaction_name}
+                  dense
+                  minWidth="44rem"
+                  footnote={false}
+                  empty={`Nothing was released or paid between ${formatDate(from)} and ${formatDate(to)}.`}
+                />
               </div>
 
               <div className="py-5">
                 <p className="mb-3 text-sm font-bold text-slate-800">
                   Instalments falling due in this period
                 </p>
-                {period.rows.length === 0 ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                    No instalment falls due between {formatDate(from)} and {formatDate(to)}.
-                  </p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                        <th className="py-2 font-semibold">Due date</th>
-                        <th className="py-2 text-right font-semibold">Principal</th>
-                        <th className="py-2 text-right font-semibold">Interest</th>
-                        <th className="py-2 text-right font-semibold">Instalment</th>
-                        <th className="py-2 text-right font-semibold">Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {period.rows.map((r) => (
-                        <tr key={r.payment_date} className="border-b border-slate-100 last:border-0">
-                          <td className="py-2.5 text-slate-600">{formatDate(r.payment_date)}</td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-600">
-                            {formatGyd(r.principal_amount)}
-                          </td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-600">
-                            {formatGyd(r.interest_amount)}
-                          </td>
-                          <td className="py-2.5 text-right font-semibold tabular-nums text-slate-900">
-                            {formatGyd(r.total_payment)}
-                          </td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-600">
-                            {formatGyd(r.balance_loan_amount)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <DataTable
+                  bare
+                  caption="Instalments falling due in this period"
+                  columns={[
+                    {
+                      key: 'due',
+                      header: 'Due date',
+                      nowrap: true,
+                      className: 'text-slate-600',
+                      cell: (r) => formatDate(r.payment_date),
+                    },
+                    {
+                      key: 'principal',
+                      header: 'Principal',
+                      align: 'right',
+                      className: 'text-slate-600',
+                      cell: (r) => formatGyd(r.principal_amount),
+                    },
+                    {
+                      key: 'interest',
+                      header: 'Interest',
+                      align: 'right',
+                      className: 'text-slate-600',
+                      cell: (r) => formatGyd(r.interest_amount),
+                    },
+                    {
+                      key: 'instalment',
+                      header: 'Instalment',
+                      align: 'right',
+                      className: 'font-semibold text-slate-900',
+                      cell: (r) => formatGyd(r.total_payment),
+                    },
+                    {
+                      key: 'balance',
+                      header: 'Balance',
+                      align: 'right',
+                      className: 'text-slate-600',
+                      cell: (r) => formatGyd(r.balance_loan_amount),
+                    },
+                  ]}
+                  rows={period.rows}
+                  rowKey={(r) => r.payment_date}
+                  dense
+                  minWidth="38rem"
+                  footnote={false}
+                  empty={`No instalment falls due between ${formatDate(from)} and ${formatDate(to)}.`}
+                />
               </div>
 
               {/* Position as at today, kept visually apart from the period

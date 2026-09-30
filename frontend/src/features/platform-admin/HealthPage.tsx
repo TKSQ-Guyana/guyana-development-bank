@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardLabel } from '../../components/ui/Card';
+import { DataTable } from '../../components/ui/DataTable';
 import { systemHealth, testIntegration } from './api';
 import type { IntegrationMode, IntegrationTest, SystemHealth } from './types';
 import { errorText, formatDateTime, Notice, PageHeader } from './ui';
@@ -104,24 +105,33 @@ export function HealthPage() {
                 <p className="mt-2 text-sm text-slate-700">
                   {health.queues.workers} worker{health.queues.workers === 1 ? '' : 's'} online
                 </p>
-                <table className="mt-3 w-full text-sm">
-                  <thead className="text-xs text-slate-400">
-                    <tr>
-                      <th className="text-left font-medium">Queue</th>
-                      <th className="text-right font-medium">Waiting</th>
-                      <th className="text-right font-medium">Failed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {health.queues.queues.map((q) => (
-                      <tr key={q.name}>
-                        <td>{q.name}</td>
-                        <td className="text-right">{q.queued}</td>
-                        <td className={`text-right ${q.failed ? 'text-rose-600' : ''}`}>{q.failed}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="mt-3">
+                  <DataTable
+                    bare
+                    caption="Background job queues"
+                    columns={[
+                      { key: 'queue', header: 'Queue', cell: (q) => q.name },
+                      { key: 'queued', header: 'Waiting', align: 'right', cell: (q) => q.queued },
+                      {
+                        key: 'failed',
+                        header: 'Failed',
+                        align: 'right',
+                        // A failed job is stated in words and in place; the
+                        // colour only reinforces what the number already says.
+                        cell: (q) => (
+                          <span className={q.failed ? 'font-semibold text-rose-600' : ''}>
+                            {q.failed}
+                          </span>
+                        ),
+                      },
+                    ]}
+                    rows={health.queues.queues}
+                    rowKey={(q) => q.name}
+                    dense
+                    footnote={false}
+                    empty="No queues reported."
+                  />
+                </div>
               </>
             ) : (
               <div className="mt-2">

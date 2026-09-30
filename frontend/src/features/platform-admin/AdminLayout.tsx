@@ -42,7 +42,7 @@ export function AdminLayout() {
         }
         footer={{ label: 'Log out', icon: <LogoutIcon />, onClick: () => void onLogout() }}
       />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8 lg:px-10">
+      <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-5 py-6 lg:px-8">
         <Outlet />
       </main>
     </div>
