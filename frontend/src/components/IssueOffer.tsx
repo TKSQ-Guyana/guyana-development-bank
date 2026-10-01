@@ -68,7 +68,7 @@ export function IssueOffer({
 
       <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="text-sm">
-          <span className="mb-1 block text-slate-600">Amount (blank = as applied)</span>
+          <span className="mb-1 block text-slate-600">Amount</span>
           <input
             type="number"
             min={1}
@@ -78,7 +78,7 @@ export function IssueOffer({
           />
         </label>
         <label className="text-sm">
-          <span className="mb-1 block text-slate-600">Term in months (blank = as applied)</span>
+          <span className="mb-1 block text-slate-600">Term in months</span>
           <input
             type="number"
             min={1}
