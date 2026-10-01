@@ -29,6 +29,7 @@ import type {
   UseOfFundsRow,
 } from '../types';
 import { encodeUseOfFunds, formatDate, formatGyd, parseUseOfFunds } from '../utils';
+import { CONSENT_TEXT } from '../shared/consent';
 
 /** The guided application.
  *
@@ -121,7 +122,7 @@ type StepId =
   | 'evidence';
 
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
-  { id: 'consent', title: 'Consent', blurb: 'Authorise GDB to retrieve your records.' },
+  { id: 'consent', title: 'Consent', blurb: 'Your consent before you apply.' },
   { id: 'route', title: 'Application type', blurb: 'Applicant type and legal structure.' },
   { id: 'about', title: 'About you', blurb: 'Identity details are verified against your e-ID.' },
   { id: 'business', title: 'Business details', blurb: 'Open one group at a time.' },
@@ -243,6 +244,9 @@ export function Apply() {
   const [dcraRecord, setDcraRecord] = useState<DcraRecord | null>(null);
   const [myBusinesses, setMyBusinesses] = useState<DcraRecord[] | null>(null);
   const [manualEntry, setManualEntry] = useState(false);
+  // "Do you have a DCRA registration number?" — asked of an existing business.
+  // A restored draft that already carries a number has answered it.
+  const [hasDcra, setHasDcra] = useState<'yes' | 'no' | null>(null);
   const [looking, setLooking] = useState(false);
   const [dcraChecking, setDcraChecking] = useState(false);
   // Guards a re-blur of an unchanged number from refiring the lookup, and
@@ -285,6 +289,7 @@ export function Apply() {
   const registryPending =
     stage === 'Existing' &&
     (looking || myBusinesses === null || ((myBusinesses?.length ?? 0) > 0 && !dcraRecord));
+  const dcraAnswer = hasDcra ?? (dcra.trim() ? 'yes' : null);
   // Rows that actually name somebody. A blank line in a form is not a co-owner.
   const namedOwners = owners.filter((o) => isCompleteEid(o.eid) || o.name.trim());
   const sharesDeclared =
@@ -695,6 +700,17 @@ export function Apply() {
     }
   };
 
+  /** A typed DCRA number. An edit away from the last confirmed number
+   *  invalidates that confirmation at once — nothing may show a stale hit. */
+  const onDcraChange = (v: string) => {
+    const next = v.toUpperCase();
+    setDcra(next);
+    if (next !== lastCheckedDcra.current) {
+      setDcraRecord(null);
+      setDcraNote(null);
+    }
+  };
+
   const acceptConsent = async (): Promise<boolean> => {
     setBusy(true);
     setError(null);
@@ -796,12 +812,16 @@ export function Apply() {
    *  one on screen. */
   const blockerFor = (step: StepId): string | null => {
     if (step === 'consent') {
-      if (!consentAccepted && !consentChecked) return 'Authorise GDB to retrieve these records.';
+      if (!consentAccepted && !consentChecked) return 'Give your consent to continue.';
     }
     if (step === 'route') {
       if (!stage) return 'Select the application type.';
-      if (stage === 'Existing' && (myBusinesses?.length ?? 0) > 0 && !dcra.trim()) {
-        return 'Select the registered business.';
+      // The server refuses an existing business without its DCRA number
+      // (services/application.py), so "No" cannot go on as one.
+      if (stage === 'Existing') {
+        if (!dcraAnswer) return 'Tell us whether you have a DCRA registration number.';
+        if (dcraAnswer === 'no') return 'An existing business applies with its DCRA number. Apply as a new venture instead.';
+        if (!dcra.trim()) return 'Enter the DCRA registration number.';
       }
       if (registryPending && looking) return 'Checking the register…';
       if (!structure) return 'Select the legal structure.';
@@ -1301,12 +1321,7 @@ export function Apply() {
 
           {/* --------------------------------------------------- STEP: CONSENT */}
           {step === 'consent' && (
-            <Section letter="1" title="Records authorisation">
-              <ul className="list-disc space-y-1.5 pl-5 text-sm text-slate-600">
-                <li>Business registration — Deeds and Commercial Registries Authority (DCRA)</li>
-                <li>Bank accounts held in your name — to verify the disbursement account</li>
-              </ul>
-              <p className="text-xs text-slate-500">Used for this application only. Not shared outside GDB.</p>
+            <Section letter="1" title="Consent">
               <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50/80 p-3.5">
                 <input
                   type="checkbox"
@@ -1315,9 +1330,7 @@ export function Apply() {
                   onChange={(e) => setConsentChecked(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                 />
-                <span className="text-sm font-medium text-slate-800">
-                  I authorise GDB to retrieve these records.
-                </span>
+                <span className="text-sm font-medium text-slate-800">{CONSENT_TEXT}</span>
               </label>
             </Section>
           )}
@@ -1332,10 +1345,11 @@ export function Apply() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <ChoiceCard
                     title="Existing business"
-                    body="Trading and registered with DCRA."
+                    body="Already trading."
                     selected={stage === 'Existing'}
                     onSelect={() => {
                       setStage('Existing');
+                      setHasDcra(null);
                       setDcraNote(null);
                       setDcraRecord(null);
                       setManualEntry(false);
@@ -1365,39 +1379,98 @@ export function Apply() {
                 </div>
               </Section>
 
-              {/* An existing business is asked which DCRA registration this
-                  application is for, right here — not deferred to the
-                  business-identity step — so Continue is all that is left to
-                  do once a business is picked. */}
+              {/* An existing business is asked for its DCRA registration right
+                  here — not deferred to the business-identity step — so
+                  Continue is all that is left once it is given. "No" cannot
+                  continue as an existing business: the server requires the
+                  number (services/application.py), so it is offered the
+                  new-venture form instead, by the applicant's own choice. */}
               {stage === 'Existing' && (
-                <Section
-                  letter="2"
-                  title="Registered business"
-                  blurb="DCRA registrations held against your e-ID."
-                >
-                  {looking && (
-                    <p className="text-sm text-slate-500">Retrieving DCRA records…</p>
-                  )}
-                  {!looking && (myBusinesses?.length ?? 0) > 0 && (
-                    <SelectField
-                      label="Business"
-                      value={
-                        myBusinesses?.find((b) => b.registration_number === dcra)
-                          ? businessOption(myBusinesses.find((b) => b.registration_number === dcra)!)
-                          : ''
-                      }
-                      onChange={(v) => {
-                        const chosen = myBusinesses?.find((b) => businessOption(b) === v);
-                        if (chosen) selectBusiness(chosen);
+                <Section letter="2" title="Do you have a DCRA registration number?">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <ChoiceCard
+                      title="Yes"
+                      body="Enter it and GDB checks it with DCRA."
+                      selected={dcraAnswer === 'yes'}
+                      onSelect={() => {
+                        setHasDcra('yes');
+                        setManualEntry(true);
                       }}
-                      options={(myBusinesses ?? []).map(businessOption)}
-                      required
                     />
+                    <ChoiceCard
+                      title="No"
+                      body="The business is not registered with DCRA."
+                      selected={dcraAnswer === 'no'}
+                      onSelect={() => {
+                        setHasDcra('no');
+                        setDcra('');
+                        setDcraRecord(null);
+                        setDcraNote(null);
+                        lastCheckedDcra.current = '';
+                      }}
+                    />
+                  </div>
+
+                  {dcraAnswer === 'yes' && (
+                    <>
+                      {looking && <p className="text-sm text-slate-500">Retrieving DCRA records…</p>}
+                      {!looking && (myBusinesses?.length ?? 0) > 0 && (
+                        <SelectField
+                          label="Registered to your e-ID"
+                          value={
+                            myBusinesses?.find((b) => b.registration_number === dcra)
+                              ? businessOption(myBusinesses.find((b) => b.registration_number === dcra)!)
+                              : ''
+                          }
+                          onChange={(v) => {
+                            const chosen = myBusinesses?.find((b) => businessOption(b) === v);
+                            if (chosen) selectBusiness(chosen);
+                          }}
+                          options={(myBusinesses ?? []).map(businessOption)}
+                          placeholder="Choose, or type the number below"
+                        />
+                      )}
+                      <div onBlur={() => void checkTypedDcra()}>
+                        <TextField
+                          label="DCRA registration number"
+                          required
+                          value={dcra}
+                          onChange={onDcraChange}
+                          placeholder="BN-2024-004512"
+                        />
+                      </div>
+                      {dcraChecking && <p className="text-sm text-slate-500">Checking DCRA…</p>}
+                      {dcraRecord?.business_name && (
+                        <Notice tone="good">
+                          {dcraRecord.business_name} · {dcraRecord.status} · {dcraSourceLabel}
+                        </Notice>
+                      )}
+                      {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
+                    </>
                   )}
-                  {!looking && !(myBusinesses?.length ?? 0) && (
-                    <Notice tone="info">
-                      No DCRA registration found. Enter it under Business details.
-                    </Notice>
+
+                  {dcraAnswer === 'no' && (
+                    <>
+                      <Notice tone="warn">
+                        An existing business applies with its DCRA registration number. If it is not
+                        registered yet, apply as a new venture and fill in its details.
+                      </Notice>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStage('New');
+                            setHasDcra(null);
+                            setDcra('');
+                            setDcraRecord(null);
+                            setDcraNote(null);
+                          }}
+                          className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-dark"
+                        >
+                          Apply as a new venture instead
+                        </button>
+                      </div>
+                    </>
                   )}
                 </Section>
               )}
@@ -1687,17 +1760,7 @@ export function Apply() {
                           label="DCRA registration number"
                           required
                           value={dcra}
-                          onChange={(v) => {
-                            const next = v.toUpperCase();
-                            setDcra(next);
-                            // An edit away from the last confirmed number
-                            // invalidates that confirmation immediately —
-                            // the panel below must never show a stale hit.
-                            if (next !== lastCheckedDcra.current) {
-                              setDcraRecord(null);
-                              setDcraNote(null);
-                            }
-                          }}
+                          onChange={onDcraChange}
                           placeholder="BN-2024-004512"
                         />
                       </div>

@@ -7,6 +7,7 @@ import { REGIONS } from '../../components/apply/cluster';
 import { PayoutAccount } from '../../components/apply/PayoutAccount';
 import { CheckIcon } from '../../components/ui/icons';
 import { FieldOfficerRequest } from './FieldOfficerRequest';
+import { CONSENT_TEXT } from '../../shared/consent';
 import type { CitizenProfile, LoanApplication } from '../../types';
 import {
   blockerFor,
@@ -222,7 +223,7 @@ export function QuickApplyPage() {
     }
     if (step === 'eligibility' && !consented) {
       if (!consentChecked) {
-        setError('Agree to let GDB look up your bank accounts to continue.');
+        setError('Give your consent to continue.');
         return false;
       }
       if (!(await run(() => call('gdb_bank.profiles.record_consent')))) return false;
@@ -509,7 +510,7 @@ export function QuickApplyPage() {
           {consented === false && answers.how === 'self' && (
             <Card tone="soft">
               <Check checked={consentChecked} onChange={setConsentChecked}>
-                I agree to GDB receiving these records for my application.
+                {CONSENT_TEXT}
               </Check>
             </Card>
           )}
