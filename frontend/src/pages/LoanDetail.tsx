@@ -14,7 +14,10 @@ import { OfferPanel } from '../components/OfferPanel';
 import { ApplicantCaseView } from '../features/applications/ApplicantCaseView';
 import { QuickDecision } from '../features/quick-loan/QuickDecision';
 import { ApplicationTab } from '../features/underwriting/ApplicationTab';
-import { DecisionDrawer, RequestInfoDrawer } from '../features/underwriting/CaseDrawers';
+import { DecisionDrawer, FieldTaskDrawer, RequestInfoDrawer } from '../features/underwriting/CaseDrawers';
+import { fo } from '../features/field-officer/api';
+import { FieldReports } from '../features/field-officer/FieldReports';
+import type { FieldTask } from '../features/field-officer/types';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -73,6 +76,9 @@ export function LoanDetail() {
   const [tab, setTab] = useState<StaffTab>('application');
   const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
   const [asking, setAsking] = useState(false);
+  const [fieldAsking, setFieldAsking] = useState(false);
+  // Officer-observed evidence: site visits and reference checks on this case.
+  const [fieldTasks, setFieldTasks] = useState<FieldTask[]>([]);
 
   const load = useCallback(() => {
     if (!name) return;
@@ -82,6 +88,14 @@ export function LoanDetail() {
   }, [name]);
 
   useEffect(load, [load]);
+
+  const staffReader = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  useEffect(() => {
+    if (!name || !staffReader) return;
+    fo.tasksFor(name)
+      .then(setFieldTasks)
+      .catch(() => setFieldTasks([]));
+  }, [name, staffReader, accountKey]);
 
   if (error && !loan) return <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>;
   if (!loan) return <p className="text-slate-500">Loading…</p>;
@@ -151,6 +165,11 @@ export function LoanDetail() {
                 Request info
               </Button>
             )}
+            {reviewable && (
+              <Button variant="secondary" onClick={() => setFieldAsking(true)}>
+                Request field work
+              </Button>
+            )}
             {underwriterDecides && (
               <>
                 <Button variant="danger" onClick={() => setDeciding('reject')}>
@@ -203,6 +222,10 @@ export function LoanDetail() {
             )}
             <Row label="Phone" value={loan.phone || '—'} />
             <Row label="Submitted" value={formatDate(loan.creation)} />
+            {loan.assisted_by_name && <Row label="Assisted by" value={loan.assisted_by_name} />}
+            {loan.submitted_by && loan.submitted_by !== loan.applicant && (
+              <Row label="Submitted by" value={loan.submitted_by_name ?? loan.submitted_by} />
+            )}
             {loan.purpose && (
               <div className="mt-2 border-t border-slate-100 pt-2">
                 <p className="text-sm text-slate-500">Purpose</p>
@@ -238,6 +261,24 @@ export function LoanDetail() {
               </ul>
             )}
           </Card>
+
+          {fieldTasks.length > 0 && (
+            <Card>
+              <RailTitle
+                aside={
+                  <Badge tone={fieldTasks.every((t) => t.status === 'Submitted' || t.status === 'Cancelled') ? 'success' : 'warning'}>
+                    {fieldTasks.filter((t) => t.status === 'Submitted').length} of{' '}
+                    {fieldTasks.filter((t) => t.status !== 'Cancelled').length} reported
+                  </Badge>
+                }
+              >
+                Field verification
+              </RailTitle>
+              {fieldTasks.map((t) => (
+                <Row key={t.name} label={t.kind} value={t.status} />
+              ))}
+            </Card>
+          )}
 
           {(loan.underwriter_remarks || loan.reviewed_by) && (
             <Card>
@@ -307,6 +348,19 @@ export function LoanDetail() {
             {name && loan.status !== 'Draft' && (
               <InformationRequests key={`req-${accountKey}`} application={name} onChange={bump} />
             )}
+            {loan.status !== 'Draft' && (
+              <FieldReports
+                tasks={fieldTasks}
+                onCancel={
+                  user?.is_underwriter
+                    ? (t) => {
+                        const reason = window.prompt(`Cancel the ${t.kind.toLowerCase()}? Reason:`);
+                        if (reason?.trim()) void fo.cancelTask(t.name, reason).then(bump).catch((err: Error) => setError(err.message));
+                      }
+                    : undefined
+                }
+              />
+            )}
           </Panel>
 
           <Panel active={tab === 'offer'}>
@@ -351,6 +405,9 @@ export function LoanDetail() {
           if (updated.status === 'Approved') setTab('offer');
         }}
       />
+      {name && (
+        <FieldTaskDrawer application={name} open={fieldAsking} onClose={() => setFieldAsking(false)} onSent={bump} />
+      )}
       {name && (
         <RequestInfoDrawer
           application={name}

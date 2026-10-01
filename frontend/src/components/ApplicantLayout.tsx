@@ -5,6 +5,7 @@ import {
   DashboardIcon,
   LedgerIcon,
   LogoutIcon,
+  MapPinIcon,
   PaymentsIcon,
   PortfolioIcon,
   ProfileIcon,
@@ -42,6 +43,12 @@ const MODULE_TITLES: [string, string][] = [
   ['/cluster', 'My groups'],
   ['/facilitator/groups/new', 'New group'],
   ['/facilitator', 'Groups'],
+  ['/field/assist', 'Assisted application'],
+  ['/field/requests', 'Assist request'],
+  ['/field/tasks', 'Field task'],
+  ['/field/cases', 'Case'],
+  ['/field/find', 'Find applicant'],
+  ['/field', 'Field desk'],
   ['/loans/', 'Application'],
   ['/review', 'Review queue'],
   ['/disbursements', 'Disbursements'],
@@ -87,6 +94,9 @@ export function ApplicantLayout() {
   }
   if (user?.is_facilitator) {
     staffItems.push({ to: '/facilitator', label: 'Groups', icon: <ClusterIcon /> });
+  }
+  if (user?.is_field_officer) {
+    staffItems.push({ to: '/field', label: 'Field desk', icon: <MapPinIcon /> });
   }
   if (user?.is_platform_admin) {
     staffItems.push({ to: '/admin/users', label: 'Administration', icon: <UsersIcon /> });
@@ -156,6 +166,11 @@ export function ApplicantLayout() {
             {user?.is_facilitator && (
               <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
                 Facilitator
+              </span>
+            )}
+            {user?.is_field_officer && (
+              <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-800">
+                Field Officer
               </span>
             )}
           </div>

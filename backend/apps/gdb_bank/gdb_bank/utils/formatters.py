@@ -291,6 +291,8 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 	)
 	case = ctx.get(name) or {}
 	stage, stage_label = _stage_for(status, case)
+	if status == "Draft" and get("gdb_handed_off_on"):
+		stage_label = STAGE_LABELS["Handed off"]
 	return {
 		"name": get("name"),
 		# `standard` or `quick`. The two are applied for on different forms, and
@@ -299,6 +301,15 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		# When a Quick Loan's borrower accepted its terms (it has no offer to sign).
 		"terms_accepted_on": get("gdb_terms_accepted_on"),
 		"credit_consent_on": get("gdb_credit_consent_on"),
+		# Filled with a GDB Field Officer (services/field_operations) and when
+		# it was handed back for the applicant to check and submit.
+		"assisted_by": get("gdb_assisted_by"),
+		"assisted_by_name": frappe.utils.get_fullname(get("gdb_assisted_by")) if get("gdb_assisted_by") else None,
+		"handed_off_on": get("gdb_handed_off_on"),
+		# Who submitted it — the applicant, or a Field Officer for them.
+		"submitted_by": get("gdb_submitted_by"),
+		"submitted_by_name": frappe.utils.get_fullname(get("gdb_submitted_by")) if get("gdb_submitted_by") else None,
+		"submitted_on": get("gdb_submitted_on"),
 		"applicant": get("gdb_owner"),
 		"applicant_eid": eids.get(owner),
 		"cluster": get("gdb_cluster"),

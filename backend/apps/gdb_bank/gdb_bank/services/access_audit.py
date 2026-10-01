@@ -27,6 +27,9 @@ ONE_TIME_PASSWORD_ISSUED = "One-Time Password Issued"
 # password its owner never chose.
 PASSWORD_CHOSEN = "Password Chosen"
 SETTINGS_CHANGED = "Integration Settings Changed"
+# The region a staff member works — it decides which applicants' requests and
+# which field tasks a Field Officer is shown.
+REGION_CHANGED = "Region Changed"
 
 FIELDS = ["name", "action", "subject", "subject_user", "actor", "acted_on", "old_value", "new_value", "reason"]
 

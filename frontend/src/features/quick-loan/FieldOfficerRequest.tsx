@@ -15,11 +15,14 @@ interface FieldOfficerRequestRow {
   business_type: string;
   region: string;
   best_time: string | null;
-  status: 'Waiting' | 'Contacted' | 'Cancelled';
+  status: 'Waiting' | 'Accepted' | 'Visit booked' | 'Cancelled' | string;
   requested_on: string;
 }
 
 type Field = 'name' | 'phone' | 'type' | 'other' | 'region';
+
+/** Still with GDB: in the regional pool, or with an officer working it. */
+const OPEN = ['Waiting', 'Accepted', 'Visit booked'];
 
 export function FieldOfficerRequest({
   defaultName,
@@ -46,7 +49,7 @@ export function FieldOfficerRequest({
 
   useEffect(() => {
     call<FieldOfficerRequestRow | null>('gdb_bank.api.my_field_officer_request')
-      .then((r) => setRequest(r && r.status === 'Waiting' ? r : null))
+      .then((r) => setRequest(r && OPEN.includes(r.status) ? r : null))
       .catch(() => setRequest(null));
   }, []);
 
@@ -69,6 +72,7 @@ export function FieldOfficerRequest({
           business_type: type === 'Something else' ? other : type,
           region,
           best_time: time,
+          product: 'Quick',
         }),
       );
     } catch (err) {
@@ -141,7 +145,7 @@ export function FieldOfficerRequest({
           </QButton>
           {cancelled ? (
             <QButton onClick={onApplySelf}>Apply myself instead</QButton>
-          ) : (
+          ) : request.status !== 'Waiting' ? null : (
             <QButton kind="ghost" disabled={busy} onClick={() => setAsking(true)}>
               Cancel request
             </QButton>

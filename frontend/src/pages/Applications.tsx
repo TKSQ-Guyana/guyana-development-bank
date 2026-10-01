@@ -236,6 +236,13 @@ const draftPill = (
   </span>
 );
 
+/** A draft a GDB Field Officer filled with the applicant and handed back. */
+const readyPill = (
+  <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+    Ready to submit
+  </span>
+);
+
 export function Applications() {
   const { user } = useAuth();
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
@@ -314,11 +321,13 @@ export function Applications() {
       title,
       reference: loan.name,
       product: productOf(loan),
-      status: draft ? draftPill : <StageBadge stage={loan.stage} />,
+      status: draft ? (loan.handed_off_on ? readyPill : draftPill) : <StageBadge stage={loan.stage} />,
       // A Loan Application draft exists only once Funding is saved.
       progress: draft ? 6 / WIZARD_STEPS.length : undefined,
       detail: draft
-        ? `6 of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(loan.modified)}`
+        ? loan.handed_off_on
+          ? `Prepared with ${loan.assisted_by_name ?? 'a GDB Field Officer'} · check and submit`
+          : `6 of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(loan.modified)}`
         : loan.stage_label,
       amount: loan.loan_amount,
       flag: !draft && attention ? attention.tag : undefined,

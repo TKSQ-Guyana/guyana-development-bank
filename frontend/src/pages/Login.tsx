@@ -38,6 +38,7 @@ const NEW_PASSWORD_MIN = 12;
 function landingFor(whoami: Whoami | null, from: string): string {
   if (whoami?.is_platform_admin) return '/admin/users';
   if (whoami?.is_underwriter) return '/review';
+  if (whoami?.is_field_officer) return '/field';
   return from;
 }
 

@@ -42,12 +42,49 @@ export const WHOAMI = 'gdb_bank.api.whoami';
  *  in has gone stale; the auth provider listens and re-reads it (auth.tsx). */
 export const SESSION_CHECK = 'gdb:session-check';
 
+/** The applicant's own endpoints that a Field Officer may call FOR an
+ *  applicant, under that applicant's consent (backend security/assist.py).
+ *  Every one of them accepts `acting`; nothing else is sent it, because an
+ *  endpoint that ignored it would quietly act on the officer's own account. */
+const ACTING_METHODS = new Set([
+  'gdb_bank.api.loan_detail',
+  'gdb_bank.api.save_application',
+  'gdb_bank.api.my_bank_details',
+  'gdb_bank.api.save_bank_details',
+  'gdb_bank.api.my_bank_accounts',
+  'gdb_bank.api.verify_bank_account',
+  'gdb_bank.api.dcra_lookup',
+  'gdb_bank.api.my_businesses',
+  'gdb_bank.profiles.my_profile',
+  'gdb_bank.profiles.record_consent',
+  'gdb_bank.profiles.save_profile',
+  'gdb_bank.profiles.pending_applications',
+  'gdb_bank.profiles.pending_application',
+  'gdb_bank.profiles.save_pending_application',
+  'gdb_bank.documents.list_documents',
+  'gdb_bank.documents.new_document',
+  'gdb_bank.documents.confirm_document',
+  'gdb_bank.documents.delete_document',
+  'gdb_bank.documents.list_requests',
+]);
+
+// ponytail: one module-level consent rather than a prop threaded through the
+// wizard and every shelf component it renders. Set only by the assisted-mode
+// page (features/field-officer/AssistedApply), which clears it on unmount.
+let acting: string | null = null;
+
+/** Act for the applicant who granted `consent`, or stop (null). */
+export function setActing(consent: string | null) {
+  acting = consent;
+}
+
 export async function call<T>(method: string, args?: Record<string, unknown>): Promise<T> {
+  const body = acting && ACTING_METHODS.has(method) ? { ...args, acting } : args;
   const res = await fetch(`/api/method/${method}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(args ?? {}),
+    body: JSON.stringify(body ?? {}),
   });
   let data: unknown = null;
   try {

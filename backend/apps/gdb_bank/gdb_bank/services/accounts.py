@@ -33,6 +33,7 @@ from frappe.sessions import clear_sessions
 from frappe.utils import cint, validate_email_address
 
 from gdb_bank.integrations import keycloak_admin
+from gdb_bank.install import REGION_OPTIONS
 from gdb_bank.security import role_policy
 from gdb_bank.services import access_audit
 from gdb_bank.utils.constants import PLATFORM_ADMIN_ROLE
@@ -40,6 +41,8 @@ from gdb_bank.utils.eid import EID_FIELD, EID_SHAPE, normalize_eid
 from gdb_bank.utils.session import _logger
 
 STAFF_EID_FIELD = "gdb_staff_eid"
+# The region a Field Officer works (install.USER_CUSTOM_FIELDS).
+REGION_FIELD = "gdb_region"
 STAFF = "staff"
 CITIZENS = "citizens"
 USER_TYPES = {STAFF: "System User", CITIZENS: "Website User"}
@@ -50,7 +53,7 @@ MAX_PAGE = 100
 # (All, Desk User, lending's desk roles) is noise at this level.
 _SHOWN_ROLES = (*role_policy.GRANTABLE_ROLES, PLATFORM_ADMIN_ROLE, "System Manager", "Citizen")
 
-_LIST_FIELDS = ["name", "full_name", "user_type", "enabled", "last_login", EID_FIELD, STAFF_EID_FIELD]
+_LIST_FIELDS = ["name", "full_name", "user_type", "enabled", "last_login", EID_FIELD, STAFF_EID_FIELD, REGION_FIELD]
 
 # Holding both is allowed — a small bank needs it — but only because
 # api.disburse_loan's per-case gate refuses the officer who approved the case.
@@ -115,6 +118,7 @@ def _summary(row, roles: list[str], actor: str) -> dict:
 		# How GDB identifies a person: the citizen's sign-in e-ID, or the
 		# national e-ID recorded on a staff account for the conflict check.
 		"eid": row.get(STAFF_EID_FIELD if staff else EID_FIELD),
+		"region": row.get(REGION_FIELD) if staff else None,
 		"roles": roles,
 		"manageable": refusal is None,
 		"protected_reason": refusal,
@@ -185,6 +189,7 @@ def list_users(actor: str, kind: str = STAFF, search: str | None = None, start=0
 		# The create form offers exactly what the server will accept, rather
 		# than keeping a second copy of role_policy in the client.
 		"grantable_roles": list(role_policy.GRANTABLE_ROLES),
+		"regions": _regions(),
 	}
 
 
@@ -198,6 +203,7 @@ def get_user(actor: str, user: str) -> dict:
 		**summary,
 		"email": doc.email,
 		"grantable_roles": list(role_policy.GRANTABLE_ROLES),
+		"regions": _regions(),
 		"can_change_roles": staff and summary["manageable"],
 		"can_reset_password": staff and summary["manageable"] and summary["enabled"],
 		"keycloak_managed": keycloak_admin.is_configured(),
@@ -252,7 +258,27 @@ def _provision_keycloak(email: str, full_name: str) -> tuple[dict, str | None]:
 	return _keycloak_outcome("issued", _issued_detail(email)), password
 
 
-def create_staff_user(actor: str, full_name: str, email: str, roles, reason: str, eid: str | None = None) -> dict:
+def _regions() -> list[str]:
+	"""The region list the User field stores (install.REGION_OPTIONS)."""
+	return [o for o in REGION_OPTIONS.split("\n") if o]
+
+
+def _region(region: str | None) -> str | None:
+	region = (region or "").strip()
+	if region and region not in _regions():
+		frappe.throw(_("Choose a region from the list."))
+	return region or None
+
+
+def create_staff_user(
+	actor: str,
+	full_name: str,
+	email: str,
+	roles,
+	reason: str,
+	eid: str | None = None,
+	region: str | None = None,
+) -> dict:
 	reason = _reason(reason)
 	full_name = (full_name or "").strip()
 	if not full_name or len(full_name) > 140:
@@ -264,6 +290,7 @@ def create_staff_user(actor: str, full_name: str, email: str, roles, reason: str
 	eid = normalize_eid(eid) if eid else ""
 	if eid and not EID_SHAPE.match(eid):
 		frappe.throw(_("Enter the e-ID as 3, then 4, then 4 digits."))
+	region = _region(region)
 
 	if frappe.db.exists("User", email):
 		frappe.throw(_("An account with this email already exists."), frappe.DuplicateEntryError)
@@ -281,6 +308,7 @@ def create_staff_user(actor: str, full_name: str, email: str, roles, reason: str
 			"send_welcome_email": 0,
 			"enabled": 1,
 			STAFF_EID_FIELD: eid or None,
+			REGION_FIELD: region,
 			"roles": [{"role": role} for role in wanted],
 		}
 	).insert(ignore_permissions=True)
@@ -339,6 +367,31 @@ def set_user_roles(actor: str, user: str, roles, reason: str) -> dict:
 		_logger().info(f"platform admin {actor} set roles of {doc.name}: {sorted(current)} -> {sorted(wanted)}")
 
 	return {"user": get_user(actor, doc.name), "changed": current != wanted}
+
+
+def set_user_region(actor: str, user: str, region, reason: str) -> dict:
+	"""The region a staff member works. It scopes a Field Officer's pool."""
+	reason = _reason(reason)
+	doc = _manageable(actor, user)
+	if doc.user_type != "System User":
+		frappe.throw(_("Only a staff account works a region."), frappe.PermissionError)
+	region = _region(region)
+	current = doc.get(REGION_FIELD) or None
+	if current != region:
+		doc.set(REGION_FIELD, region)
+		doc.save(ignore_permissions=True)
+		access_audit.record(
+			actor,
+			access_audit.REGION_CHANGED,
+			reason=reason,
+			subject=doc.name,
+			subject_user=doc.name,
+			old=current,
+			new=region,
+		)
+		frappe.db.commit()
+		_logger().info(f"platform admin {actor} set region of {doc.name}: {current} -> {region}")
+	return {"user": get_user(actor, doc.name), "changed": current != region}
 
 
 def _mirror_to_keycloak(email: str, enabled: bool) -> dict | None:

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardLabel } from '../../components/ui/Card';
-import { getAccount, resetPassword, setAccountEnabled, setAccountRoles } from './api';
+import { getAccount, resetPassword, setAccountEnabled, setAccountRegion, setAccountRoles } from './api';
 import type { AccountDetail, KeycloakOutcome } from './types';
-import { errorText, formatDateTime, hasReason, Notice, OneTimePassword, ReasonField } from './ui';
+import { errorText, formatDateTime, hasReason, inputClass, Notice, OneTimePassword, ReasonField } from './ui';
 
 const OUTCOME_TONE = {
   issued: 'success',
@@ -47,6 +47,7 @@ export function AccountPanel({
 }) {
   const [account, setAccount] = useState<AccountDetail | null>(null);
   const [roles, setRoles] = useState<string[]>([]);
+  const [region, setRegion] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export function AccountPanel({
   const show = useCallback((next: AccountDetail) => {
     setAccount(next);
     setRoles(next.roles.filter((r) => next.grantable_roles.includes(r)));
+    setRegion(next.region ?? '');
   }, []);
 
   useEffect(() => {
@@ -169,6 +171,19 @@ export function AccountPanel({
               </div>
             </fieldset>
           )}
+          {account.can_change_roles && (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-slate-700">Region</span>
+              <select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy} className={inputClass}>
+                <option value="">None</option>
+                {account.regions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {!staff && (
             <p className="text-sm text-slate-500">
               A citizen account carries no staff role. Its password is managed by the e-ID service.
@@ -184,6 +199,15 @@ export function AccountPanel({
                 onClick={() => void run(() => setAccountRoles(account.name, roles, reason.trim()), 'Roles updated.')}
               >
                 Save roles
+              </Button>
+            )}
+            {account.can_change_roles && (
+              <Button
+                variant="secondary"
+                disabled={busy || region === (account.region ?? '') || !hasReason(reason)}
+                onClick={() => void run(() => setAccountRegion(account.name, region, reason.trim()), 'Region updated.')}
+              >
+                Save region
               </Button>
             )}
             <Button

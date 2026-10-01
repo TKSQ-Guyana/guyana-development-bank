@@ -19,6 +19,7 @@ permission_query_conditions = {
 	"GDB Information Request": "gdb_bank.permissions.own_records_query_conditions",
 	"GDB Field Officer Request": "gdb_bank.permissions.own_records_query_conditions",
 	"GDB Citizen Profile": "gdb_bank.permissions.profile_query_conditions",
+	"GDB Field Task": "gdb_bank.permissions.field_task_query_conditions",
 }
 has_permission = {
 	"Loan": "gdb_bank.permissions.loan_has_permission",
@@ -26,6 +27,7 @@ has_permission = {
 	"GDB Information Request": "gdb_bank.permissions.own_record_has_permission",
 	"GDB Field Officer Request": "gdb_bank.permissions.own_record_has_permission",
 	"GDB Citizen Profile": "gdb_bank.permissions.profile_has_permission",
+	"GDB Field Task": "gdb_bank.permissions.field_task_has_permission",
 }
 
 # Evidence arrives through Frappe's own /api/method/upload_file, so the format

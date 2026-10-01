@@ -41,6 +41,15 @@ export interface LoanApplication {
   product: 'standard' | 'quick';
   /** When a Quick Loan's borrower accepted its terms, at submission. */
   terms_accepted_on: string | null;
+  /** The GDB Field Officer who filled it with the applicant, and when they
+   *  handed it back for the applicant to check and submit. */
+  assisted_by?: string | null;
+  assisted_by_name?: string | null;
+  handed_off_on?: string | null;
+  /** Who put it before the Bank — the applicant, or a Field Officer for them. */
+  submitted_by?: string | null;
+  submitted_by_name?: string | null;
+  submitted_on?: string | null;
   applicant: string;
   /** The applicant's national e-ID. This, not the mailbox in `applicant`, is
    *  how GDB staff identify a person — so every staff-facing view shows it. */
@@ -200,6 +209,9 @@ export interface InformationRequest {
   requested_on: string | null;
   satisfied_by: string | null;
   responded_on: string | null;
+  /** A file a GDB Field Officer put against this request for the applicant,
+   *  waiting for the applicant to send it. */
+  staged?: { name: string; file_name: string; uploaded_by_name: string | null } | null;
 }
 
 /** A person's own finances, declared on their profile. Money is G$ per month. */
@@ -511,6 +523,8 @@ export interface Whoami {
   is_platform_admin: boolean;
   /** Forms groups and files their applications — nothing else. */
   is_facilitator: boolean;
+  /** Assist requests, assisted applications and field tasks — nothing else. */
+  is_field_officer: boolean;
 }
 
 /** One row off ERPNext's Bank Transaction — money the bank has confirmed

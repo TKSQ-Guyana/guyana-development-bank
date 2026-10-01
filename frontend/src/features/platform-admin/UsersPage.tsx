@@ -175,6 +175,7 @@ export function UsersPage() {
           {side.mode === 'create' && page && (
             <CreateStaffForm
               grantableRoles={page.grantable_roles}
+              regions={page.regions}
               onCancel={() => setSide({ mode: 'none' })}
               onCreated={(result) => {
                 setKind('staff');

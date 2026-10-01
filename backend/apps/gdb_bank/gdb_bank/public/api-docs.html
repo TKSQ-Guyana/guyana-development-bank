@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>GDB API</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+	<div id="ui"></div>
+	<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+	<script>
+		// Same origin as /api, so every "Try it out" carries the sid cookie.
+		fetch("/api/method/gdb_bank.api_docs.openapi")
+			.then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+			.then((body) => SwaggerUIBundle({ spec: body.message, dom_id: "#ui", tryItOutEnabled: true, filter: true }))
+			.catch(() => {
+				document.getElementById("ui").innerHTML =
+					'<p style="font:16px sans-serif;padding:24px">System Manager only. <a href="/login?redirect-to=/assets/gdb_bank/api-docs.html">Sign in</a></p>';
+			});
+	</script>
+</body>
+</html>

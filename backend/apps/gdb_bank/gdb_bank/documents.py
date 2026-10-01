@@ -49,7 +49,13 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	missing_evidence,
 	required_types,
 )
+from gdb_bank.security.assist import officer_for, subject_for
+from gdb_bank.services.evidence import PHOTO_EXTENSIONS
 from gdb_bank.utils.session import _is_staff, _logger, _require_underwriter, _session_user
+
+# Officer-observed evidence: a site visit's photographs, attached to the task
+# row rather than the applicant's shelf (services/field_operations).
+FIELD_TASK = "GDB Field Task"
 
 DOCUMENT_FIELDS = [
 	"name",
@@ -63,6 +69,7 @@ DOCUMENT_FIELDS = [
 	"file_name",
 	"file_size",
 	"uploaded_on",
+	"uploaded_by",
 	"reviewed_by",
 	"reviewed_on",
 	"review_note",
@@ -108,7 +115,11 @@ def _own_application(application: str, user: str):
 
 	An officer must not upload an applicant's evidence for them: the record
 	would then say the applicant produced something they never saw. Officers
-	ask (request_information); applicants answer.
+	ask (request_information); applicants answer. The one exception is a Field
+	Officer working WITH the applicant under their consent (`acting`, resolved
+	before this is called, so `user` is still the applicant): the row records
+	the officer as its uploader, and a reply to an information request still
+	only leaves when the applicant sends it (confirm_document).
 	"""
 	row = frappe.db.get_value(
 		"Loan Application", application, ["name", "gdb_owner", "docstatus"], as_dict=True
@@ -124,14 +135,20 @@ def _own_application(application: str, user: str):
 
 
 @frappe.whitelist()
-def new_document(document_type: str, application: str | None = None, request: str | None = None):
+def new_document(
+	document_type: str,
+	application: str | None = None,
+	request: str | None = None,
+	acting: str | None = None,
+):
 	"""Open a shelf row. The file is uploaded against it next, by the framework.
 
 	Returns the row, whose `name` is the `docname` to pass to
 	/api/method/upload_file along with doctype=GDB Applicant Document and
 	is_private=1.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
+	officer = officer_for(acting)
 	document_type = (document_type or "").strip()
 	if document_type not in DOCUMENT_TYPES:
 		frappe.throw(_("{0} is not a document type GDB accepts.").format(document_type))
@@ -166,8 +183,11 @@ def new_document(document_type: str, application: str | None = None, request: st
 			"document_type": document_type,
 			"status": RECEIVED,
 			"request": request,
+			"uploaded_by": officer or user,
 		}
-	).insert()
+	# The officer holds no create right on the applicant's shelf; their access
+	# was settled by subject_for above, and upload_file then checks the row.
+	).insert(ignore_permissions=bool(officer))
 	return frappe.db.get_value(DOCTYPE, doc.name, DOCUMENT_FIELDS, as_dict=True)
 
 
@@ -178,13 +198,20 @@ def validate_attachment(doc, method=None):
 	upload runs through Frappe's own endpoint and would otherwise land on disk
 	before anything of ours had an opinion about it.
 	"""
-	if doc.attached_to_doctype != DOCTYPE:
+	if doc.attached_to_doctype not in (DOCTYPE, FIELD_TASK):
 		return
 
 	name = (doc.file_name or "").strip()
 	extension = os.path.splitext(name)[-1].lower()
-	document_type = frappe.db.get_value(DOCTYPE, doc.attached_to_name, "document_type")
-	accepted = accepted_extensions(document_type)
+	if doc.attached_to_doctype == FIELD_TASK:
+		# A site visit's photographs: pictures only, and only while the task
+		# is the officer's to report on.
+		accepted = PHOTO_EXTENSIONS
+		if frappe.db.get_value(FIELD_TASK, doc.attached_to_name, "status") != "Accepted":
+			frappe.throw(_("Photos are added while the task is open."))
+	else:
+		document_type = frappe.db.get_value(DOCTYPE, doc.attached_to_name, "document_type")
+		accepted = accepted_extensions(document_type)
 	if extension not in accepted:
 		if accepted == ALLOWED_EXTENSIONS:
 			frappe.throw(
@@ -219,17 +246,24 @@ def validate_attachment(doc, method=None):
 
 
 @frappe.whitelist()
-def confirm_document(name: str):
+def confirm_document(name: str, acting: str | None = None):
 	"""Stamp the shelf row with the file that arrived, and close what it answers.
 
 	Also retires the previous document of the same type on the same case:
 	replacement during an application is expected, and the trail
 	(superseded_by) is what keeps a replaced document from simply vanishing.
+
+	A reply to an information request is the APPLICANT's to send, even when a
+	Field Officer put the file there for them: an assisted call is refused it,
+	and the file waits (list_requests shows it as `staged`) until the applicant
+	sends it from their own account.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	doc = frappe.get_doc(DOCTYPE, name)
 	if doc.applicant != user:
 		frappe.throw(_("This is not your document."), frappe.PermissionError)
+	if acting and doc.request:
+		frappe.throw(_("The applicant sends this reply."), frappe.PermissionError)
 
 	uploaded = frappe.db.get_value(
 		"File",
@@ -283,13 +317,13 @@ def confirm_document(name: str):
 
 
 @frappe.whitelist()
-def list_documents(application: str | None = None, applicant: str | None = None):
+def list_documents(application: str | None = None, applicant: str | None = None, acting: str | None = None):
 	"""One person's shelf: their documents on this case, plus their personal ones.
 
 	Whose shelf is the reader's own — on a group's case a member sees theirs,
 	never the head's. Staff read the applicant's, or one member's by `applicant`.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	staff = _is_staff(user)
 	if applicant and applicant != user and not staff:
 		frappe.throw(_("You may only read your own documents."), frappe.PermissionError)
@@ -319,10 +353,10 @@ def list_documents(application: str | None = None, applicant: str | None = None)
 
 
 @frappe.whitelist()
-def delete_document(name: str):
+def delete_document(name: str, acting: str | None = None):
 	"""Remove a document from a draft. Blocked once the application is with the
 	Bank — the doctype's own on_trash says so, and says why."""
-	user = _session_user()
+	user = subject_for(acting)
 	doc = frappe.get_doc(DOCTYPE, name)
 	if doc.applicant != user:
 		frappe.throw(_("This is not your document."), frappe.PermissionError)
@@ -420,13 +454,14 @@ def withdraw_request(name: str):
 
 
 @frappe.whitelist()
-def list_requests(application: str):
+def list_requests(application: str, acting: str | None = None):
 	"""Everything the Bank has asked for on this case.
 
 	Applicant-visible by design: an itemised ask is only useful if the person
-	who has to answer it can read it.
+	who has to answer it can read it. An open request a Field Officer has put a
+	file against carries it as `staged`, for the applicant to send.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	_readable_application(application, user)
 	rows = frappe.get_all(
 		REQUEST_DOCTYPE,
@@ -434,4 +469,28 @@ def list_requests(application: str):
 		fields=REQUEST_FIELDS,
 		order_by="creation asc",
 	)
+	for row in rows:
+		row["staged"] = _staged(row.name) if row.status == OPEN else None
 	return {"requests": rows, "open": len([r for r in rows if r.status == OPEN])}
+
+
+def _staged(request: str):
+	"""The newest unsent file a Field Officer put against this request, or None."""
+	for doc in frappe.get_all(
+		DOCTYPE,
+		filters={"request": request, "uploaded_on": ["is", "not set"]},
+		fields=["name", "applicant", "uploaded_by"],
+		order_by="creation desc",
+	):
+		if not doc.uploaded_by or doc.uploaded_by == doc.applicant:
+			continue
+		file = frappe.db.get_value(
+			"File", {"attached_to_doctype": DOCTYPE, "attached_to_name": doc.name}, ["file_name"], as_dict=True
+		)
+		if file:
+			return {
+				"name": doc.name,
+				"file_name": file.file_name,
+				"uploaded_by_name": frappe.utils.get_fullname(doc.uploaded_by),
+			}
+	return None

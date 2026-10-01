@@ -39,10 +39,18 @@ def get_user(user: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_staff_user(full_name: str, email: str, roles, reason: str, eid: str | None = None):
+def create_staff_user(
+	full_name: str, email: str, roles, reason: str, eid: str | None = None, region: str | None = None
+):
 	return accounts_service.create_staff_user(
-		_require_platform_admin(), full_name, email, roles, reason, eid=eid
+		_require_platform_admin(), full_name, email, roles, reason, eid=eid, region=region
 	)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_user_region(user: str, region: str | None, reason: str):
+	"""The region a staff member works; it scopes a Field Officer's pool."""
+	return accounts_service.set_user_region(_require_platform_admin(), user, region, reason)
 
 
 @frappe.whitelist(methods=["POST"])

@@ -180,9 +180,29 @@ interface Saved {
   profileAddress?: string;
 }
 
-export function Apply() {
+/** A GDB Field Officer filling this form WITH the applicant, under their
+ *  consent (features/field-officer/AssistedApply). The form is the same one;
+ *  what changes is whose name it shows, where its URLs live, and that it ends
+ *  in handing the draft back rather than submitting it. */
+export interface AssistMode {
+  consent: string;
+  applicantName: string | null;
+  applicantEid: string | null;
+  /** Where this form's own URLs live (`/apply` for the applicant). */
+  base: string;
+  /** Where "back" goes. */
+  home: string;
+}
+
+export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user: signedIn } = useAuth();
+  // Whose application this is. Assisted, it is the applicant's — never the
+  // officer at the keyboard.
+  const user = assist ? { full_name: assist.applicantName ?? '', eid: assist.applicantEid } : signedIn;
+  const base = assist?.base ?? '/apply';
+  // Assisted: how the officer finished — handed back, or submitted for them.
+  const [assistDone, setAssistDone] = useState<{ name: string; submitted: boolean } | null>(null);
   // Present on `/apply/:name` and absent on `/apply/new`. That single
   // difference is what tells resuming a specific draft apart from starting a
   // fresh application — the two used to share one route and one blob of
@@ -340,7 +360,7 @@ export function Apply() {
       if (loan.status !== 'Draft') {
         // Already submitted: there is nothing to edit, and the case page is
         // where it now lives.
-        navigate(`/loans/${name}`, { replace: true });
+        navigate(assist ? `/field/cases/${name}` : `/loans/${name}`, { replace: true });
         return;
       }
       if (loan.cluster) {
@@ -350,6 +370,10 @@ export function Apply() {
       }
       if (loan.product === 'quick') {
         // A Quick Loan draft is resumed on its own form.
+        if (assist) {
+          setError('Quick Loan drafts are completed by the applicant.');
+          return;
+        }
         navigate(`/apply/quick/${name}`, { replace: true });
         return;
       }
@@ -505,7 +529,7 @@ export function Apply() {
       setPendingId(saved.id);
       // The URL becomes the one that continues it, so a reload does too.
       loadedPending.current = saved.id;
-      navigate(`/apply/draft/${saved.id}`, { replace: true });
+      navigate(`${base}/draft/${saved.id}`, { replace: true });
     }
   };
 
@@ -787,7 +811,7 @@ export function Apply() {
     // The draft now exists at GDB, so the URL becomes the one that resumes it.
     // Without this a reload would land back on `/apply/new` and open an empty
     // form beside a draft that already exists.
-    if (!routeName && saved.name) navigate(`/apply/${saved.name}`, { replace: true });
+    if (!routeName && saved.name) navigate(`${base}/${saved.name}`, { replace: true });
     return saved;
   };
 
@@ -982,13 +1006,34 @@ export function Apply() {
       }
       setBusy(false);
     }
-    navigate('/apply');
+    navigate(assist?.home ?? '/apply');
   };
 
   const goBack = () => {
     setError(null);
     setStep(steps[Math.max(index - 1, 0)].id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** Assisted: submit it for the applicant (recorded as the officer's act,
+   *  and the applicant is told), or hand it back for them to submit. */
+  const finishAssisted = async (submit: boolean) => {
+    if (!assist) return;
+    if (submit && !window.confirm(`Submit this application to GDB for ${assist.applicantName ?? 'the applicant'}?`)) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const saved = await saveDraft();
+      await call(
+        submit ? 'gdb_bank.field_officer.submit_assisted_application' : 'gdb_bank.field_officer.hand_off_application',
+        { consent: assist.consent, name: saved.name },
+      );
+      setAssistDone({ name: saved.name, submitted: submit });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : submit ? 'Could not submit' : 'Could not send to the applicant');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onFinalSubmit = async () => {
@@ -1194,6 +1239,30 @@ export function Apply() {
     answers: answersFor(s.id),
   }));
 
+  if (assistDone && assist) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <CheckIcon className="h-7 w-7" />
+        </div>
+        <h1 className="text-2xl font-bold text-slate-900">
+          {assistDone.submitted ? 'Submitted for the applicant' : 'Sent to applicant'}
+        </h1>
+        <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
+          Reference {assistDone.name}. {assistDone.submitted ? 'The applicant has been told.' : 'Waiting for the applicant to submit.'}
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate(assist.home)}
+          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand px-6 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
+        >
+          Done
+          <ArrowRightIcon className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
@@ -1225,7 +1294,7 @@ export function Apply() {
         className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition-colors hover:text-brand disabled:opacity-50"
       >
         <ArrowRightIcon className="h-4 w-4 rotate-180" />
-        My applications
+        {assist ? 'Back' : 'My applications'}
       </button>
 
       {/* Every step is visible from the start, because an applicant deciding
@@ -1288,6 +1357,16 @@ export function Apply() {
       )}
 
       <div className={`min-w-0 ${tab === 'application' ? '' : 'hidden'}`}>
+        {assist && (
+          <div className="mb-4">
+            <Notice tone="warn">Assisting {assist.applicantName}</Notice>
+          </div>
+        )}
+        {!assist && draft?.handed_off_on && (
+          <div className="mb-4">
+            <Notice tone="info">Prepared with {draft.assisted_by_name ?? 'a GDB Field Officer'}. Check it and submit.</Notice>
+          </div>
+        )}
         {restored && (
           <div className="mb-4">
             <Notice tone="info">Resumed from your saved draft.</Notice>
@@ -2282,17 +2361,31 @@ export function Apply() {
                 >
                   Back to {steps[index - 1]?.title.toLowerCase()}
                 </button>
-                <button
-                  type="button"
-                  disabled={busy || fieldIssues.length > 0}
-                  onClick={() => void onFinalSubmit()}
-                  className="rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
-                >
-                  {busy ? 'Submitting…' : 'Submit application'}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {assist && (
+                    <button
+                      type="button"
+                      disabled={busy || fieldIssues.length > 0}
+                      onClick={() => void finishAssisted(false)}
+                      className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Send to applicant
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy || fieldIssues.length > 0}
+                    onClick={() => void (assist ? finishAssisted(true) : onFinalSubmit())}
+                    className="rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                  >
+                    {busy ? 'Submitting…' : assist ? 'Submit for applicant' : 'Submit application'}
+                  </button>
+                </div>
               </div>
               <p className="text-right text-xs text-slate-400">
-                By submitting you confirm the information is true and complete.
+                {assist
+                  ? 'The applicant is told it was submitted for them.'
+                  : 'By submitting you confirm the information is true and complete.'}
               </p>
             </div>
           )}

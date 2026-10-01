@@ -18,6 +18,7 @@ from frappe import _
 from gdb_bank.utils.constants import (
 	DISBURSEMENT_ROLES,
 	FACILITATOR_ROLES,
+	FIELD_OFFICER_ROLES,
 	FINANCE_ROLES,
 	PLATFORM_ADMIN_ROLES,
 	STAFF_ROLES,
@@ -125,6 +126,21 @@ def _require_facilitator() -> str:
 	if not _is_facilitator(user):
 		_logger().warning(f"denied facilitator endpoint to {user}")
 		frappe.throw(_("Only a GDB facilitator may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_field_officer(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & FIELD_OFFICER_ROLES)
+
+
+def _require_field_officer() -> str:
+	"""Assist requests, assisted applications and field tasks — nothing else.
+	Which case or applicant an officer may touch is decided per record in
+	services/field_operations; this is the role."""
+	user = _session_user()
+	if not _is_field_officer(user):
+		_logger().warning(f"denied field-officer endpoint to {user}")
+		frappe.throw(_("Only a GDB field officer may do this."), frappe.PermissionError)
 	return user
 
 

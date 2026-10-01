@@ -27,6 +27,7 @@ from gdb_bank.utils.constants import (  # noqa: F401  (re-exported for siblings)
 	STATUS_FROM_PORTAL,
 	STATUS_TO_PORTAL,
 )
+from gdb_bank.security.assist import officer_for, subject_for
 from gdb_bank.security.conflict import is_same_person
 from gdb_bank.utils.formatters import _portal_dict, _stage_context
 from gdb_bank.utils.session import (  # noqa: F401  (re-exported for siblings)
@@ -75,14 +76,19 @@ def save_application(
 	name: str | None = None,
 	product: str | None = None,
 	pending: str | None = None,
+	acting: str | None = None,
 ):
 	"""Create or update the applicant's own DRAFT application.
 
 	`product` is `standard` (the default) or `quick` — the informal traders'
 	loan, which asks sections.trade_* instead of a business stage and sections B-H.
+
+	`acting` is a GDB Assist Consent: a Field Officer filling the applicant's
+	draft with them (security/assist.py). The draft stays the applicant's, and
+	records the officer as having assisted.
 	"""
 	return application_service.save_application(
-		_session_user(),
+		subject_for(acting),
 		loan_amount,
 		purpose,
 		term_months,
@@ -96,6 +102,7 @@ def save_application(
 		name=name,
 		product=product,
 		pending=pending,
+		assisted_by=officer_for(acting),
 	)
 
 
@@ -165,8 +172,8 @@ def my_loans():
 
 
 @frappe.whitelist()
-def loan_detail(name: str):
-	return application_service.loan_detail(_session_user(), name)
+def loan_detail(name: str, acting: str | None = None):
+	return application_service.loan_detail(subject_for(acting), name)
 
 
 # --------------------------------------------------------------------------
@@ -591,13 +598,19 @@ def quick_loan_terms():
 
 @frappe.whitelist(methods=["POST"])
 def request_field_officer(
-	applicant_name: str, phone: str, business_type: str, region: str, best_time: str | None = None
+	applicant_name: str,
+	phone: str,
+	business_type: str,
+	region: str,
+	best_time: str | None = None,
+	product: str | None = None,
 ):
-	"""Ask a GDB field officer to call and complete a Quick Loan with the caller."""
+	"""Ask a GDB field officer to call and help the caller apply. It lands in the
+	pool of the region given (services/field_operations)."""
 	from gdb_bank.services import quick_loan
 
 	return quick_loan.request_field_officer(
-		_session_user(), applicant_name, phone, business_type, region, best_time
+		_session_user(), applicant_name, phone, business_type, region, best_time, product
 	)
 
 
@@ -670,9 +683,9 @@ def bank_options():
 
 
 @frappe.whitelist()
-def my_bank_details():
+def my_bank_details(acting: str | None = None):
 	"""The nominated account for the logged-in citizen, or None."""
-	user = _session_user()
+	user = subject_for(acting)
 	customer = frappe.db.get_value("Customer", {"gdb_user": user})
 	if not customer:
 		return None
@@ -684,7 +697,11 @@ def my_bank_details():
 
 @frappe.whitelist()
 def save_bank_details(
-	bank: str, bank_account_no: str, branch_code: str | None = None, account_name: str | None = None
+	bank: str,
+	bank_account_no: str,
+	branch_code: str | None = None,
+	account_name: str | None = None,
+	acting: str | None = None,
 ):
 	"""Record (or update) where this citizen should be paid.
 
@@ -692,7 +709,7 @@ def save_bank_details(
 	adding another, so a payment run can never find two destinations for the
 	same person and have to guess.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	bank = (bank or "").strip()
 	bank_account_no = (bank_account_no or "").strip()
 	branch_code = (branch_code or "").strip()
@@ -808,7 +825,7 @@ def _check_result(result: dict) -> str:
 
 
 @frappe.whitelist()
-def my_bank_accounts():
+def my_bank_accounts(acting: str | None = None):
 	"""Accounts the national payment switch says this citizen holds.
 
 	The portal fills the payout destination from this rather than asking for a
@@ -821,7 +838,7 @@ def my_bank_accounts():
 	none, so there is nothing to search on and they get the manual path — which
 	`verify_bank_account` then checks.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	eid = frappe.db.get_value("User", user, "gdb_eid")
 	if not eid:
 		return []
@@ -838,14 +855,14 @@ def my_bank_accounts():
 
 
 @frappe.whitelist()
-def verify_bank_account(bank: str, bank_account_no: str):
+def verify_bank_account(bank: str, bank_account_no: str, acting: str | None = None):
 	"""Check one account: does it exist, and is it in this person's name?
 
 	For the manual path. The result is advisory here — it is recorded, shown,
 	and never used to block an application, because a bank holding a maiden
 	name is a case for a human, not a dead end on a form.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 
 	from gdb_bank.integrations import bank_registry
 
@@ -875,13 +892,13 @@ def verify_bank_account(bank: str, bank_account_no: str):
 
 
 @frappe.whitelist()
-def dcra_lookup(dcra_number: str):
+def dcra_lookup(dcra_number: str, acting: str | None = None):
 	"""Resolve a DCRA registration number to a business.
 
 	The registry is the authority and the only one asked. `source` on the reply
 	is `dcra` when it answered and `unavailable` when it could not.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	from gdb_bank.integrations import dcra
 
 	number = dcra.normalize(dcra_number)
@@ -899,7 +916,7 @@ def dcra_lookup(dcra_number: str):
 
 
 @frappe.whitelist()
-def my_businesses():
+def my_businesses(acting: str | None = None):
 	"""Businesses DCRA says this applicant is a proprietor of.
 
 	The applicant never types a registration number: they sign in as
@@ -911,7 +928,7 @@ def my_businesses():
 	who has never signed in with an e-ID has none on file yet and gets no
 	matches — the same "nothing found" fallback as anyone else.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	from gdb_bank.integrations import dcra
 
 	eid = frappe.db.get_value("User", user, "gdb_eid")

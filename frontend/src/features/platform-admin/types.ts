@@ -15,6 +15,8 @@ export interface AccountSummary {
   /** A citizen's sign-in e-ID, or the national e-ID recorded on a staff
    *  account for the conflict-of-interest check. */
   eid: string | null;
+  /** The region a staff member works; it scopes a Field Officer's pool. */
+  region: string | null;
   roles: string[];
   manageable: boolean;
   protected_reason: string | null;
@@ -23,6 +25,7 @@ export interface AccountSummary {
 export interface AccountDetail extends AccountSummary {
   email: string;
   grantable_roles: string[];
+  regions: string[];
   can_change_roles: boolean;
   can_reset_password: boolean;
   /** Whether the portal can create, disable and set a one-time password on the
@@ -36,6 +39,7 @@ export interface AccountPage {
   has_more: boolean;
   /** What the server will let an administrator grant. */
   grantable_roles: string[];
+  regions: string[];
 }
 
 export type KeycloakStatus = 'issued' | 'linked' | 'manual' | 'failed' | 'mirrored' | 'absent';

@@ -28,11 +28,12 @@ from gdb_bank.utils.constants import PLATFORM_ADMIN_ROLE
 
 # The only roles the portal grants. Each is one side of a control that
 # utils/constants.py's authority sets enforce.
-GRANTABLE_ROLES = ("Loan Underwriter", "Disbursement Officer", "Finance Officer", "Facilitator")
+GRANTABLE_ROLES = ("Loan Underwriter", "Disbursement Officer", "Finance Officer", "Facilitator", "Field Officer")
 
-# Held alone or not at all. A facilitator prepares a group's case; an account
-# that could also decide or pay it would be its own checker.
-EXCLUSIVE_ROLES = ("Facilitator",)
+# Held alone or not at all. A facilitator prepares a group's case and a field
+# officer helps an applicant prepare theirs and reports what they saw on a
+# visit; an account that could also decide or pay it would be its own checker.
+EXCLUSIVE_ROLES = ("Facilitator", "Field Officer")
 
 # An account holding any of these is out of an administrator's reach: the
 # superuser, and other administrators — minting or removing an administrator is

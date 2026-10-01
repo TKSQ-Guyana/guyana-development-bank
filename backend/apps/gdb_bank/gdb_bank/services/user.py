@@ -17,6 +17,7 @@ import frappe
 from gdb_bank.utils.session import (
 	_is_disbursement,
 	_is_facilitator,
+	_is_field_officer,
 	_is_finance,
 	_is_platform_admin,
 	_is_underwriter,
@@ -47,6 +48,8 @@ def whoami(user: str) -> dict:
 		"is_platform_admin": _is_platform_admin(user),
 		# Forms groups and files their applications; nothing else.
 		"is_facilitator": _is_facilitator(user),
+		# Assist requests, assisted applications and field tasks; nothing else.
+		"is_field_officer": _is_field_officer(user),
 	}
 
 

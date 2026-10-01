@@ -72,6 +72,7 @@ from gdb_bank.utils.eid import EID_FIELD, EID_SHAPE, normalize_eid
 from gdb_bank.utils.session import (
 	_is_disbursement,
 	_is_facilitator,
+	_is_field_officer,
 	_is_finance,
 	_is_platform_admin,
 	_is_underwriter,
@@ -350,6 +351,7 @@ def _session_summary(user: str, *, realm: str, provisioned: bool) -> dict:
 		"is_disbursement": _is_disbursement(user),
 		"is_platform_admin": _is_platform_admin(user),
 		"is_facilitator": _is_facilitator(user),
+		"is_field_officer": _is_field_officer(user),
 		"provisioned": provisioned,
 		"realm": realm,
 	}

@@ -125,6 +125,21 @@ export function InformationRequests({
     }
   };
 
+  /** Send the file a Field Officer staged — the reply is still the applicant's act. */
+  const send = async (staged: NonNullable<InformationRequest['staged']>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await call('gdb_bank.documents.confirm_document', { name: staged.name });
+      await load();
+      onChange?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) return null;
   const mine = !user?.is_underwriter && !user?.is_finance;
   if (data.requests.length === 0 && !user?.is_underwriter) return null;
@@ -184,6 +199,19 @@ export function InformationRequests({
                 )}
               </div>
 
+              {mine && r.status === 'Open' && r.staged && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  {r.staged.file_name} · added by {r.staged.uploaded_by_name ?? 'a GDB Field Officer'}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void send(r.staged!)}
+                    className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
+              )}
               {mine && r.status === 'Open' && (
                 <label className="mt-2 block text-xs text-slate-500">
                   Answer with a PDF

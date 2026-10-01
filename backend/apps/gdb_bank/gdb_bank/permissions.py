@@ -9,7 +9,7 @@ the right rows here — the framework does the filtering, not the portal.
 import frappe
 
 from gdb_bank.services.cluster import _clusters_of
-from gdb_bank.utils.session import _is_staff
+from gdb_bank.utils.session import _is_field_officer, _is_staff, _is_underwriter
 
 
 def _visible_applications(user: str) -> list[str]:
@@ -90,12 +90,19 @@ def own_records_query_conditions(user: str | None = None, doctype: str | None = 
 	if _is_staff(user):
 		return ""
 	column = f"`tab{doctype}`.`applicant`" if doctype else "`applicant`"
+	if doctype == "GDB Applicant Document" and _is_field_officer(user):
+		# A Field Officer reaches only the files they put on an applicant's
+		# shelf themselves, under that applicant's consent (documents.py).
+		uploader = f"`tab{doctype}`.`uploaded_by`"
+		return f"({column} = {frappe.db.escape(user)} or {uploader} = {frappe.db.escape(user)})"
 	return f"{column} = {frappe.db.escape(user)}"
 
 
 def own_record_has_permission(doc, user: str | None = None, permission_type: str | None = None) -> bool:
 	user = user or frappe.session.user
 	if _is_staff(user):
+		return True
+	if not isinstance(doc, str) and doc.get("uploaded_by") == user and _is_field_officer(user):
 		return True
 	applicant = doc if isinstance(doc, str) else doc.get("applicant")
 	return applicant == user
@@ -121,3 +128,33 @@ def profile_has_permission(doc, user: str | None = None, permission_type: str | 
 		return permission_type in (None, "read", "select", "report", "print")
 	owner = doc if isinstance(doc, str) else doc.get("user")
 	return owner == user
+
+
+# --------------------------------------------------------------------------
+# Field tasks: the Loan Officer's ask and the Field Officer's report
+#
+# The report's photographs are attached to the GDB Field Task row, so these
+# two decide who can open them (File.has_permission delegates to the row):
+# GDB's underwriters, and the one officer the task is assigned to. Never the
+# applicant — it is the Bank's observation of them, not their evidence.
+# --------------------------------------------------------------------------
+
+
+def field_task_query_conditions(user: str | None = None, doctype: str | None = None) -> str:
+	user = user or frappe.session.user
+	if _is_underwriter(user):
+		return ""
+	if _is_field_officer(user):
+		column = f"`tab{doctype}`.`assigned_to`" if doctype else "`assigned_to`"
+		return f"{column} = {frappe.db.escape(user)}"
+	return "1 = 0"
+
+
+def field_task_has_permission(doc, user: str | None = None, permission_type: str | None = None) -> bool:
+	user = user or frappe.session.user
+	if _is_underwriter(user):
+		return permission_type in (None, "read", "select", "report", "print")
+	if _is_field_officer(user):
+		assigned = frappe.db.get_value("GDB Field Task", doc, "assigned_to") if isinstance(doc, str) else doc.get("assigned_to")
+		return assigned == user
+	return False

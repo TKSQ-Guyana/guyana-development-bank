@@ -48,6 +48,25 @@ const Profile = page(() => import('./pages/Profile').then((m) => ({ default: m.P
 const Review = page(() => import('./pages/Review').then((m) => ({ default: m.Review })));
 const GroupsPage = page(() => import('./features/facilitator/GroupsPage').then((m) => ({ default: m.GroupsPage })));
 const GroupWizard = page(() => import('./features/facilitator/GroupWizard').then((m) => ({ default: m.GroupWizard })));
+const FieldDesk = page(() => import('./features/field-officer/FieldDesk').then((m) => ({ default: m.FieldDesk })));
+const AssistRequestPage = page(() =>
+  import('./features/field-officer/AssistRequestPage').then((m) => ({ default: m.AssistRequestPage })),
+);
+const FindApplicant = page(() =>
+  import('./features/field-officer/FindApplicant').then((m) => ({ default: m.FindApplicant })),
+);
+const AssistConsentPage = page(() =>
+  import('./features/field-officer/AssistConsentPage').then((m) => ({ default: m.AssistConsentPage })),
+);
+const AssistedApply = page(() =>
+  import('./features/field-officer/AssistedApply').then((m) => ({ default: m.AssistedApply })),
+);
+const FieldTaskPage = page(() =>
+  import('./features/field-officer/FieldTaskPage').then((m) => ({ default: m.FieldTaskPage })),
+);
+const FieldCaseView = page(() =>
+  import('./features/field-officer/FieldCaseView').then((m) => ({ default: m.FieldCaseView })),
+);
 const Disbursements = page(() => import('./pages/Disbursements').then((m) => ({ default: m.Disbursements })));
 const Reconciliation = page(() =>
   import('./pages/Finance/Reconciliation').then((m) => ({ default: m.Reconciliation })),
@@ -168,6 +187,15 @@ function RequireFacilitator({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** The Field Officer's desk: assist requests, assisted applications and
+ *  field tasks. Mirrored server-side in _require_field_officer, and per record
+ *  (region, assignment, the applicant's consent) in services/field_operations. */
+function RequireFieldOfficer({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_field_officer) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 /** Money movement is the disbursement officer's, not Finance's and not the
  *  underwriter's. Mirrored server-side in api._require_disbursement. */
 function RequireDisbursement({ children }: { children: ReactNode }) {
@@ -263,6 +291,81 @@ export function App() {
                 <RequireFacilitator>
                   <GroupWizard />
                 </RequireFacilitator>
+              }
+            />
+            {/* The Field Officer's screens. The assisted application is the
+                applicant's own form (pages/Apply) under the applicant's
+                consent, so it lives here rather than behind CitizenOnly. */}
+            <Route
+              path="/field"
+              element={
+                <RequireFieldOfficer>
+                  <FieldDesk />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/find"
+              element={
+                <RequireFieldOfficer>
+                  <FindApplicant />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/requests/:name"
+              element={
+                <RequireFieldOfficer>
+                  <AssistRequestPage />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/assist/:consent"
+              element={
+                <RequireFieldOfficer>
+                  <AssistConsentPage />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/assist/:consent/apply/new"
+              element={
+                <RequireFieldOfficer>
+                  <AssistedApply />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/assist/:consent/apply/draft/:pid"
+              element={
+                <RequireFieldOfficer>
+                  <AssistedApply />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/assist/:consent/apply/:name"
+              element={
+                <RequireFieldOfficer>
+                  <AssistedApply />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/tasks/:name"
+              element={
+                <RequireFieldOfficer>
+                  <FieldTaskPage />
+                </RequireFieldOfficer>
+              }
+            />
+            <Route
+              path="/field/cases/:name"
+              element={
+                <RequireFieldOfficer>
+                  <FieldCaseView />
+                </RequireFieldOfficer>
               }
             />
           </Route>

@@ -28,7 +28,8 @@ export function isStaff(user: Whoami | null | undefined): boolean {
       user?.is_finance ||
       user?.is_disbursement ||
       user?.is_platform_admin ||
-      user?.is_facilitator,
+      user?.is_facilitator ||
+      user?.is_field_officer,
   );
 }
 
@@ -39,6 +40,7 @@ export function isStaff(user: Whoami | null | undefined): boolean {
 export function deskFor(user: Whoami | null | undefined): string | null {
   if (user?.is_platform_admin) return '/admin/users';
   if (user?.is_facilitator) return '/facilitator';
+  if (user?.is_field_officer) return '/field';
   if (user?.is_underwriter) return '/review';
   if (user?.is_disbursement) return '/disbursements';
   if (user?.is_finance) return '/finance/reconciliation';

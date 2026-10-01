@@ -32,6 +32,8 @@ ROLES = (
 	("Platform Admin", 1),
 	# Forms groups and files their applications. Staff door, in no authority set.
 	("Facilitator", 1),
+	# Assists applicants and carries out field tasks. Staff door, in no authority set.
+	("Field Officer", 1),
 )
 
 # The banks a citizen may nominate for a payout. Seeded, because the portal's
@@ -331,6 +333,44 @@ CUSTOM_FIELDS = {
 			"options": "GDB Ownership Line",
 			"insert_after": "gdb_co_applicants",
 		},
+		# Filled with a GDB Field Officer, with the applicant's recorded consent
+		# (GDB Assist Consent). Attribution, not authorship: the applicant still
+		# checks and submits the application themselves. Set by
+		# services/application.save_application when an officer saves it, and
+		# when the officer hands it back.
+		{
+			"fieldname": "gdb_assisted_by",
+			"label": "Assisted By (Field Officer)",
+			"fieldtype": "Link",
+			"options": "User",
+			"read_only": 1,
+			"insert_after": "gdb_credit_consent_on",
+		},
+		{
+			"fieldname": "gdb_handed_off_on",
+			"label": "Handed To Applicant On",
+			"fieldtype": "Datetime",
+			"read_only": 1,
+			"insert_after": "gdb_assisted_by",
+		},
+		# Who put the application before the Bank, and when: the applicant, or
+		# a Field Officer submitting it for them under their consent
+		# (services/field_operations.submit_for). The applicant is told either way.
+		{
+			"fieldname": "gdb_submitted_by",
+			"label": "Submitted By",
+			"fieldtype": "Link",
+			"options": "User",
+			"read_only": 1,
+			"insert_after": "gdb_handed_off_on",
+		},
+		{
+			"fieldname": "gdb_submitted_on",
+			"label": "Submitted On",
+			"fieldtype": "Datetime",
+			"read_only": 1,
+			"insert_after": "gdb_submitted_by",
+		},
 		{
 			"fieldname": "gdb_remarks",
 			"label": "Underwriter Remarks",
@@ -433,6 +473,24 @@ ERPNEXT_CUSTOM_FIELDS = {
 	]
 }
 
+# Guyana's ten administrative regions, exactly as GDB Citizen Profile.region
+# spells them — a Field Officer's region is matched against an applicant's.
+REGION_OPTIONS = "\n".join(
+	[
+		"",
+		"Region 1 — Barima-Waini",
+		"Region 2 — Pomeroon-Supenaam",
+		"Region 3 — Essequibo Islands-West Demerara",
+		"Region 4 — Demerara-Mahaica",
+		"Region 5 — Mahaica-Berbice",
+		"Region 6 — East Berbice-Corentyne",
+		"Region 7 — Cuyuni-Mazaruni",
+		"Region 8 — Potaro-Siparuni",
+		"Region 9 — Upper Takutu-Upper Essequibo",
+		"Region 10 — Upper Demerara-Berbice",
+	]
+)
+
 # The e-ID link (gdb_bank.identity). Kept apart from CUSTOM_FIELDS above
 # because every field there hangs off a lending or ERPNext doctype and is only
 # created when lending is installed — User is core frappe and always present.
@@ -463,6 +521,19 @@ USER_CUSTOM_FIELDS = {
 			"no_copy": 1,
 			"description": "Recorded by the platform administrator. Never used to sign in.",
 			"insert_after": "gdb_eid",
+		},
+		# The region a Field Officer works. Their assist-request pool and field
+		# tasks are filtered to it server-side (services/field_operations); an
+		# officer with none set sees only what is already assigned to them.
+		# Same list, same spelling as GDB Citizen Profile.region.
+		{
+			"fieldname": "gdb_region",
+			"label": "GDB Region",
+			"fieldtype": "Select",
+			"options": REGION_OPTIONS,
+			"read_only": 1,
+			"description": "Set by the platform administrator.",
+			"insert_after": "gdb_staff_eid",
 		},
 	],
 }

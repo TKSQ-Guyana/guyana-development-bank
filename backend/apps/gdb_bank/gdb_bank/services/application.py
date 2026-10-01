@@ -365,8 +365,13 @@ def save_application(
 	name: str | None = None,
 	product: str | None = None,
 	pending: str | None = None,
+	assisted_by: str | None = None,
 ):
 	"""Create or update the applicant's own DRAFT application.
+
+	`assisted_by` is the Field Officer filling it with the applicant under
+	their consent (api.save_application resolves that). It is recorded and
+	never cleared by a later save of the applicant's own.
 
 	`pending` names the unfinished application (profiles.save_pending_application)
 	this draft continues; it is forgotten once the Loan Application holds it.
@@ -394,6 +399,8 @@ def save_application(
 		user=user,
 		product=product,
 	)
+	if assisted_by:
+		values["gdb_assisted_by"] = assisted_by
 
 	if name:
 		_own_draft(name, user)
@@ -408,11 +415,20 @@ def save_application(
 
 		drop_pending(user, pending)
 	frappe.db.commit()
-	_logger().info(f"draft application {doc.name} saved by {user}")
+	_logger().info(
+		f"draft application {doc.name} saved by {user}" + (f" with field officer {assisted_by}" if assisted_by else "")
+	)
 	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
 
 
-def submit_application(user: str, name: str, accept_terms=None, credit_check_consent=None):
+def submit_application(
+	user: str,
+	name: str,
+	accept_terms=None,
+	credit_check_consent=None,
+	submitted_by: str | None = None,
+	assisted_by: str | None = None,
+):
 	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
 
 	Documents used to gate this call. They no longer do: an applicant on a
@@ -429,6 +445,10 @@ def submit_application(user: str, name: str, accept_terms=None, credit_check_con
 
 	A Quick Loan is paid without a Letter of Offer (services/quick_loan), so its
 	borrower accepts the terms HERE — `accept_terms` — and the moment is recorded.
+
+	`submitted_by` is who actually put it before the Bank: the applicant, or a
+	Field Officer for them (services/field_operations.submit_for). Recorded on
+	the case either way.
 	"""
 	_own_draft(name, user)
 	outstanding = missing_evidence(name)
@@ -441,6 +461,10 @@ def submit_application(user: str, name: str, accept_terms=None, credit_check_con
 			frappe.throw(_("Give your consent for the credit check to submit."))
 		doc.gdb_terms_accepted_on = now_datetime()
 		doc.gdb_credit_consent_on = now_datetime()
+	doc.gdb_submitted_by = submitted_by or user
+	doc.gdb_submitted_on = now_datetime()
+	if assisted_by:
+		doc.gdb_assisted_by = assisted_by
 	doc.flags.ignore_permissions = True
 	doc.submit()
 	frappe.db.commit()
@@ -452,7 +476,7 @@ def submit_application(user: str, name: str, accept_terms=None, credit_check_con
 	if doc.gdb_cluster:
 		notify_group_submitted(user, doc.gdb_cluster, name)
 	_logger().info(
-		f"loan application {name} submitted by {user} for {doc.loan_amount}"
+		f"loan application {name} submitted by {submitted_by or user} for {doc.loan_amount}"
 		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")
 	)
 	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))

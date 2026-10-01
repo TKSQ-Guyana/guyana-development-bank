@@ -23,6 +23,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from gdb_bank.security.assist import officer_for, subject_for
 from gdb_bank.utils.session import _is_staff, _logger, _session_user
 from gdb_bank.utils.formatters import _normalised_phone
 from gdb_bank.utils.constants import PERSONAL_FINANCIAL_FIELDS, PERSONAL_FINANCIAL_REQUIRED
@@ -141,21 +142,25 @@ def _address(value) -> str:
 
 
 @frappe.whitelist()
-def my_profile():
-	"""The caller's own profile, created on first read."""
-	user = _session_user()
+def my_profile(acting: str | None = None):
+	"""The caller's own profile, created on first read. With `acting`, the
+	applicant's, for the Field Officer assisting them (security/assist.py)."""
+	user = subject_for(acting)
 	name = _ensure(user)
 	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
 
 
 @frappe.whitelist(methods=["POST"])
-def record_consent():
+def record_consent(acting: str | None = None):
 	"""The applicant agrees GDB may fetch records on their behalf — DCRA's
 	business register, the bank switch — before the application asks for
 	either. Recorded once per version: accepting the current version again is
 	a no-op, and a citizen who accepted an older version is asked once more.
+
+	Assisted (`acting`), the applicant is beside the officer and accepts it on
+	the officer's screen; the log line names the officer it was taken by.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	name = _ensure(user)
 	frappe.db.set_value(
 		DOCTYPE,
@@ -163,7 +168,10 @@ def record_consent():
 		{"consent_version": CONSENT_VERSION, "consent_accepted_on": now_datetime()},
 	)
 	frappe.db.commit()
-	_logger().info(f"consent {CONSENT_VERSION} recorded for {user}")
+	officer = officer_for(acting)
+	_logger().info(
+		f"consent {CONSENT_VERSION} recorded for {user}" + (f", taken by field officer {officer}" if officer else "")
+	)
 	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
 
 
@@ -214,9 +222,9 @@ def drop_pending(user: str, pending_id: str | None) -> None:
 
 
 @frappe.whitelist()
-def pending_applications():
+def pending_applications(acting: str | None = None):
 	"""The caller's unfinished applications, most recently saved first."""
-	user = _session_user()
+	user = subject_for(acting)
 	name = frappe.db.get_value(DOCTYPE, {"user": user})
 	if not name:
 		return []
@@ -225,9 +233,9 @@ def pending_applications():
 
 
 @frappe.whitelist()
-def pending_application(id: str):
+def pending_application(id: str, acting: str | None = None):
 	"""One unfinished application of the caller's, or a refusal."""
-	user = _session_user()
+	user = subject_for(acting)
 	name = frappe.db.get_value(DOCTYPE, {"user": user})
 	entry = _pending(name).get(id) if name else None
 	if not entry:
@@ -236,14 +244,14 @@ def pending_application(id: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def save_pending_application(state, id: str | None = None, saved_on=None):
+def save_pending_application(state, id: str | None = None, saved_on=None, acting: str | None = None):
 	"""Save the wizard's answers: a new draft without `id`, that draft with it.
 
 	`saved_on` is the stamp this window last saw. A different one on file means
 	another window saved since, and overwriting it would silently discard that
 	work — so it is refused.
 	"""
-	user = _session_user()
+	user = subject_for(acting)
 	name = _ensure(user)
 	state = frappe.parse_json(state) if isinstance(state, str) else state
 	if not isinstance(state, dict):
@@ -288,8 +296,14 @@ def save_profile(**kwargs):
 
 	Only the declared block. The verified block is the directory's, and an
 	applicant who could write it could declare themselves verified.
+
+	A Field Officer assisting (`acting`) may fill a detail the applicant has
+	left blank, never change one they declared: an officer rewriting an
+	applicant's own answer would be declaring on their behalf.
 	"""
-	user = _session_user()
+	acting = kwargs.pop("acting", None)
+	user = subject_for(acting)
+	assisted = bool(acting)
 	name = _ensure(user)
 
 	# An untouched field arrives from a browser form as "", and "" is not a
@@ -307,6 +321,18 @@ def save_profile(**kwargs):
 
 	if not values:
 		frappe.throw(_("Nothing to save."))
+	if assisted:
+		declared = frappe.db.get_value(DOCTYPE, name, list(values), as_dict=True)
+		changed = [
+			f for f, v in values.items() if declared.get(f) not in (None, "") and str(declared[f]) != str(v or "")
+		]
+		if changed:
+			frappe.throw(
+				_("Only the applicant can change details they declared: {0}.").format(
+					", ".join(frappe.get_meta(DOCTYPE).get_label(f) for f in changed)
+				),
+				frappe.PermissionError,
+			)
 	# Asked here, where it is typed, rather than discovered three steps later
 	# when the application is saved with it.
 	if values.get("phone") and not _normalised_phone(values["phone"]):

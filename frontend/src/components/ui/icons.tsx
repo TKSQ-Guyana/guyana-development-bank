@@ -278,3 +278,17 @@ export function HistoryIcon({ className = base }: IconProps) {
     </svg>
   );
 }
+
+export function MapPinIcon({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className}>
+      <path
+        d="M10 18s5.5-5.2 5.5-9.5a5.5 5.5 0 0 0-11 0C4.5 12.8 10 18 10 18Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="8.5" r="2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}

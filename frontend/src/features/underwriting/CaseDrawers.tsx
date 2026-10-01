@@ -235,3 +235,102 @@ export function RequestInfoDrawer({
     </Drawer>
   );
 }
+
+const FIELD_KINDS = ['Site Visit', 'Reference Check'] as const;
+
+/** Ask a Field Officer in the applicant's region for a site visit or a
+ *  reference check. The report comes back onto this case (Checks & documents). */
+export function FieldTaskDrawer({
+  application,
+  open,
+  onClose,
+  onSent,
+}: {
+  application: string;
+  open: boolean;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [kind, setKind] = useState<string>(FIELD_KINDS[0]);
+  const [instructions, setInstructions] = useState('');
+  const [due, setDue] = useState('');
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
+
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await call('gdb_bank.field_officer.request_field_task', {
+        application,
+        kind,
+        instructions,
+        due_date: due || undefined,
+        address: address || undefined,
+      });
+      setInstructions('');
+      setDue('');
+      setAddress('');
+      onSent();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send the request');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="Request field work"
+      subtitle="Goes to Field Officers in the applicant's region."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={() => void send()} disabled={busy || !instructions.trim()}>
+            Send request
+          </Button>
+        </>
+      }
+    >
+      <label className="block text-sm font-medium text-slate-700">
+        Task
+        <select value={kind} onChange={(e) => setKind(e.target.value)} className={FIELD}>
+          {FIELD_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">
+        What to check
+        <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={4} className={FIELD} />
+      </label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">
+        Due
+        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={FIELD} />
+      </label>
+      {kind === 'Site Visit' && (
+        <label className="mt-3 block text-sm font-medium text-slate-700">
+          Address <span className="font-normal text-slate-400">(defaults to the applicant's)</span>
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className={FIELD} />
+        </label>
+      )}
+      {error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+    </Drawer>
+  );
+}

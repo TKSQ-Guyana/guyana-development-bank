@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { Card, CardLabel } from '../components/ui/Card';
 import { StageBadge, Stepper } from '../components/ui/Stepper';
 import { ArrowRightIcon, PlusIcon } from '../components/ui/icons';
+import { AssistConsentCards } from '../features/field-officer/AssistConsentCards';
 import type { LoanAccount, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
 
@@ -73,6 +74,7 @@ export function Dashboard() {
 
   return (
     <div className="space-y-8">
+      <AssistConsentCards />
       {/* Primary call to action. The one thing a citizen arrives here to do. */}
       <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-brand to-[#3b82f6] p-8 text-white shadow-[0_24px_60px_-28px_rgba(30,58,138,0.7)] lg:p-10">
         <div className="flex flex-wrap items-end justify-between gap-6">

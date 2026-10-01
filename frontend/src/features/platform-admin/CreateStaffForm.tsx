@@ -14,10 +14,12 @@ import { errorText, hasReason, inputClass, Notice, ReasonField } from './ui';
  *  password the next panel shows once. No password is ever typed on this form. */
 export function CreateStaffForm({
   grantableRoles,
+  regions,
   onCreated,
   onCancel,
 }: {
   grantableRoles: string[];
+  regions: string[];
   onCreated: (result: CreateStaffResult) => void;
   onCancel: () => void;
 }) {
@@ -25,6 +27,7 @@ export function CreateStaffForm({
   const [email, setEmail] = useState('');
   const [eid, setEid] = useState(EMPTY_EID);
   const [roles, setRoles] = useState<string[]>([]);
+  const [region, setRegion] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +47,7 @@ export function CreateStaffForm({
         full_name: fullName.trim(),
         email: email.trim(),
         eid: isCompleteEid(eid) ? eid : undefined,
+        region: region || undefined,
         roles,
         reason: reason.trim(),
       });
@@ -119,6 +123,20 @@ export function CreateStaffForm({
             ))}
           </div>
         </fieldset>
+
+        {roles.includes('Field Officer') && (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-slate-700">Region</span>
+            <select value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy} className={inputClass}>
+              <option value="">None</option>
+              {regions.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <ReasonField value={reason} onChange={setReason} disabled={busy} placeholder="e.g. New hire, credit team, starts 1 Oct" />
 

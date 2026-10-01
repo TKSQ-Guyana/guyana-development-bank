@@ -227,6 +227,24 @@ underwriter review queue. The official name everywhere is
   and never recalled from GDB's own earlier records. To add an API: two keys in
   `settings.KEYS`, a group in `services/integration_settings.GROUPS`, two
   fields on `GDB Integration Settings`, one adapter.
+- **Field Officer** (`Field Officer` role, staff door, held alone like
+  Facilitator, in NONE of the authority sets; `field_officer.py` over
+  `services/field_operations.py`). Scoped by `User.gdb_region` (set by the
+  Platform Admin) or by an assignment on the record. Four things: the
+  regional pool of `GDB Field Officer Request`s (accept → call log
+  `GDB Contact Attempt` → outcome); the assisted application under a
+  `GDB Assist Consent` the applicant grants on their OWN portal (7 days) —
+  applicant endpoints take `acting=<consent>`, resolved ONLY by
+  `security/assist.subject_for`, and the SPA injects it from one allow-list in
+  `api.ts` (`setActing`); the officer either submits it for the applicant
+  (`submit_assisted_application` — `gdb_submitted_by` records the officer, the
+  applicant is notified, never a Quick Loan) or `hand_off_application`s it
+  back for the applicant to submit; either ends the consent; `GDB Field Task` (site visit /
+  reference check raised by the underwriter, photos attached to the task row,
+  never the applicant's shelf); and files staged against an information
+  request that only the applicant sends (`confirm_document` refuses
+  `acting`). The officer may fill a profile blank, never overwrite a declared
+  answer (`profiles.save_profile`). SPA: `/field/*`.
 - **A cluster loan is a different product, never a side effect of membership.**
   A citizen naming a `cluster` on `save_application` / `apply_loan` is
   refused (`_cluster_for`); only the facilitator path files against a group.

@@ -70,12 +70,16 @@ FIELD_OFFICER_FIELDS = [
 	"applicant_name",
 	"phone",
 	"business_type",
+	"product",
 	"region",
 	"best_time",
 	"status",
 	"requested_on",
 ]
 BEST_TIMES = ("Morning", "Afternoon", "Evening")
+FIELD_OFFICER_PRODUCTS = ("Standard", "Quick")
+# Still with GDB: in the regional pool, or with an officer working it.
+OPEN_FIELD_OFFICER_REQUEST = ("Waiting", "Accepted", "Visit booked")
 
 
 def my_field_officer_request(user: str):
@@ -90,10 +94,16 @@ def my_field_officer_request(user: str):
 	return rows[0] if rows else None
 
 
-def request_field_officer(user: str, applicant_name, phone, business_type, region, best_time=None):
-	"""Record who a field officer should call. One waiting request per person: a
-	second ask while one is waiting answers the first rather than adding another."""
-	waiting = frappe.db.get_value(FIELD_OFFICER_REQUEST, {"applicant": user, "status": "Waiting"})
+def request_field_officer(user: str, applicant_name, phone, business_type, region, best_time=None, product=None):
+	"""Record who a field officer should call. One open request per person: a
+	second ask while one is open answers the first rather than adding another.
+	The region is stored as the profile list spells it, because that is what an
+	officer's pool is matched on (services/field_operations)."""
+	from gdb_bank.gdb_bank.doctype.gdb_citizen_profile.gdb_citizen_profile import canonical_region
+
+	waiting = frappe.db.get_value(
+		FIELD_OFFICER_REQUEST, {"applicant": user, "status": ["in", list(OPEN_FIELD_OFFICER_REQUEST)]}
+	)
 	if waiting:
 		return frappe.db.get_value(FIELD_OFFICER_REQUEST, waiting, FIELD_OFFICER_FIELDS, as_dict=True)
 
@@ -101,8 +111,9 @@ def request_field_officer(user: str, applicant_name, phone, business_type, regio
 		"applicant_name": (applicant_name or "").strip(),
 		"phone": (phone or "").strip(),
 		"business_type": (business_type or "").strip(),
-		"region": (region or "").strip(),
+		"region": canonical_region(region) or "",
 		"best_time": (best_time or "").strip(),
+		"product": (product or "Quick").strip().title(),
 	}
 	for field, message in (
 		("applicant_name", "Enter your name."),
@@ -114,6 +125,8 @@ def request_field_officer(user: str, applicant_name, phone, business_type, regio
 			frappe.throw(_(message))
 	if values["best_time"] and values["best_time"] not in BEST_TIMES:
 		frappe.throw(_("Choose morning, afternoon or evening."))
+	if values["product"] not in FIELD_OFFICER_PRODUCTS:
+		frappe.throw(_("Choose the standard loan or the Quick Loan."))
 
 	doc = frappe.get_doc(
 		{

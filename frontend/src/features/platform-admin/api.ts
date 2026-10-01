@@ -29,9 +29,13 @@ export const createStaffAccount = (args: {
   full_name: string;
   email: string;
   eid?: string;
+  region?: string;
   roles: string[];
   reason: string;
 }) => call<CreateStaffResult>(`${M}.create_staff_user`, args);
+
+export const setAccountRegion = (user: string, region: string, reason: string) =>
+  call<ChangeResult>(`${M}.set_user_region`, { user, region, reason });
 
 export const setAccountRoles = (user: string, roles: string[], reason: string) =>
   call<ChangeResult>(`${M}.set_user_roles`, { user, roles, reason });

@@ -7,6 +7,7 @@ import { DocumentShelf } from '../../components/DocumentShelf';
 import { InformationRequests } from '../../components/InformationRequests';
 import { LoanAccount } from '../../components/LoanAccount';
 import { OfferPanel } from '../../components/OfferPanel';
+import { Notice } from '../../components/apply/fields';
 import { Button } from '../../components/ui/Button';
 import { Card, CardLabel } from '../../components/ui/Card';
 import { Fold } from '../../components/ui/Fold';
@@ -80,6 +81,16 @@ export function ApplicantCaseView({
       <Card>
         <Stepper stage={stage} label={loan.stage_label} />
       </Card>
+
+      {/* A Field Officer filled or submitted this with the applicant's consent:
+          the applicant is always told which. */}
+      {loan.submitted_by && loan.submitted_by !== loan.applicant ? (
+        <Notice tone="info">
+          Submitted for you by {loan.submitted_by_name ?? 'a GDB Field Officer'} on {formatDate(loan.submitted_on ?? null)}.
+        </Notice>
+      ) : (
+        loan.assisted_by_name && <Notice tone="info">Prepared with {loan.assisted_by_name}, GDB Field Officer.</Notice>
+      )}
 
       {error && (
         <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">

@@ -47,6 +47,17 @@ PLATFORM_ADMIN_ROLES = {PLATFORM_ADMIN_ROLE, "System Manager"}
 FACILITATOR_ROLE = "Facilitator"
 FACILITATOR_ROLES = {FACILITATOR_ROLE, "System Manager"}
 
+# Takes assist requests from the regional pool, helps an applicant fill their
+# own application (with the applicant's recorded consent, never in their name),
+# and carries out the site visits and reference checks a Loan Officer asks for
+# (services/field_operations). The same footing as the facilitator: NOT in
+# STAFF_ROLES nor in any authority set — a field officer captures and observes,
+# and never reads the Bank's queue, decides credit or moves money. Everything
+# it may read is reached through an assignment (security/assist.py), and
+# role_policy refuses it alongside any other grantable role.
+FIELD_OFFICER_ROLE = "Field Officer"
+FIELD_OFFICER_ROLES = {FIELD_OFFICER_ROLE, "System Manager"}
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
@@ -70,6 +81,9 @@ PORTAL_STAGES = ("Draft", "Review", "Approved", "Signing", "Disbursed")
 # sees the next thing that is true of their case.
 STAGE_LABELS = {
 	"Draft": "Not submitted yet",
+	# A draft a GDB Field Officer filled with the applicant and handed back:
+	# nothing is with the Bank until the applicant submits it themselves.
+	"Handed off": "Ready for you to check and submit",
 	"Review": "GDB is reviewing your application",
 	"Rejected": "Your application was not approved",
 	"Approved": "Approved — your offer is being prepared",
@@ -90,6 +104,10 @@ LOAN_FIELDS = [
 	"loan_product",
 	"gdb_terms_accepted_on",
 	"gdb_credit_consent_on",
+	"gdb_assisted_by",
+	"gdb_handed_off_on",
+	"gdb_submitted_by",
+	"gdb_submitted_on",
 	"gdb_owner",
 	"gdb_cluster",
 	"gdb_business_stage",
