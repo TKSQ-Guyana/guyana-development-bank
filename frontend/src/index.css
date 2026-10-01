@@ -24,8 +24,9 @@
    * ceremonial gold the public pages rule and underline with, and the two
    * are not interchangeable.
    * ------------------------------------------------------------------ */
-  --color-gdb-ink: #160042;
-  --color-gdb-indigo: #0504aa;
+  /* Same blue as the staff portal: ink = slate-900, indigo = --color-brand. */
+  --color-gdb-ink: #0f172a;
+  --color-gdb-indigo: #2563eb;
   --color-gdb-goldleaf: #d4af37;
 
   --color-gdb-page: #f3f3ef;
@@ -33,11 +34,11 @@
   --color-gdb-mist: #f9f9f7;
   --color-gdb-cream: #fbf4dd;
   --color-gdb-pill: #f6ecc9;
-  --color-gdb-lav: #f1f2fb;
+  --color-gdb-lav: #eff6ff;
   --color-gdb-rail: #f2f1ed;
   --color-gdb-line: #e6e2da;
   --color-gdb-border: #dedcd6;
-  --color-gdb-lavline: #dadbe9;
+  --color-gdb-lavline: #dbeafe;
 
   /* The Golden Arrowhead's own five bands, for the ribbon across the top. */
   --color-flag-green: #009e49;
@@ -51,6 +52,50 @@
   --font-display: Manrope, ui-sans-serif, system-ui, sans-serif;
   --font-body: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --font-code: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* QUICK LOAN PALETTE — the Quick Loan flow's own look, from the approved
+   * prototype (gdb-quick-loan-flow). Used only inside `.theme-citizen`. */
+  --color-ql-bg: #eef2f8;
+  --color-ql-ink: #131c2e;
+  --color-ql-ink2: #38455a;
+  --color-ql-muted: #6b7a93;
+  --color-ql-line: rgb(19 28 46 / 0.1);
+  --color-ql-line2: #dee3eb;
+  --color-ql-input: #c9d1dd;
+  --color-ql-step: #9aa6ba;
+  --color-ql-soft: #f6f8fb;
+  --color-ql-tint: #eff4fd;
+  --color-ql-tintline: #d6e2f7;
+  --color-ql-navy: #193251;
+  --color-ql-navy-dark: #0f2440;
+  --color-ql-brand: #1b4a9c;
+  --color-ql-blue: #2563c9;
+  --color-ql-green: #1f8a5b;
+  --color-ql-green-bg: #eaf6f0;
+  --color-ql-green-line: #bfe3cf;
+  --color-ql-amber: #8a5406;
+  --color-ql-amber-strong: #d97706;
+  --color-ql-amber-pill: #fdecc8;
+  --color-ql-amber-bg: #fff6e5;
+  --color-ql-amber-line: #f3d9a8;
+  --color-ql-red: #c5392f;
+  --color-ql-red-bg: #fdeeec;
+  --color-ql-red-line: #f2c4bf;
+  --color-ql-grey-pill: #e8ecf2;
+  --font-inter: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The Quick Loan flow re-points the shared brand tokens at its own palette, so
+ * the shared pieces it embeds (document shelf, payout account) match it too. */
+.theme-citizen {
+  --color-brand: var(--color-ql-brand);
+  --color-brand-dark: var(--color-ql-navy);
+  --color-brand-light: var(--color-ql-tint);
+  --color-brand-text: var(--color-ql-brand);
+  font-family: var(--font-inter);
+  color: var(--color-ql-ink);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 body {

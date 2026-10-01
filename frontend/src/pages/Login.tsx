@@ -134,7 +134,7 @@ export function Login() {
       onClick={() => setMethod(value)}
       className={`flex-1 cursor-pointer rounded-[10px] border-0 py-[11px] font-body text-[15px] leading-[1.2] font-extrabold ${
         method === value
-          ? 'bg-gdb-ink text-white shadow-[0_2px_6px_-1px_rgba(22,0,66,0.16)]'
+          ? 'bg-gdb-ink text-white shadow-[0_2px_6px_-1px_rgba(15,23,42,0.16)]'
           : 'bg-transparent text-gdb-ink/55'
       }`}
     >
@@ -197,7 +197,7 @@ export function Login() {
 
         {/* ---------- the credentials ---------- */}
         <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[22px] px-5 py-14 sm:px-16">
-          <div className="w-full max-w-[452px] rounded-[28px] bg-white px-[38px] pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(22,0,66,0.09)]">
+          <div className="w-full max-w-[452px] rounded-[28px] bg-white px-[38px] pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.09)]">
             <BankMark className="h-11 w-11 rounded-[14px]" />
 
             <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">

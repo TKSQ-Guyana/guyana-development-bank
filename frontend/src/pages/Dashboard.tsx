@@ -76,7 +76,7 @@ export function Dashboard() {
   return (
     <div className="space-y-8">
       {/* Primary call to action. The one thing a citizen arrives here to do. */}
-      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-brand to-[#7b5cf0] p-8 text-white shadow-[0_24px_60px_-28px_rgba(46,26,107,0.7)] lg:p-10">
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-brand to-[#3b82f6] p-8 text-white shadow-[0_24px_60px_-28px_rgba(30,58,138,0.7)] lg:p-10">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/60">
@@ -279,7 +279,7 @@ export function Dashboard() {
         <div className="grid gap-4 sm:grid-cols-3">
           {QUICK_LINKS.map((link) => (
             <Link key={link.title} to={link.to} className="group">
-              <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:shadow-[0_16px_40px_-18px_rgba(46,26,107,0.35)]">
+              <Card className="h-full transition-all group-hover:-translate-y-0.5 group-hover:shadow-[0_16px_40px_-18px_rgba(30,58,138,0.35)]">
                 <p className="font-semibold text-slate-900">{link.title}</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{link.body}</p>
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand">

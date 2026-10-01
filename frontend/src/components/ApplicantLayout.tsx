@@ -94,7 +94,9 @@ export function ApplicantLayout() {
   const groups: SidebarGroup[] = staffItems.length ? [{ label: 'Bank', items: staffItems }] : [];
 
   return (
-    <div className="flex min-h-screen">
+    // The citizen portal wears the applicant prototype's palette and type
+    // (.theme-citizen); staff keep the bank's own.
+    <div className={`flex min-h-screen ${staff ? '' : 'theme-citizen'}`}>
       <Sidebar
         variant="wide"
         brand={{ title: 'Guyana Development Bank', subtitle: staff ? 'Staff portal' : 'Citizen portal' }}
@@ -116,7 +118,7 @@ export function ApplicantLayout() {
         footer={{ label: 'Log out', icon: <LogoutIcon />, onClick: () => void onLogout() }}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+      <div className={`flex min-w-0 flex-1 flex-col ${staff ? 'bg-slate-50' : 'bg-ql-bg'}`}>
         <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-3 backdrop-blur lg:px-8">
           <div className="leading-tight">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">

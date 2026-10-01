@@ -29,6 +29,7 @@ const Login = page(() => import('./pages/Login').then((m) => ({ default: m.Login
 const Dashboard = page(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Applications = page(() => import('./pages/Applications').then((m) => ({ default: m.Applications })));
 const Apply = page(() => import('./pages/Apply').then((m) => ({ default: m.Apply })));
+const ChooseLoan = page(() => import('./pages/ChooseLoan').then((m) => ({ default: m.ChooseLoan })));
 const QuickApplyPage = page(() =>
   import('./features/quick-loan/QuickApplyPage').then((m) => ({ default: m.QuickApplyPage })),
 );
@@ -200,7 +201,10 @@ export function App() {
                   /apply/draft/:pid and must not remount it. /apply/new is only
                   reached from outside the form (the list, the dashboard), so
                   it always mounts empty. */}
-              <Route path="/apply/new" element={<Apply />} />
+              {/* Every application starts by choosing the loan; the SME
+                  form itself lives one step on. */}
+              <Route path="/apply/new" element={<ChooseLoan />} />
+              <Route path="/apply/new/sme" element={<Apply />} />
               {/* The Quick Loan is a different product on its own form. A
                   static segment outranks `:name`, so /apply/quick is never
                   read as a draft called "quick". */}

@@ -1329,7 +1329,7 @@ export function Apply() {
                 letter="1"
                 title="Application type"
               >
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <ChoiceCard
                     title="Existing business"
                     body="Trading and registered with DCRA."
@@ -1359,15 +1359,9 @@ export function Apply() {
                       setDcraNote(null);
                     }}
                   />
-                  {/* A different product on its own short form, not a third
-                      stage of this one: an informal trader has no
-                      registration, accounts or plan for this form to ask about. */}
-                  <ChoiceCard
-                    title="Quick Loan"
-                    body="Informal traders · no registration required."
-                    selected={false}
-                    onSelect={() => navigate('/apply/quick')}
-                  />
+                  {/* The Quick Loan is chosen before this form, on "Choose
+                      your loan" (/apply/new) — it is a different product on its
+                      own short form, not a third stage of this one. */}
                 </div>
               </Section>
 

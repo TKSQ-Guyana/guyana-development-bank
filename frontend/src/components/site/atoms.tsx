@@ -337,7 +337,7 @@ export function Photo({
   const [failed, setFailed] = useState(false);
   return (
     <div
-      className={`relative overflow-hidden bg-[linear-gradient(135deg,#E9E7F2_0%,#DEDCEA_55%,#E6E3EF_100%)] ${className}`}
+      className={`relative overflow-hidden bg-[linear-gradient(135deg,#E8EDF5_0%,#DCE3EE_55%,#E5EAF2_100%)] ${className}`}
     >
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center p-3 text-center font-code text-[11px] tracking-[0.1em] text-gdb-ink/30">

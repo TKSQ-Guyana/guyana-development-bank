@@ -10,7 +10,7 @@ interface SegmentedControlProps<T extends string> {
 
 export function SegmentedControl<T extends string>({ options, value, onChange }: SegmentedControlProps<T>) {
   return (
-    <div className="inline-flex gap-1 rounded-full bg-white p-1 shadow-[0_8px_30px_-12px_rgba(46,26,107,0.15)]">
+    <div className="inline-flex gap-1 rounded-full bg-white p-1 shadow-[0_8px_30px_-12px_rgba(30,58,138,0.15)]">
       {options.map((opt) => (
         <button
           key={opt.id}

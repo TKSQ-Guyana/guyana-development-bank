@@ -41,6 +41,9 @@ export const QUICK_STEPS: { id: QuickStepId; title: string; blurb: string }[] = 
   { id: 'review', title: 'Review', blurb: 'Review your application' },
 ];
 
+/** The steps on the rail. "Before you start" is its own page ahead of them. */
+export const RAIL_STEPS = QUICK_STEPS.filter((s) => s.id !== 'eligibility');
+
 /** The field officer request form's closed choices, from the prototype. */
 export const BUSINESS_TYPES = ['Market vendor', 'Small service', 'Home-based business', 'Mobile trade', 'Something else'];
 export const CALL_TIMES = ['Morning', 'Afternoon', 'Evening'];
@@ -136,15 +139,22 @@ export function blockerFor(step: QuickStepId, a: QuickAnswers, terms: QuickLoanT
       }
       return null;
     case 'confirm':
-      if (!a.accurate) return 'Confirm that the information is accurate.';
-      if (!a.noGuarantee) return 'Confirm that you understand submission does not guarantee a loan.';
-      if (!a.creditConsent) return 'Give your consent for the credit check to submit.';
-      return null;
+      return Object.values(confirmErrors(a))[0] ?? null;
     default:
       // Proof is advisory — a missing photo is the Bank's to ask for — and
       // Review only leads on to the submit page.
       return null;
   }
+}
+
+/** The submit page's three confirmations, each with its own message so each
+ *  box can say what it is missing. */
+export function confirmErrors(a: QuickAnswers): Partial<Record<'accurate' | 'noGuarantee' | 'creditConsent', string>> {
+  return {
+    ...(a.accurate ? {} : { accurate: 'Confirm that the information is accurate.' }),
+    ...(a.noGuarantee ? {} : { noGuarantee: 'Confirm that you understand submission does not guarantee a loan.' }),
+    ...(a.creditConsent ? {} : { creditConsent: 'Give your consent for the credit check to submit.' }),
+  };
 }
 
 export function termOptions(maxTerm: number): number[] {
