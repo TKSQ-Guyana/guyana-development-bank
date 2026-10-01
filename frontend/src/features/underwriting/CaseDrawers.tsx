@@ -207,7 +207,7 @@ export function RequestInfoDrawer({
             <input value={x.item} onChange={(e) => set(i, { item: e.target.value })} className={FIELD} />
           </label>
           <label className="mt-3 block text-sm font-medium text-slate-700">
-            Document type
+            Section
             <select value={x.type} onChange={(e) => set(i, { type: e.target.value })} className={FIELD}>
               <option value="">Any</option>
               {types.map((t) => (

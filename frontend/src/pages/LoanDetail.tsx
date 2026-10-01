@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { ApplicantProfile } from '../components/ApplicantProfile';
-import { ApplicationSections } from '../components/ApplicationSections';
 import { ClusterMembers } from '../components/ClusterMembers';
 import { Conditions } from '../components/Conditions';
 import { Disbursement } from '../components/Disbursement';
@@ -14,6 +13,7 @@ import { LoanAccount } from '../components/LoanAccount';
 import { OfferPanel } from '../components/OfferPanel';
 import { ApplicantCaseView } from '../features/applications/ApplicantCaseView';
 import { QuickDecision } from '../features/quick-loan/QuickDecision';
+import { ApplicationTab } from '../features/underwriting/ApplicationTab';
 import { DecisionDrawer, RequestInfoDrawer } from '../features/underwriting/CaseDrawers';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -134,7 +134,7 @@ export function LoanDetail() {
       <div className="mb-5 mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900">{loan.applicant_name}</h1>
+            <h1 className="text-xl font-bold text-slate-900">{loan.applicant_name}</h1>
             <StageBadge stage={loan.stage} />
             <Badge tone={quick ? 'warning' : 'neutral'}>{quick ? 'Quick Loan' : 'SME Loan'}</Badge>
             {loan.cluster && <Badge tone="brand">Cluster {loan.cluster}</Badge>}
@@ -289,12 +289,7 @@ export function LoanDetail() {
                 <Row label="In business" value={trade('trading_since')} />
               </Card>
             ) : (
-              <ApplicationSections
-                sections={loan.sections}
-                businessStage={loan.business_stage}
-                useOfFunds={loan.use_of_funds ?? []}
-                useOfFundsTotal={loan.use_of_funds_total}
-              />
+              <ApplicationTab loan={loan} />
             )}
           </Panel>
 
