@@ -19,7 +19,6 @@ const VENDOR: QuickAnswers = {
   dob: '1988-04-09',
   nationalId: '778850',
   phone: '600 1234',
-  woman: true,
   businessName: 'Singh Fresh Greens',
   tradeActivity: 'Sell vegetables',
   region: 'Region 3 — Essequibo Islands-West Demerara',
@@ -121,8 +120,6 @@ describe('what is sent and read back', () => {
         trade_region: 'Region 3 — Essequibo Islands-West Demerara',
         trading_since: '1 to 3 years',
         trade_location: 'Fixed location',
-        youth_entrepreneur: 0,
-        woman_entrepreneur: 1,
       },
     });
   });
@@ -154,8 +151,6 @@ describe('what is sent and read back', () => {
       region: 'Region 3 — Essequibo Islands-West Demerara',
       tradeLocation: 'Mobile',
       tradingSince: '',
-      youth: true,
-      woman: false,
       amount: '150000',
       term: '6',
     });

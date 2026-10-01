@@ -54,8 +54,6 @@ export interface QuickAnswers {
   dob: string;
   nationalId: string;
   phone: string;
-  youth: boolean;
-  woman: boolean;
   businessName: string;
   tradeActivity: string;
   region: string;
@@ -81,8 +79,6 @@ export const EMPTY_ANSWERS: QuickAnswers = {
   dob: '',
   nationalId: '',
   phone: '',
-  youth: false,
-  woman: false,
   businessName: '',
   tradeActivity: '',
   region: '',
@@ -176,8 +172,6 @@ export function toSavePayload(a: QuickAnswers, name?: string) {
       trade_region: a.region,
       trading_since: a.tradingSince,
       trade_location: a.tradeLocation,
-      youth_entrepreneur: a.youth ? 1 : 0,
-      woman_entrepreneur: a.woman ? 1 : 0,
     },
   };
 }
@@ -197,8 +191,6 @@ export function fromDraft(loan: LoanApplication): Partial<QuickAnswers> {
     region: text('trade_region'),
     tradingSince: text('trading_since'),
     tradeLocation: text('trade_location'),
-    youth: Number(loan.sections?.youth_entrepreneur) === 1,
-    woman: Number(loan.sections?.woman_entrepreneur) === 1,
     amount: loan.loan_amount ? String(loan.loan_amount) : '',
     purpose: loan.purpose ?? '',
     term: loan.term_months ? String(loan.term_months) : EMPTY_ANSWERS.term,

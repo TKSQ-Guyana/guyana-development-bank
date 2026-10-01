@@ -632,12 +632,6 @@ export function QuickApplyPage() {
                 e-ID: {user?.eid ?? '—'} · National ID: {answers.nationalId ? `•••• ${answers.nationalId.slice(-4)}` : '—'}
                 <br />
                 {answers.phone || '—'}
-                {(answers.youth || answers.woman) && (
-                  <>
-                    <br />
-                    Priority groups: {[answers.youth && 'Youth', answers.woman && 'Woman'].filter(Boolean).join(', ')}
-                  </>
-                )}
               </>,
             )}
             {summary(
@@ -746,16 +740,6 @@ export function QuickApplyPage() {
                     source="Profile"
                   />
                 )}
-              </div>
-              <div className="flex flex-col gap-3">
-                <SectionTitle>Priority-group declaration</SectionTitle>
-                <p className="text-[13px] text-ql-ink2">Select the groups that apply to you.</p>
-                <Check checked={answers.youth} onChange={set('youth')}>
-                  Youth entrepreneur
-                </Check>
-                <Check checked={answers.woman} onChange={set('woman')}>
-                  Woman entrepreneur
-                </Check>
               </div>
             </>
           )}

@@ -286,17 +286,6 @@ export function LoanDetail() {
                 <div className="mt-2">
                   <Row label="Business name" value={loan.business_name || '�'} />
                   <Row label="Region" value={trade('trade_region')} />
-                  <Row
-                    label="Priority groups"
-                    value={
-                      [
-                        Number(loan.sections?.youth_entrepreneur) === 1 && 'Youth',
-                        Number(loan.sections?.woman_entrepreneur) === 1 && 'Woman',
-                      ]
-                        .filter(Boolean)
-                        .join(', ') || 'None'
-                    }
-                  />
                   <Row label="What the business sells or does" value={trade('trade_activity')} />
                   <Row label="Business location" value={trade('trade_location')} />
                   <Row label="In business" value={trade('trading_since')} />

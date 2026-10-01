@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { Card, CardLabel } from '../components/ui/Card';
-import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { StageBadge, Stepper } from '../components/ui/Stepper';
 import { ArrowRightIcon, PlusIcon } from '../components/ui/icons';
 import type { LoanAccount, LoanApplication } from '../types';
@@ -42,7 +41,6 @@ export function Dashboard() {
   const { user } = useAuth();
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
   const [account, setAccount] = useState<LoanAccount | null>(null);
-  const [facility, setFacility] = useState<'loans' | 'grants'>('loans');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -94,7 +92,7 @@ export function Dashboard() {
             className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-bold text-brand-dark shadow-lg transition-transform hover:scale-[1.02]"
           >
             <PlusIcon className="h-4 w-4" />
-            Apply for a loan or grant
+            Apply for a loan
           </Link>
         </div>
 
@@ -177,30 +175,13 @@ export function Dashboard() {
         )}
       </section>
 
-      {/* Facilities. Grants are not a product GDB runs through this portal yet,
-          so the segment says so rather than inventing figures. */}
+      {/* The facility — GDB lends; there is no other product here. */}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-base font-bold text-slate-900">Your facilities</h3>
-          <SegmentedControl
-            options={[
-              { id: 'loans', label: 'My loans' },
-              { id: 'grants', label: 'My grants' },
-            ]}
-            value={facility}
-            onChange={setFacility}
-          />
+          <h3 className="text-base font-bold text-slate-900">My loans</h3>
         </div>
 
-        {facility === 'grants' ? (
-          <Card className="border border-dashed border-slate-200 text-center">
-            <p className="text-sm font-semibold text-slate-700">No grants yet</p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-              Grant programmes are not open through this portal. When they are, they will appear
-              here beside your loans.
-            </p>
-          </Card>
-        ) : disbursed && account?.loan ? (
+        {disbursed && account?.loan ? (
           <Card>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
