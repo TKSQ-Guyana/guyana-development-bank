@@ -1,5 +1,3 @@
-import os
-
 import frappe
 
 from gdb_bank.utils import policy
@@ -32,6 +30,8 @@ ROLES = (
 	("Finance Officer", 1),
 	("Disbursement Officer", 1),
 	("Platform Admin", 1),
+	# Forms groups and files their applications. Staff door, in no authority set.
+	("Facilitator", 1),
 )
 
 # The banks a citizen may nominate for a payout. Seeded, because the portal's
@@ -153,10 +153,19 @@ APPLICATION_SECTIONS = (
 	("gdb_sector", "Sector", "Data"),
 	("gdb_sub_sector", "Sub-sector", "Data"),
 	# C — business or venture description
+	("gdb_executive_summary", "Executive Summary", "Small Text"),
 	("gdb_products_services", "Products / Services", "Small Text"),
+	("gdb_unique_selling_point", "Unique Selling Proposition", "Small Text"),
 	("gdb_use_of_funds", "Expected Use of Funds", "Small Text"),
 	("gdb_challenges", "Current Challenges", "Small Text"),
 	("gdb_employment_impact", "Employment / Development Impact", "Small Text"),
+	# Jobs the loan creates — a count an underwriter can compare across cases,
+	# beside the free-text impact above.
+	("gdb_jobs_created", "Jobs to be Created (First Year)", "Int"),
+	# Direction and goals — where the owner means to take the business.
+	("gdb_vision", "Vision", "Small Text"),
+	("gdb_mission", "Mission", "Small Text"),
+	("gdb_goals", "Goals", "Small Text"),
 	# D — market and customers
 	("gdb_customer_segments", "Customer Segments", "Small Text"),
 	("gdb_target_market", "Target Market", "Small Text"),
@@ -403,7 +412,7 @@ ERPNEXT_CUSTOM_FIELDS = {
 			"label": "Checked Against",
 			"fieldtype": "Data",
 			"read_only": 1,
-			"description": "bank_registry (the switch), sandbox (not evidence), or unavailable.",
+			"description": "bank_registry (the switch answered) or unavailable.",
 			"insert_after": "gdb_verification_status",
 		},
 		{
@@ -1209,73 +1218,6 @@ def ensure_lending_rule_proposal_workflow():
 	workflow.insert(ignore_permissions=True)
 	frappe.db.commit()
 	print(f"created workflow: {LENDING_RULE_PROPOSAL_WORKFLOW}")
-
-
-def make_demo_users():
-	"""Create demo portal accounts. Password comes from GDB_DEMO_PASSWORD (or
-	ADMIN_PASSWORD) in the environment — invoked by scripts/create-site.sh via
-	`bench execute`."""
-	password = os.environ.get("GDB_DEMO_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
-	if not password:
-		print("GDB_DEMO_PASSWORD/ADMIN_PASSWORD not set — skipping demo users")
-		return
-
-	# Four personas, because three could not demonstrate the control: the
-	# underwriter decides, the disbursement officer releases, and Finance
-	# manages the books and proposes rules — no two of those are the same
-	# account, and neither of the first two can do the other's half
-	# (api._require_disbursement, api._require_finance, and the four-eyes
-	# check in api.disburse_loan).
-	#
-	# The platform administrator is the fifth: it manages the other accounts and
-	# can do none of their work (utils/constants.PLATFORM_ADMIN_ROLES).
-	demo_users = (
-		("underwriter@gdb.gov.gy", "GDB Underwriter", "System User", "Loan Underwriter"),
-		("finance@gdb.gov.gy", "GDB Disbursement Officer", "System User", "Disbursement Officer"),
-		("financeofficer@gdb.gov.gy", "GDB Finance Officer", "System User", "Finance Officer"),
-		("admin@gdb.gov.gy", "GDB Platform Admin", "System User", "Platform Admin"),
-		("citizen@example.gy", "Hemanth", "Website User", "Citizen"),
-	)
-	from frappe.utils.password import update_password
-
-	for email, full_name, user_type, role in demo_users:
-		if not frappe.db.exists("User", email):
-			user = frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": email,
-					"first_name": full_name,
-					"user_type": user_type,
-					"send_welcome_email": 0,
-					"enabled": 1,
-				}
-			).insert(ignore_permissions=True)
-			user.add_roles(role)
-			# GDB staff also get lending's desk role so the Lending workspace
-			# and doctypes are visible to them in ERPNext. Never the platform
-			# administrator: Loan Manager writes lending's own doctypes in the
-			# desk, which would hand the one persona that must not touch a loan
-			# a way to do exactly that.
-			if (
-				user_type == "System User"
-				and role != "Platform Admin"
-				and frappe.db.exists("Role", "Loan Manager")
-			):
-				user.add_roles("Loan Manager")
-			update_password(user.name, password)
-			print(f"created {user_type} {email} with role {role}")
-		elif frappe.db.get_value("User", email, "first_name") != full_name:
-			# The persona was RENAMED after this site was seeded. Seeding runs
-			# on every boot exactly so a later change reaches a site that
-			# already exists, and a display name is no different from a new
-			# persona: without this, "GDB Finance Officer" would outlive the
-			# rename on every environment already built. Saved through the doc
-			# so Frappe recomputes full_name, which is what the portal shows.
-			existing = frappe.get_doc("User", email)
-			existing.first_name = full_name
-			existing.save(ignore_permissions=True)
-			print(f"renamed {email} to {full_name}")
-	frappe.db.commit()
 
 
 def complete_setup_wizard():

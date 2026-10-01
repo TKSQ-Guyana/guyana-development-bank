@@ -1,18 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { call } from '../../api';
 import { DataTable } from '../ui/DataTable';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
-import type { Cluster, ClusterPlan, ClusterPlanSection, Facilitator } from '../../types';
+import type { Cluster, ClusterPlan, ClusterPlanSection } from '../../types';
 import { EidWithName } from './EidWithName';
 import { Notice, SelectField, TextAreaField, TextField } from './fields';
 
-/** The cluster route's own screens.
- *
+/** The group screens a GDB facilitator works through.
+
  *  A cluster loan is a different product, not a decoration on a personal one,
  *  so it asks different questions: who the group is, who is in it, and what
- *  the group intends to build together. They live here rather than in the
- *  wizard file because none of them has anything to say about an applicant
- *  applying alone, which is still the ordinary case.
+ *  the group intends to build together. Citizens never see these as forms —
+ *  they answer invitations and read their groups (pages/Cluster.tsx).
  *
  *  Everything a member is named by is an e-ID. That is how GDB identifies a
  *  person everywhere else in the bank, and a mailbox is not — one person can
@@ -62,42 +61,38 @@ export const PLAN_SECTIONS: {
     key: 'plan_executive_summary',
     title: 'Executive summary',
     required: true,
-    blurb:
-      'In a few sentences: who this group is, what it is building together, and why it is worth doing.',
+    blurb: 'Who the group is and what it will finance.',
   },
   {
     key: 'plan_how_formed',
     title: 'How the cluster formed',
-    blurb: 'How the businesses found one another, who brought them together, and when.',
+    blurb: 'How and when the group formed.',
   },
   {
     key: 'plan_governance',
     title: 'Governance and membership',
-    blurb:
-      'How the group decides things, who leads it, how members join or leave, and what the written agreement says.',
+    blurb: 'Decision-making, leadership and membership rules.',
   },
   {
     key: 'plan_market',
     title: 'Market',
-    blurb: 'Who the group sells to, what it competes with, and what the demand looks like.',
+    blurb: 'Customers, competitors and demand.',
   },
   {
     key: 'plan_shared_project',
-    title: 'The shared project',
+    title: 'Shared project',
     required: true,
-    blurb:
-      'What is being built or bought together, where it sits, and what it will do for the group.',
+    blurb: 'Assets to be financed and their location.',
   },
   {
     key: 'plan_operations',
     title: 'Operations',
-    blurb:
-      'How the shared project will be run day to day — who does what, and what it costs the group to run.',
+    blurb: 'Day-to-day running and operating costs.',
   },
   {
     key: 'plan_impact',
     title: 'Social and economic impact',
-    blurb: 'Jobs, training, and what the shared project changes for the community around it.',
+    blurb: 'Jobs and community benefit.',
   },
 ];
 
@@ -105,166 +100,6 @@ export const PLAN_SECTIONS: {
 // a cluster question, and partners and shareholders name people the same
 // way. Re-exported here so every existing import keeps working.
 export { EidWithName };
-
-/** Choose a GDB facilitator from the ones GDB offers.
- *
- *  Not an e-ID box. A head knows the person's NAME, or knows only that they
- *  want help — they have no reason to know anybody's eleven digits, and a
- *  typed number that matches nobody is a dead end they cannot get out of.
- *  The list is the server's; what travels back is still the e-ID, so the
- *  attaching, the linking and the waiting-for-first-sign-in below it are
- *  unchanged.
- */
-export function FacilitatorPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (eid: string) => void;
-}) {
-  const [people, setPeople] = useState<Facilitator[] | null>(null);
-
-  useEffect(() => {
-    call<Facilitator[]>('gdb_bank.api.facilitators')
-      .then(setPeople)
-      .catch(() => setPeople([]));
-  }, []);
-
-  if (!people) return <p className="text-sm text-slate-500">Loading facilitators…</p>;
-  if (people.length === 0) {
-    return (
-      <Notice tone="info">
-        No facilitators are listed for your area yet. Carry on — GDB will attach one once your
-        region is known.
-      </Notice>
-    );
-  }
-
-  const chosen = people.find((p) => p.eid === value);
-  const label = (p: Facilitator) => `${p.full_name} — ${p.region}`;
-
-  // The roster's `placeholder` flag is deliberately NOT surfaced. Telling an
-  // applicant the names are examples invites the obvious question — then who
-  // will it actually be? — which nobody on this screen can answer, and it
-  // undermines a list the applicant is being asked to choose from. The fact is
-  // recorded where the people who can act on it will read it: the endpoint's
-  // own comment, and CLAUDE.md. Whoever is attached is confirmed to the group
-  // on the next screen either way.
-  return (
-    <SelectField
-      label="Facilitator"
-      value={chosen ? label(chosen) : ''}
-      onChange={(picked) => onChange(people.find((p) => label(p) === picked)?.eid ?? '')}
-      options={people.map(label)}
-      placeholder="Let GDB choose for my region"
-    />
-  );
-}
-
-/** Step: the group's name, and whether it wants a facilitator.
- *
- *  Asked together and first, because they are the two things the head already
- *  knows when they decide to apply as a group. Everything else about the
- *  group can be worked out afterwards; these two decide what is being made.
- */
-export function ClusterIdentity({
-  clusterName,
-  onName,
-  wantsFacilitator,
-  onWantsFacilitator,
-  facilitatorEid,
-  onFacilitatorEid,
-  existing,
-  chosen,
-  onChoose,
-  locked,
-}: {
-  clusterName: string;
-  onName: (v: string) => void;
-  wantsFacilitator: boolean | null;
-  onWantsFacilitator: (v: boolean) => void;
-  facilitatorEid: string;
-  onFacilitatorEid: (v: string) => void;
-  existing: Cluster[];
-  chosen: string;
-  onChoose: (name: string) => void;
-  locked: boolean;
-}) {
-  return (
-    <div className="space-y-5">
-      {existing.length > 0 && (
-        <div className="rounded-lg bg-slate-50/80 p-4">
-          <p className="text-sm font-bold text-slate-800">Which group is this for?</p>
-          <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
-            You can lead more than one group, and each one applies separately. This application
-            belongs to whichever you name here.
-          </p>
-          <SelectField
-            label="Group"
-            value={chosen}
-            onChange={onChoose}
-            options={existing.map((c) => c.name)}
-            placeholder="Start a new group"
-          />
-        </div>
-      )}
-
-      {!chosen && (
-        <TextField
-          label="What is the group called?"
-          value={clusterName}
-          onChange={onName}
-          required
-          disabled={locked}
-          hint="The name GDB and your members will know this group by. It cannot be changed here once the group is created."
-        />
-      )}
-
-      <div>
-        <p className="text-sm font-bold text-slate-800">
-          Would you like a regional facilitator?
-          <span className="ml-1 text-rose-600">*</span>
-        </p>
-        <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
-          A GDB facilitator helps a group put its shared plan together. They can write the group's
-          plan with you. They cannot see any member's financial information, and they take no part
-          in the credit decision.
-        </p>
-        <div className="flex gap-2">
-          {[
-            { label: 'Yes, attach one', value: true },
-            { label: 'No, not for now', value: false },
-          ].map((opt) => (
-            <button
-              key={String(opt.value)}
-              type="button"
-              onClick={() => onWantsFacilitator(opt.value)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                wantsFacilitator === opt.value
-                  ? 'bg-brand text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {wantsFacilitator === true && (
-          <div className="mt-4 rounded-lg bg-slate-50/80 p-4">
-            <p className="mb-2 text-sm font-bold text-slate-800">Who would you like?</p>
-            <p className="mb-3 text-xs leading-relaxed text-slate-500">
-              Choose the facilitator you would like. If you do not mind which, leave it as it is
-              and answer the region question on the next screen — GDB routes a facilitator by
-              region and will attach one.
-            </p>
-            <FacilitatorPicker value={facilitatorEid} onChange={onFacilitatorEid} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /** Step: what the group does, and where. The region is what GDB routes a
  *  facilitator on, which is why it is asked of the group and not inferred
@@ -291,34 +126,31 @@ export function GroupDetails({
   return (
     <div className="space-y-4">
       <TextAreaField
-        label="What does the group do?"
+        label="Group activity"
         value={purpose}
         onChange={onPurpose}
         required
         rows={3}
-        hint="What the businesses in this group make, grow, catch or sell — and what they do together."
       />
       <SelectField
-        label="Which region does the group work in?"
+        label="Region"
         value={region}
         onChange={onRegion}
         options={REGIONS}
         required
-        hint="It decides which GDB regional facilitator can be attached to help you."
       />
       <TextField
-        label="Which part of the region?"
+        label="Locality"
         value={locality}
         onChange={onLocality}
-        hint="The village, ward or stelling."
+        placeholder="Village, ward or stelling"
       />
       <SelectField
-        label="Is the group registered?"
+        label="Registration status"
         value={registered}
         onChange={onRegistered}
         options={REGISTRATION_STATES}
         required
-        hint="A group does not have to be registered to apply. GDB asks so it knows what it is lending to."
       />
     </div>
   );
@@ -330,9 +162,12 @@ export function GroupDetails({
 export function MembersTable({
   cluster,
   onChanged,
+  headLocked,
 }: {
   cluster: Cluster | null;
   onChanged: (c: Cluster) => void;
+  /** True once the group has an application: the head is then fixed. */
+  headLocked?: boolean;
 }) {
   const [eid, setEid] = useState(EMPTY_EID);
   const [name, setName] = useState('');
@@ -374,8 +209,8 @@ export function MembersTable({
     if (
       !window.confirm(
         joined
-          ? `Remove ${who} from ${cluster.name}? They stop seeing the group's application. Anything they have already signed stays signed.`
-          : `Withdraw the invitation to ${who}? They will be told it was withdrawn.`,
+          ? `Remove ${who} from ${cluster.name}? Signed documents stay signed.`
+          : `Withdraw the invitation to ${who}?`,
       )
     ) {
       return;
@@ -397,6 +232,18 @@ export function MembersTable({
     }
   };
 
+  const makeHead = async (m: Cluster['members'][number]) => {
+    if (!cluster || !m.member_eid) return;
+    setError(null);
+    try {
+      onChanged(
+        await call<Cluster>('gdb_bank.api.set_cluster_head', { cluster: cluster.name, eid: m.member_eid }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not set the head');
+    }
+  };
+
   const roster = cluster?.members ?? [];
   // Invitations nobody has answered. Worth saying out loud on this screen,
   // because an unanswered invitation looks exactly like a member here and
@@ -410,7 +257,7 @@ export function MembersTable({
   return (
     <div className="space-y-4">
       <DataTable
-        caption="The people in this group and where each invitation stands"
+        caption="Members"
         columns={[
           {
             key: 'eid',
@@ -442,12 +289,29 @@ export function MembersTable({
             // value, "Invitation sent" is what happened.
             cell: (m) =>
               m.member_status === 'Invited'
-                ? 'Invitation sent'
+                ? 'Invited'
                 : m.member_status === 'Active'
-                  ? 'Member'
+                  ? 'Accepted'
                   : m.member_status === 'Declined'
                     ? 'Declined'
-                    : 'No longer in this group',
+                    : 'Exited',
+          },
+          {
+            key: 'head',
+            header: '',
+            align: 'right',
+            stackLabel: '',
+            // Only an accepted member with an account can borrow for the group.
+            cell: (m) =>
+              !headLocked && !m.is_head && m.member_status === 'Active' && m.member ? (
+                <button
+                  type="button"
+                  onClick={() => void makeHead(m)}
+                  className="rounded-full px-3 py-1 text-xs font-semibold text-brand transition-colors hover:bg-brand-light"
+                >
+                  Make head
+                </button>
+              ) : null,
           },
           {
             key: 'remove',
@@ -477,7 +341,7 @@ export function MembersTable({
         rows={roster}
         rowKey={(m) => m.member ?? m.member_eid ?? m.member_name}
         footnote={false}
-        empty="Nobody has been added yet."
+        empty="No members yet."
       />
 
       {/* An invitation is not membership, and this is the screen where the
@@ -491,29 +355,20 @@ export function MembersTable({
           {joined === 0 ? (
             <>
               <strong>
-                Nobody has accepted yet &mdash; {waiting} invitation{waiting === 1 ? '' : 's'}{' '}
-                still waiting.
+                No acceptances yet &mdash; {waiting} invitation{waiting === 1 ? '' : 's'} pending.
               </strong>{' '}
-              You can carry on and submit, but until somebody accepts, they will not see this
-              application and GDB cannot issue the group a Letter of Offer. It may be worth
-              reminding them.
+              No Letter of Offer can be issued until members accept.
             </>
           ) : (
             <>
-              {joined} {joined === 1 ? 'member has' : 'members have'} accepted; {waiting} invitation
-              {waiting === 1 ? ' is' : 's are'} still waiting. Only those who accept will see this
-              application and sign the offer.
+              {joined} accepted · {waiting} pending. Only accepted members sign the offer.
             </>
           )}
         </Notice>
       )}
 
       <div className="rounded-lg bg-slate-50/80 p-4">
-        <p className="mb-1 text-sm font-bold text-slate-800">Add a member</p>
-        <p className="mb-3 text-xs leading-relaxed text-slate-500">
-          Type their e-ID and their name fills in. Adding somebody sends them an invitation — they
-          join by accepting it, signed in as themselves.
-        </p>
+        <p className="mb-3 text-sm font-bold text-slate-800">Add a member</p>
         <div className="space-y-3">
           <EidWithName
             value={eid}
@@ -526,7 +381,7 @@ export function MembersTable({
             label="Name"
             value={name}
             onChange={setName}
-            hint="Filled in for you when the e-ID is already registered with GDB. Type it for somebody who is not."
+            hint="Filled from the e-ID where registered."
           />
           {error && <Notice tone="warn">{error}</Notice>}
           <button

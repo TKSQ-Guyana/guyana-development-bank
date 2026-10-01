@@ -39,8 +39,11 @@ GROUPS = {
 		"label": "Staff account management (Keycloak admin client)",
 		"keys": ("keycloak_admin_client_id", "keycloak_admin_client_secret"),
 	},
-	DCRA: {"label": "DCRA business registry", "keys": ("dcra_base_url",)},
-	BANK_REGISTRY: {"label": "Bank account registry", "keys": ("bank_registry_base_url",)},
+	DCRA: {"label": "DCRA business registry", "keys": ("dcra_base_url", "dcra_api_key")},
+	BANK_REGISTRY: {
+		"label": "Bank account registry",
+		"keys": ("bank_registry_base_url", "bank_registry_api_key"),
+	},
 }
 
 LABELS = {
@@ -54,8 +57,10 @@ LABELS = {
 	"keycloak_staff_client_secret": "Client secret",
 	"keycloak_admin_client_id": "Admin client ID",
 	"keycloak_admin_client_secret": "Admin client secret",
-	"dcra_base_url": "Base URL (empty: sandbox register)",
-	"bank_registry_base_url": "Base URL (empty: sandbox register)",
+	"dcra_base_url": "Base URL (empty: off)",
+	"dcra_api_key": "API key",
+	"bank_registry_base_url": "Base URL (empty: off)",
+	"bank_registry_api_key": "API key",
 }
 
 
@@ -88,8 +93,9 @@ def _mode(group_key: str) -> str:
 		return "configured" if base and get("keycloak_staff_realm") and get("keycloak_staff_client_id") else "off"
 	if group_key == STAFF_ACCOUNTS:
 		return "configured" if keycloak_admin.is_configured() else "off"
+	# A registry with no base URL is off. There is no stand-in to fall back to.
 	url_key = GROUPS[group_key]["keys"][0]
-	return "live" if get(url_key) else "sandbox"
+	return "live" if get(url_key) else "off"
 
 
 def status() -> list[dict]:
@@ -208,5 +214,5 @@ def test(group_key: str, values=None) -> dict:
 
 	base = value(group["keys"][0])
 	if not base:
-		return {"ok": None, "latency_ms": None, "detail": "Not configured — the sandbox register is in use, and it is never evidence."}
+		return {"ok": None, "latency_ms": None, "detail": "Not configured — every check answers Unavailable."}
 	return probe.http_service(base)

@@ -16,6 +16,7 @@ import frappe
 
 from gdb_bank.utils.session import (
 	_is_disbursement,
+	_is_facilitator,
 	_is_finance,
 	_is_platform_admin,
 	_is_underwriter,
@@ -44,6 +45,8 @@ def whoami(user: str) -> dict:
 		# Accounts, roles, health and integration settings — and no case, no
 		# credit decision, no money. See utils/constants.PLATFORM_ADMIN_ROLES.
 		"is_platform_admin": _is_platform_admin(user),
+		# Forms groups and files their applications; nothing else.
+		"is_facilitator": _is_facilitator(user),
 	}
 
 

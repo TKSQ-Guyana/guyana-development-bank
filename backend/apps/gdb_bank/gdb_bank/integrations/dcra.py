@@ -5,135 +5,30 @@ it so an applicant who already runs a registered business never retypes what
 the State already holds: give the registration number, get the registered
 name, type, status and proprietors back.
 
-This module is the *adapter*. It has one public function, `lookup`, and two
-implementations behind it:
+This module is the *adapter* for the real DCRA service (contract in
+docs/integrations/dcra.md). It holds no data of its own. It is switched on by
+configuration alone — `dcra_base_url`, and `dcra_api_key` if DCRA issues one —
+from the platform administrator's Integrations screen, site_config or the
+environment (integrations/settings.py). The call itself is integrations/client.py.
 
-  live     — an HTTP call to the DCRA service, used when the site is
-             configured with `dcra_base_url` (see the contract in
-             docs/integrations/dcra.md).
-  sandbox  — a small fixed register used until that service exists.
+Every result carries `source`:
 
-Every result carries `source`, and callers must not treat `sandbox` as proof
-of anything. A registration that the adapter cannot confirm comes back as
-`status: "Unavailable"` — never as a pass. That distinction is the whole point
-of the adapter: an unavailable registry is a known state, not a silent success.
+  dcra        — the registry answered
+  unavailable — the registry is not configured, or did not respond
+
+A registration the adapter cannot confirm comes back as `status: "Unavailable"`
+— never as a pass, and never as "Not Found". That distinction is the whole
+point of the adapter: an unavailable registry is a known state, not a silent
+success.
 """
 
 from __future__ import annotations
 
-import logging
+from urllib.parse import quote
 
-import frappe
+from gdb_bank.integrations import client
 
-from gdb_bank.integrations import settings as integration_settings
-
-_HTTP_TIMEOUT = 10
-
-# Sandbox register. Stand-ins, used only until DCRA exposes the real service —
-# `source` says "sandbox" on every one of these so nothing downstream can
-# mistake them for a registry confirmation. They exist so the application flow
-# can be built and tested end to end, which is what rule 15 asks for.
-#
-# `proprietors` MUST name the same people as `proprietor_eids`, in the same
-# order. Nothing enforces it: the lookup matches on the e-ID alone and never
-# reads the name, so a wrong name here is not an error anywhere — it is simply
-# displayed. Four of these rows once named people who had nothing to do with
-# the e-ID beside them, and the portal duly told Marcia Khan that the business
-# it had just confirmed was hers belonged to "J. Fraser". In production the two
-# CAN legitimately disagree, which is exactly why a disagreement invented by
-# the seed data is worth nothing to anybody testing against it.
-SANDBOX_REGISTER: dict[str, dict] = {
-	"BN-2024-004512": {
-		"registration_number": "BN-2024-004512",
-		"business_name": "Essequibo Cassava Processors",
-		"business_type": "Business Name",
-		"status": "Active",
-		"registered_on": "2024-03-18",
-		"region": "Region 2 - Pomeroon-Supenaam",
-		"proprietors": ["Hemanth Narine"],
-		"proprietor_eids": ["592-1111-0001"],
-	},
-	"BN-2023-001987": {
-		"registration_number": "BN-2023-001987",
-		"business_name": "Demerara Coast Fisheries",
-		"business_type": "Business Name",
-		"status": "Active",
-		"registered_on": "2023-07-02",
-		"region": "Region 4 - Demerara-Mahaica",
-		"proprietors": ["Hemanth Narine"],
-		"proprietor_eids": ["592-4444-0004"],
-	},
-	"C-2022-000734": {
-		"registration_number": "C-2022-000734",
-		"business_name": "Berbice Agro Supplies Inc.",
-		"business_type": "Company",
-		"status": "Active",
-		"registered_on": "2022-11-25",
-		"region": "Region 6 - East Berbice-Corentyne",
-		"proprietors": ["Rani Singh", "Devon Baksh"],
-		"proprietor_eids": ["592-6666-0006", "592-7777-0007"],
-	},
-	"BN-2019-000442": {
-		"registration_number": "BN-2019-000442",
-		"business_name": "Linden Timber Works",
-		"business_type": "Business Name",
-		# A struck-off registration is deliberately included: an underwriter
-		# needs to see that a business exists but is no longer in good standing.
-		"status": "Struck Off",
-		"registered_on": "2019-05-14",
-		"region": "Region 10 - Upper Demerara-Berbice",
-		"proprietors": ["Marcia Khan"],
-		"proprietor_eids": ["592-8888-0008"],
-	},
-	"BN-2021-000856": {
-		"registration_number": "BN-2021-000856",
-		"business_name": "Griffith General Trading",
-		"business_type": "Business Name",
-		"status": "Active",
-		"registered_on": "2021-09-10",
-		"region": "Region 4 - Demerara-Mahaica",
-		"proprietors": ["Kwame Griffith"],
-		"proprietor_eids": ["592-9999-0009"],
-	},
-	# A PARTNERSHIP. DCRA tells three kinds of ownership apart — a Business
-	# Name, a Company and a Partnership — and the portal asks the same three,
-	# so the register can answer the question rather than the applicant. Until
-	# this row existed the middle case had no test data at all: every other
-	# registration here is a Business Name or a Company, and a partnership
-	# reaching the Bank could only ever be one the applicant typed.
-	"BN-2022-003310": {
-		"registration_number": "BN-2022-003310",
-		"business_name": "Pomeroon Craft Partners",
-		"business_type": "Partnership",
-		"status": "Active",
-		"registered_on": "2022-06-08",
-		"region": "Region 2 - Pomeroon-Supenaam",
-		"proprietors": ["Anita Ramkissoon", "Trevor Adams"],
-		"proprietor_eids": ["592-1010-0010", "592-1122-0011"],
-	},
-	# The SECOND registration for 592-1010-0010, and the only reason the
-	# business picker's dropdown is ever exercised. Every other e-ID in this
-	# register is a proprietor of exactly one business, which `my_businesses`
-	# auto-selects — so the case of a citizen who must CHOOSE which of their
-	# businesses is borrowing went untested, and it is the case where picking
-	# the wrong one puts the loan against the wrong trading concern.
-	"BN-2024-006120": {
-		"registration_number": "BN-2024-006120",
-		"business_name": "Ramkissoon Poultry Supplies",
-		"business_type": "Business Name",
-		"status": "Active",
-		"registered_on": "2024-01-22",
-		"region": "Region 3 - Essequibo Islands-West Demerara",
-		"proprietors": ["Anita Ramkissoon"],
-		"proprietor_eids": ["592-1010-0010"],
-	},
-}
-
-
-def _logger() -> logging.Logger:
-	logger = frappe.logger("gdb_bank", allow_site=True)
-	logger.setLevel(logging.INFO)
-	return logger
+SYSTEM = "dcra"
 
 
 def normalize(registration_number: str | None) -> str:
@@ -152,69 +47,6 @@ def _unavailable(number: str, reason: str) -> dict:
 	}
 
 
-def _live(number: str, base_url: str) -> dict | None:
-	"""Call the real DCRA service. Contract: docs/integrations/dcra.md."""
-	import requests
-
-	try:
-		res = requests.get(
-			f"{base_url.rstrip('/')}/registrations/{number}",
-			headers={"Accept": "application/json"},
-			timeout=_HTTP_TIMEOUT,
-		)
-	except requests.RequestException as exc:
-		_logger().error(f"dcra unreachable: {exc}")
-		return None
-
-	if res.status_code == 404:
-		return {
-			"registration_number": number,
-			"business_name": None,
-			"status": "Not Found",
-			"source": "dcra",
-		}
-	if res.status_code != 200:
-		_logger().error(f"dcra returned {res.status_code} for {number}")
-		return None
-
-	payload = res.json()
-	return {
-		"registration_number": payload.get("registration_number") or number,
-		"business_name": payload.get("business_name"),
-		"business_type": payload.get("business_type"),
-		"status": payload.get("status"),
-		"registered_on": payload.get("registered_on"),
-		"region": payload.get("region"),
-		"proprietors": payload.get("proprietors") or [],
-		"proprietor_eids": payload.get("proprietor_eids") or [],
-		"source": "dcra",
-	}
-
-
-def _live_by_eid(eid: str, base_url: str) -> list[dict] | None:
-	"""Search the registry for businesses this e-ID is a proprietor of."""
-	import requests
-
-	try:
-		res = requests.get(
-			f"{base_url.rstrip('/')}/registrations",
-			params={"proprietor_eid": eid},
-			headers={"Accept": "application/json"},
-			timeout=_HTTP_TIMEOUT,
-		)
-	except requests.RequestException as exc:
-		_logger().error(f"dcra proprietor search unreachable: {exc}")
-		return None
-
-	if res.status_code != 200:
-		_logger().error(f"dcra proprietor search returned {res.status_code}")
-		return None
-
-	payload = res.json()
-	rows = payload.get("registrations") if isinstance(payload, dict) else payload
-	return [{**r, "source": "dcra"} for r in (rows or [])]
-
-
 def businesses_for(eid: str) -> list[dict]:
 	"""Every registration naming this e-ID as a proprietor.
 
@@ -224,23 +56,20 @@ def businesses_for(eid: str) -> list[dict]:
 	somebody else's registration is not a thing the form can express. Matched
 	on e-ID rather than name — a name is typed by two different registers and
 	can disagree; an e-ID is the one identifier both sides already share.
+
+	A registry that is not configured or does not answer yields nothing: the
+	caller shows the manual path, never a fabricated business.
 	"""
 	eid = (eid or "").strip()
 	if not eid:
 		return []
 
-	base_url = integration_settings.get("dcra_base_url")
-	if base_url:
-		live = _live_by_eid(eid, base_url)
-		# Unreachable registry yields nothing rather than sandbox data — the
-		# caller shows a manual fallback, never a fabricated business.
-		return live or []
+	status, payload = client.get_json(SYSTEM, "/registrations", {"proprietor_eid": eid})
+	if status != 200:
+		return []
 
-	return [
-		{**record, "source": "sandbox"}
-		for record in SANDBOX_REGISTER.values()
-		if eid in record.get("proprietor_eids", [])
-	]
+	rows = payload.get("registrations") if isinstance(payload, dict) else payload
+	return [{**row, "source": "dcra"} for row in (rows or [])]
 
 
 def owned_by(record: dict, eid: str) -> bool:
@@ -261,28 +90,35 @@ def lookup(registration_number: str) -> dict:
 
 	Always returns a dict carrying `source`, one of:
 	  dcra        — the registry answered
-	  sandbox     — the stand-in register answered; NOT evidence
 	  unavailable — the registry could not be reached, or is not configured
 	"""
 	number = normalize(registration_number)
 	if not number:
 		return _unavailable(number, "no registration number given")
+	if not client.configured(SYSTEM):
+		return _unavailable(number, "DCRA service is not configured")
 
-	base_url = integration_settings.get("dcra_base_url")
-	if base_url:
-		live = _live(number, base_url)
-		if live is not None:
-			return live
-		# A configured-but-unreachable registry is unavailable. It must never
-		# fall through to the sandbox and look like a confirmation.
-		return _unavailable(number, "DCRA service did not respond")
+	# Quoted: the number is the applicant's own typing and goes into a URL path.
+	status, payload = client.get_json(SYSTEM, f"/registrations/{quote(number, safe='')}")
 
-	record = SANDBOX_REGISTER.get(number)
-	if not record:
+	if status == 404:
 		return {
 			"registration_number": number,
 			"business_name": None,
 			"status": "Not Found",
-			"source": "sandbox",
+			"source": "dcra",
 		}
-	return {**record, "source": "sandbox"}
+	if status != 200 or not isinstance(payload, dict):
+		return _unavailable(number, "DCRA service did not respond")
+
+	return {
+		"registration_number": payload.get("registration_number") or number,
+		"business_name": payload.get("business_name"),
+		"business_type": payload.get("business_type"),
+		"status": payload.get("status"),
+		"registered_on": payload.get("registered_on"),
+		"region": payload.get("region"),
+		"proprietors": payload.get("proprietors") or [],
+		"proprietor_eids": payload.get("proprietor_eids") or [],
+		"source": "dcra",
+	}

@@ -10,111 +10,30 @@ So the portal asks the national payment switch instead: given the applicant's
 e-ID, which accounts are held in their name? They pick one. The number is never
 typed, which is also why they cannot nominate somebody else's account.
 
-This module is the *adapter*, shaped exactly like `integrations/dcra.py`. Two
-public functions:
+This module is the *adapter* for the real switch (contract in
+docs/integrations/bank-account-verification.md), shaped exactly like
+`integrations/dcra.py`. It holds no data of its own. It is switched on by
+configuration alone — `bank_registry_base_url`, and `bank_registry_api_key` if
+the switch issues one (integrations/settings.py). Two public functions:
 
-  accounts_for(eid, full_name) — the accounts the switch says are this person's
+  accounts_for(eid) — the accounts the switch says this person holds
   verify(bank, account_no, full_name) — confirm one account and its name match
 
-and two implementations behind each:
+Every result carries `source`:
 
-  live     — HTTP to the switch, used when the site is configured with
-             `bank_registry_base_url` (contract in
-             docs/integrations/bank-account-verification.md).
-  sandbox  — a small fixed register used until that service exists.
+  bank_registry — the switch answered
+  unavailable   — the switch is not configured, or did not respond
 
-Every result carries `source`, and `sandbox` is never evidence. An account the
-adapter cannot confirm comes back as `status: "Unavailable"` — never as a pass.
-plan.md §6.1 names that rule for every external check: unavailable is a
-distinct state, and it must not be converted into a pass.
+An account the adapter cannot confirm comes back as `status: "Unavailable"` —
+never as a pass. plan.md §6.1 names that rule for every external check:
+unavailable is a distinct state, and it must not be converted into a pass.
 """
 
 from __future__ import annotations
 
-import logging
+from gdb_bank.integrations import client
 
-import frappe
-
-from gdb_bank.integrations import settings as integration_settings
-
-_HTTP_TIMEOUT = 10
-
-# Sandbox register. Stand-ins keyed by e-ID, used only until the switch exists —
-# `source` says "sandbox" on every one so nothing downstream can mistake them
-# for a bank's confirmation. The bank names match the Bank records seeded by
-# install.ensure_banks, because a nominated account has to name a bank GDB can
-# actually pay.
-SANDBOX_REGISTER: dict[str, list[dict]] = {
-	# Two accounts, so the portal's "which one?" path is exercised by the
-	# default demo login rather than only by a hand-built case.
-	"592-1111-0001": [
-		{
-			"bank": "Citizens Bank Guyana",
-			"account_number": "0009111122223333",
-			"account_name": "Demo Citizen",
-			"branch_code": "CTZ-NA-07",
-			"account_type": "Savings",
-			"status": "Active",
-		},
-		{
-			"bank": "Demerara Bank",
-			"account_number": "0001222233334444",
-			"account_name": "Demo Citizen",
-			"branch_code": "DEM-GT-04",
-			"account_type": "Current",
-			"status": "Active",
-		},
-	],
-	"592-2222-0002": [
-		{
-			"bank": "Demerara Bank",
-			"account_number": "0001777788889999",
-			"account_name": "GDB Underwriter",
-			"branch_code": "DEM-GT-04",
-			"account_type": "Savings",
-			"status": "Active",
-		},
-	],
-	"592-3333-0003": [
-		{
-			"bank": "Citizens Bank Guyana",
-			"account_number": "0009000087654321",
-			"account_name": "Asha Persaud",
-			"branch_code": "CTZ-NA-07",
-			"account_type": "Savings",
-			"status": "Active",
-		},
-		# A dormant account is deliberately included: it exists and the name
-		# matches, and it still cannot receive a disbursement. An underwriter
-		# and a Disbursement Officer both need to be able to see that state,
-		# and the flow has to handle it — the same reason DCRA's sandbox
-		# carries a struck-off registration.
-		{
-			"bank": "Republic Bank (Guyana)",
-			"account_number": "0004555566667777",
-			"account_name": "Asha Persaud",
-			"branch_code": "RBL-GT-01",
-			"account_type": "Savings",
-			"status": "Dormant",
-		},
-	],
-	"592-4444-0004": [
-		{
-			"bank": "Demerara Bank",
-			"account_number": "0001445566778",
-			"account_name": "Hemanth Narine",
-			"branch_code": "DEM-GT-04",
-			"account_type": "Current",
-			"status": "Active",
-		},
-	],
-}
-
-
-def _logger() -> logging.Logger:
-	logger = frappe.logger("gdb_bank", allow_site=True)
-	logger.setLevel(logging.INFO)
-	return logger
+SYSTEM = "bank_registry"
 
 
 def normalize(account_number: str | None) -> str:
@@ -161,72 +80,8 @@ def _unavailable(bank: str, account_no: str, reason: str) -> dict:
 	}
 
 
-def _live_accounts(eid: str, base_url: str) -> list[dict] | None:
-	"""Ask the switch which accounts this e-ID holds."""
-	import requests
-
-	try:
-		res = requests.get(
-			f"{base_url.rstrip('/')}/accounts",
-			params={"national_id": eid},
-			headers={"Accept": "application/json"},
-			timeout=_HTTP_TIMEOUT,
-		)
-	except requests.RequestException as exc:
-		_logger().error(f"bank registry unreachable: {exc}")
-		return None
-
-	if res.status_code != 200:
-		_logger().error(f"bank registry account search returned {res.status_code}")
-		return None
-
-	payload = res.json()
-	rows = payload.get("accounts") if isinstance(payload, dict) else payload
-	return [{**r, "source": "bank_registry"} for r in (rows or [])]
-
-
-def _live_verify(bank: str, account_no: str, base_url: str) -> dict | None:
-	"""Confirm one account at the switch. Contract in the docs."""
-	import requests
-
-	try:
-		res = requests.get(
-			f"{base_url.rstrip('/')}/accounts/{account_no}",
-			params={"bank": bank},
-			headers={"Accept": "application/json"},
-			timeout=_HTTP_TIMEOUT,
-		)
-	except requests.RequestException as exc:
-		_logger().error(f"bank registry unreachable: {exc}")
-		return None
-
-	if res.status_code == 404:
-		return {
-			"bank": bank,
-			"account_number": account_no,
-			"account_name": None,
-			"status": "Not Found",
-			"source": "bank_registry",
-		}
-	if res.status_code != 200:
-		_logger().error(f"bank registry returned {res.status_code} for {mask(account_no)}")
-		return None
-
-	payload = res.json()
-	return {
-		"bank": payload.get("bank") or bank,
-		"account_number": payload.get("account_number") or account_no,
-		"account_name": payload.get("account_name"),
-		"branch_code": payload.get("branch_code"),
-		"account_type": payload.get("account_type"),
-		"status": payload.get("status"),
-		"reference": payload.get("reference"),
-		"source": "bank_registry",
-	}
-
-
-def accounts_for(eid: str | None, full_name: str | None = None) -> list[dict]:
-	"""Every account the switch says is held in this person's name.
+def accounts_for(eid: str | None) -> list[dict]:
+	"""Every account the switch says this person holds.
 
 	This is what lets the portal fill the payout destination in rather than
 	asking for it. It is also the anti-misdirection control: an applicant can
@@ -235,28 +90,19 @@ def accounts_for(eid: str | None, full_name: str | None = None) -> list[dict]:
 
 	An e-ID is required. A user who has never linked one has nothing to key the
 	search on, so they type the account themselves and `verify` checks what they
-	typed.
+	typed. A switch that is not configured or does not answer yields nothing,
+	for the same manual path — never a fabricated account.
 	"""
 	key = (eid or "").strip()
 	if not key:
 		return []
 
-	base_url = integration_settings.get("bank_registry_base_url")
-	if base_url:
-		live = _live_accounts(key, base_url)
-		# An unreachable switch yields nothing rather than sandbox data — the
-		# caller shows the manual fallback, never a fabricated account.
-		return live or []
+	status, payload = client.get_json(SYSTEM, "/accounts", {"national_id": key})
+	if status != 200:
+		return []
 
-	rows = SANDBOX_REGISTER.get(key, [])
-	# The switch answers for the e-ID; the name check still runs here, because
-	# an account that is not in the applicant's name must not be offered as
-	# theirs even by a stand-in register.
-	return [
-		{**row, "source": "sandbox"}
-		for row in rows
-		if not full_name or names_match(full_name, row.get("account_name"))
-	]
+	rows = payload.get("accounts") if isinstance(payload, dict) else payload
+	return [{**row, "source": "bank_registry"} for row in (rows or [])]
 
 
 def verify(bank: str, account_number: str, full_name: str | None = None) -> dict:
@@ -264,7 +110,6 @@ def verify(bank: str, account_number: str, full_name: str | None = None) -> dict
 
 	Always returns a dict carrying `source`, one of:
 	  bank_registry — the switch answered
-	  sandbox       — the stand-in register answered; NOT evidence
 	  unavailable   — the switch could not be reached, or is not configured
 
 	and `status`, one of Active / Dormant / Closed / Not Found / Unavailable.
@@ -274,36 +119,33 @@ def verify(bank: str, account_number: str, full_name: str | None = None) -> dict
 	bank = (bank or "").strip()
 	if not number:
 		return _unavailable(bank, number, "no account number given")
+	if not client.configured(SYSTEM):
+		return _unavailable(bank, number, "bank registry is not configured")
 
-	base_url = integration_settings.get("bank_registry_base_url")
-	if base_url:
-		live = _live_verify(bank, number, base_url)
-		# A configured-but-unreachable switch is unavailable. It must never
-		# fall through to the sandbox and look like a confirmation.
-		if live is None:
-			return _unavailable(bank, number, "bank registry did not respond")
-		record = live
+	# `number` is digits only (normalize), so it is safe in the path as it is.
+	status, payload = client.get_json(SYSTEM, f"/accounts/{number}", {"bank": bank})
+
+	if status == 404:
+		record = {
+			"bank": bank,
+			"account_number": number,
+			"account_name": None,
+			"status": "Not Found",
+			"source": "bank_registry",
+		}
+	elif status != 200 or not isinstance(payload, dict):
+		return _unavailable(bank, number, "bank registry did not respond")
 	else:
-		found = next(
-			(
-				row
-				for rows in SANDBOX_REGISTER.values()
-				for row in rows
-				if normalize(row["account_number"]) == number
-				and (not bank or row["bank"] == bank)
-			),
-			None,
-		)
-		if not found:
-			return {
-				"bank": bank,
-				"account_number": number,
-				"account_name": None,
-				"status": "Not Found",
-				"name_match": None,
-				"source": "sandbox",
-			}
-		record = {**found, "source": "sandbox"}
+		record = {
+			"bank": payload.get("bank") or bank,
+			"account_number": payload.get("account_number") or number,
+			"account_name": payload.get("account_name"),
+			"branch_code": payload.get("branch_code"),
+			"account_type": payload.get("account_type"),
+			"status": payload.get("status"),
+			"reference": payload.get("reference"),
+			"source": "bank_registry",
+		}
 
 	record["name_match"] = names_match(full_name, record.get("account_name")) if full_name else None
 	return record

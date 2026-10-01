@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { call, getList } from '../api';
+import { getList } from '../api';
 import { PaymentFile } from '../components/PaymentFile';
 import { Badge } from '../components/ui/Badge';
 import { Card, CardLabel } from '../components/ui/Card';
 import { DataTable, TableSection, type Column } from '../components/ui/DataTable';
+import { Pager } from '../components/ui/Pager';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
+import { PAGE_LENGTH, useLoanQueue } from '../shared/useLoanQueue';
 import type { LoanApplication } from '../types';
 import { formatGyd, formatDate } from '../utils';
 
@@ -25,22 +27,15 @@ import { formatGyd, formatDate } from '../utils';
  *  work is not a worklist, it is a to-do list — and for money leaving a bank,
  *  what was released is the part that has to be answerable.
  *
- *  All three halves are ONE read of gdb_bank.api.all_loans, and every figure
- *  on them is served, never worked out here: the offer's approved amount, the
- *  amount lending booked, what it has disbursed, and — as `drawable` — what
- *  lending's get_disbursal_amount says may still be released, the same figure
- *  the release panel offers and Loan Disbursement validates against.
+ *  Each list is its own page of gdb_bank.api.all_loans — the server decides
+ *  which list a case is on and sends one page of it, because "Released" grows
+ *  for as long as the Bank lends. Every figure is served, never worked out
+ *  here: the offer's approved amount, the amount lending booked, what it has
+ *  disbursed, and — as `drawable` — what lending's get_disbursal_amount says
+ *  may still be released, the same figure the release panel offers and Loan
+ *  Disbursement validates against. The counts and totals on the cards are the
+ *  server's too, and cover every case, not only the page on screen.
  */
-
-const AWAITING_RELEASE = ['Sanctioned', 'Partially Disbursed'];
-
-interface Queue {
-  /** Submitted Quick Loans — this officer decides AND pays them. */
-  quick: LoanApplication[];
-  booking: LoanApplication[];
-  release: LoanApplication[];
-  released: LoanApplication[];
-}
 
 /** Application reference and the loan it became — the first column of every
  *  list here, so it is written once. */
@@ -74,8 +69,6 @@ const APPLICANT: Column<LoanApplication> = {
 };
 
 export function Disbursements() {
-  const [queue, setQueue] = useState<Queue | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'queue' | 'file'>('queue');
   const [company, setCompany] = useState<string | null>(null);
 
@@ -85,41 +78,20 @@ export function Disbursements() {
       .catch(() => setCompany(null));
   }, []);
 
-  const load = useCallback(() => {
-    setError(null);
-    Promise.all([
-      call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Approved' }),
-      call<LoanApplication[]>('gdb_bank.api.all_loans', { status: 'Submitted' }),
-    ])
-      .then(([approved, submitted]) =>
-        setQueue({
-          quick: submitted.filter((a) => a.product === 'quick'),
-          booking: approved.filter((a) => !a.loan),
-          release: approved.filter((a) => a.loan_status && AWAITING_RELEASE.includes(a.loan_status)),
-          // Everything with a loan that is no longer awaiting a draw. Closed
-          // and written-off facilities land here too, which is correct: this
-          // is "money already out", not "money out and still running".
-          released: approved.filter(
-            (a) => a.loan && a.loan_status && !AWAITING_RELEASE.includes(a.loan_status),
-          ),
-        }),
-      )
-      .catch((err: Error) => setError(err.message));
-  }, []);
+  // Four lists, four pages. "Released" is everything with a loan that is no
+  // longer awaiting a draw — closed and written-off facilities land there
+  // too, which is correct: it is "money already out", not "still running".
+  const quick = useLoanQueue({ queue: 'quick' });
+  const release = useLoanQueue({ queue: 'release' });
+  const booking = useLoanQueue({ queue: 'booking' });
+  const released = useLoanQueue({ queue: 'released' });
 
-  useEffect(load, [load]);
-
-  /** What the Bank has actually paid out across the cases on this page.
-   *  Added up from figures lending served, and shown as a total on the list
-   *  it totals — not a second opinion about any one of them. */
-  const releasedTotal = useMemo(
-    () => (queue?.released ?? []).reduce((sum, a) => sum + (a.disbursed_amount ?? 0), 0),
-    [queue],
-  );
-  const undrawnTotal = useMemo(
-    () => (queue?.release ?? []).reduce((sum, a) => sum + (a.drawable ?? 0), 0),
-    [queue],
-  );
+  const lists = [quick, release, booking, released];
+  const error = lists.find((l) => l.error)?.error ?? null;
+  // Every response carries the counts and totals for the whole queue, so the
+  // cards read them from whichever arrived.
+  const summary = lists.find((l) => l.page)?.page ?? null;
+  const loaded = lists.every((l) => l.page);
 
   return (
     <div>
@@ -147,32 +119,30 @@ export function Disbursements() {
       {view === 'queue' && error && (
         <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>
       )}
-      {view === 'queue' && !error && !queue && <p className="text-slate-500">Loading queue…</p>}
+      {view === 'queue' && !error && !loaded && <p className="text-slate-500">Loading queue…</p>}
 
-      {view === 'queue' && queue && (
+      {view === 'queue' && loaded && summary && (
         <>
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="p-3">
               <CardLabel>Quick Loans to decide</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.quick.length}</p>
-              <p className="text-xs text-slate-500">
-                {formatGyd(queue.quick.reduce((sum, a) => sum + a.loan_amount, 0))} requested
-              </p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.quick}</p>
+              <p className="text-xs text-slate-500">{formatGyd(summary.totals.quick_requested)} requested</p>
             </Card>
             <Card className="p-3">
               <CardLabel>Awaiting release</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.release.length}</p>
-              <p className="text-xs text-slate-500">{formatGyd(undrawnTotal)} still undrawn</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.release}</p>
+              <p className="text-xs text-slate-500">Booked, not fully drawn</p>
             </Card>
             <Card className="p-3">
               <CardLabel>Awaiting booking</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.booking.length}</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.booking}</p>
               <p className="text-xs text-slate-500">No loan on the books yet</p>
             </Card>
             <Card className="p-3">
               <CardLabel>Released</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{queue.released.length}</p>
-              <p className="text-xs text-slate-500">{formatGyd(releasedTotal)} paid out</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.released}</p>
+              <p className="text-xs text-slate-500">{formatGyd(summary.totals.released_paid)} paid out</p>
             </Card>
           </div>
 
@@ -226,10 +196,17 @@ export function Disbursements() {
                   cell: (a) => formatDate(a.modified ?? a.creation),
                 },
               ]}
-              rows={queue.quick}
+              rows={quick.page?.rows ?? []}
               rowKey={(a) => a.name}
               minWidth="62rem"
+              footnote={false}
               empty="No Quick Loan is waiting for a decision."
+            />
+            <Pager
+              start={quick.start}
+              pageLength={PAGE_LENGTH}
+              total={quick.page?.total ?? 0}
+              onChange={quick.setStart}
             />
           </TableSection>
 
@@ -278,11 +255,17 @@ export function Disbursements() {
                     ),
                 },
               ]}
-              rows={queue.release}
+              rows={release.page?.rows ?? []}
               rowKey={(a) => a.name}
-              total={{ applicant: 'Total undrawn', undrawn: formatGyd(undrawnTotal) }}
               minWidth="62rem"
+              footnote={false}
               empty="No loan has an undrawn balance."
+            />
+            <Pager
+              start={release.start}
+              pageLength={PAGE_LENGTH}
+              total={release.page?.total ?? 0}
+              onChange={release.setStart}
             />
           </TableSection>
 
@@ -329,10 +312,17 @@ export function Disbursements() {
                   cell: (a) => formatDate(a.reviewed_on ?? a.creation),
                 },
               ]}
-              rows={queue.booking}
+              rows={booking.page?.rows ?? []}
               rowKey={(a) => a.name}
               minWidth="58rem"
+              footnote={false}
               empty="Every approved application has been booked."
+            />
+            <Pager
+              start={booking.start}
+              pageLength={PAGE_LENGTH}
+              total={booking.page?.total ?? 0}
+              onChange={booking.setStart}
             />
           </TableSection>
 
@@ -378,11 +368,19 @@ export function Disbursements() {
                   cell: (a) => <Badge tone="success">{a.loan_status}</Badge>,
                 },
               ]}
-              rows={queue.released}
+              rows={released.page?.rows ?? []}
               rowKey={(a) => a.name}
-              total={{ applicant: 'Total released', disbursed: formatGyd(releasedTotal) }}
+              // The server's total for every released loan, not this page's.
+              total={{ applicant: 'Total released', disbursed: formatGyd(summary.totals.released_paid) }}
               minWidth="66rem"
+              footnote={false}
               empty="Nothing has been released yet."
+            />
+            <Pager
+              start={released.start}
+              pageLength={PAGE_LENGTH}
+              total={released.page?.total ?? 0}
+              onChange={released.setStart}
             />
           </TableSection>
         </>

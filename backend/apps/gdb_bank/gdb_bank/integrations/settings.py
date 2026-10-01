@@ -9,10 +9,13 @@ First non-empty value wins:
      change.
   3. The environment — how docker compose passes it.
 
-identity.py (Keycloak), integrations/dcra.py and integrations/bank_registry.py
-all read through `get`, so the portal's settings screen is always telling the
+identity.py (Keycloak) and integrations/client.py (DCRA, the bank switch) all
+read through `get`, so the portal's settings screen is always telling the
 truth about what the adapters will use: `source` reports which of the three
 answered.
+
+An outside API is two keys here — `<system>_base_url` and `<system>_api_key` —
+and that naming is what integrations/client.py looks up.
 """
 
 import os
@@ -35,7 +38,9 @@ KEYS = {
 	"keycloak_admin_client_id": ("KEYCLOAK_ADMIN_CLIENT_ID", False),
 	"keycloak_admin_client_secret": ("KEYCLOAK_ADMIN_CLIENT_SECRET", True),
 	"dcra_base_url": ("DCRA_BASE_URL", False),
+	"dcra_api_key": ("DCRA_API_KEY", True),
 	"bank_registry_base_url": ("BANK_REGISTRY_BASE_URL", False),
+	"bank_registry_api_key": ("BANK_REGISTRY_API_KEY", True),
 }
 
 URL_KEYS = frozenset(k for k in KEYS if k.endswith("_url"))

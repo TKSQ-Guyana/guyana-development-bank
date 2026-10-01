@@ -1,7 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ApiError,
+  SESSION_CHECK,
+  WHOAMI,
   call,
   eidLogin as apiEidLogin,
   logout as apiLogout,
@@ -9,6 +11,12 @@ import {
   staffSetPassword as apiStaffSetPassword,
 } from './api';
 import type { Whoami } from './types';
+
+/** Who is signed in and what they may open — the part of `whoami` that
+ *  decides what a page draws. Two answers with the same key are the same
+ *  session as far as the screen is concerned. */
+const identity = (u: Whoami | null) =>
+  u ? [u.user, u.is_underwriter, u.is_finance, u.is_disbursement, u.is_platform_admin, u.is_facilitator].join('|') : '';
 
 /** A staff sign-in either opens a session, or — for the one-time password an
  *  administrator issued — asks for the person's own password first. */
@@ -39,15 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const whoami = await call<Whoami>('gdb_bank.api.whoami');
+      const whoami = await call<Whoami>(WHOAMI);
       setUser(whoami);
       return whoami;
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        setUser(null);
-      } else {
-        setUser(null);
-      }
+    } catch {
+      setUser(null);
       return null;
     } finally {
       setLoading(false);
@@ -57,6 +61,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The session cookie belongs to the browser, not to this tab. Signing in as
+  // somebody else in another tab — or the session simply ending — changes who
+  // the SERVER thinks this is while the page goes on drawing the old person's
+  // screens, and every click then answers "you may only view your own…".
+  // So the session is re-read whenever the tab comes back into view and
+  // whenever the server refuses a call, and the page re-renders only if the
+  // answer actually changed.
+  const current = useRef<Whoami | null>(null);
+  current.current = user;
+  useEffect(() => {
+    let checking = false;
+    const check = async () => {
+      if (checking || document.visibilityState !== 'visible') return;
+      checking = true;
+      try {
+        let now: Whoami | null;
+        try {
+          now = await call<Whoami>(WHOAMI);
+        } catch (err) {
+          // Only a refusal means "signed out". A dropped connection says
+          // nothing about the session and must not sign anybody out.
+          if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) return;
+          now = null;
+        }
+        if (identity(now) !== identity(current.current)) setUser(now);
+      } finally {
+        checking = false;
+      }
+    };
+    const onCheck = () => void check();
+    window.addEventListener(SESSION_CHECK, onCheck);
+    window.addEventListener('focus', onCheck);
+    document.addEventListener('visibilitychange', onCheck);
+    return () => {
+      window.removeEventListener(SESSION_CHECK, onCheck);
+      window.removeEventListener('focus', onCheck);
+      document.removeEventListener('visibilitychange', onCheck);
+    };
+  }, []);
 
   // The backend has already set the session cookie by the time either sign-in
   // resolves, so refresh() reads it the same way whichever door was used.

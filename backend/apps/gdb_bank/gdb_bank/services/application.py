@@ -36,11 +36,15 @@ from gdb_bank.utils.formatters import (
 	_stage_context,
 )
 from gdb_bank.utils.session import _as_system, _eids, _is_staff, _logger, _session_user
+from gdb_bank.security.conflict import is_same_person
 from gdb_bank.services.cluster import (
+	REQUIRED_PLAN,
 	_cluster_for,
 	_clusters_of,
 	_is_shared_with,
+	_require_facilitator_of,
 	notify_group_submitted,
+	roster_split,
 )
 from gdb_bank.services.evidence import missing_evidence
 from gdb_bank.services.user import _get_or_create_customer
@@ -217,8 +221,13 @@ def _validated(
 	sections=None,
 	user: str | None = None,
 	product: str | None = None,
+	group: str | None = None,
 ) -> dict:
 	"""Check what the applicant typed, and answer the fields to write.
+
+	`group` is a cluster ALREADY authorised by save_group_application — the
+	facilitator's path, filing for `user` as the group's head. A citizen's own
+	path never passes it, and naming a cluster there is refused.
 
 	Shared by the draft save and the one-shot apply, so that a draft cannot hold
 	anything a submitted application would have refused.
@@ -246,7 +255,7 @@ def _validated(
 	# head who names their group is asking for something this product is not.
 	if quick and (cluster or "").strip():
 		frappe.throw(_("A Quick Loan cannot be filed for a group."))
-	cluster = _cluster_for(user, cluster)
+	cluster = group or _cluster_for(user, cluster)
 
 	if quick:
 		# No registration and no stage: neither is a question an informal trader
@@ -324,12 +333,18 @@ def _validated(
 def _own_draft(name: str, user: str):
 	"""A draft the caller owns, or a clear refusal."""
 	row = frappe.db.get_value(
-		"Loan Application", name, ["name", "gdb_owner", "docstatus"], as_dict=True
+		"Loan Application", name, ["name", "gdb_owner", "gdb_cluster", "docstatus"], as_dict=True
 	)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(name))
 	if row.gdb_owner != user:
 		frappe.throw(_("You may only edit your own application."), frappe.PermissionError)
+	# Filed in the head's name, but the facilitator's to prepare and submit:
+	# the head neither edits, submits nor discards it from their own account.
+	if row.gdb_cluster:
+		frappe.throw(
+			_("A group's application is managed by its GDB facilitator."), frappe.PermissionError
+		)
 	if cint(row.docstatus) != 0:
 		frappe.throw(_("{0} has already been submitted to GDB.").format(name))
 	return row
@@ -349,8 +364,12 @@ def save_application(
 	sections=None,
 	name: str | None = None,
 	product: str | None = None,
+	pending: str | None = None,
 ):
 	"""Create or update the applicant's own DRAFT application.
+
+	`pending` names the unfinished application (profiles.save_pending_application)
+	this draft continues; it is forgotten once the Loan Application holds it.
 
 	A draft exists so evidence can be attached before the application is made:
 	a document shelf needs something to hang off, and asking a citizen to
@@ -384,6 +403,10 @@ def save_application(
 		doc = frappe.get_doc(dict(doctype="Loan Application", **values))
 	doc.flags.ignore_permissions = True
 	doc.save()
+	if not name:
+		from gdb_bank.profiles import drop_pending
+
+		drop_pending(user, pending)
 	frappe.db.commit()
 	_logger().info(f"draft application {doc.name} saved by {user}")
 	return _portal_dict(frappe.db.get_value("Loan Application", doc.name, LOAN_FIELDS, as_dict=True))
@@ -488,14 +511,161 @@ def apply_loan(
 	)
 
 
+# --------------------------------------------------------------------------
+# A group's application — prepared and filed by its facilitator
+# --------------------------------------------------------------------------
+
+
+def _group_head(facilitator: str, cluster: str) -> str:
+	"""The head the group's application is filed for: an ACTIVE member, and
+	never the facilitator under another account."""
+	head = frappe.db.get_value("GDB Cluster", cluster, "head")
+	if not head:
+		frappe.throw(_("Name the group's head before filing its application."))
+	if cluster not in _clusters_of(head):
+		frappe.throw(_("The group's head is no longer an active member. Name another head."))
+	if is_same_person(facilitator, head):
+		frappe.throw(_("You cannot file an application for yourself."), frappe.PermissionError)
+	return head
+
+
+def _group_draft(cluster: str, name: str):
+	"""This group's open draft, or a refusal."""
+	row = frappe.db.get_value(
+		"Loan Application", name, ["name", "gdb_owner", "gdb_cluster", "docstatus"], as_dict=True
+	)
+	if not row or row.gdb_cluster != cluster:
+		frappe.throw(_("{0} is not this group's application.").format(name), frappe.PermissionError)
+	if cint(row.docstatus) != 0:
+		frappe.throw(_("{0} has already been submitted to GDB.").format(name))
+	return row
+
+
+def _group_case(name: str, facilitator: str) -> dict:
+	row = frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True)
+	return _for_viewer(_portal_dict(row), facilitator)
+
+
+def save_group_application(
+	facilitator: str,
+	cluster: str,
+	loan_amount,
+	purpose: str,
+	term_months,
+	sections=None,
+	name: str | None = None,
+):
+	"""Create or update the group's DRAFT, filed in its head's name.
+
+	One open draft per group, and saving without `name` while one exists
+	updates it rather than opening a second — so a retried first save cannot
+	leave two drafts behind. Refused while an earlier application is still with
+	the Bank; a group may apply again only after a rejection.
+
+	The head is the lending applicant (a Customer must be a person). Frappe's
+	own `owner` on the draft records the facilitator who filed it.
+	"""
+	cluster = _require_facilitator_of(facilitator, cluster)
+	head = _group_head(facilitator, cluster)
+
+	live = frappe.db.get_value(
+		"Loan Application",
+		{"gdb_cluster": cluster, "docstatus": 1, "status": ["!=", "Rejected"]},
+		"name",
+	)
+	if live:
+		frappe.throw(_("This group already has an application with GDB: {0}.").format(live))
+	name = name or frappe.db.get_value("Loan Application", {"gdb_cluster": cluster, "docstatus": 0}, "name")
+
+	profile = frappe.db.get_value(
+		"GDB Citizen Profile", {"user": head}, ["phone", "verified_phone"], as_dict=True
+	)
+	values = _validated(
+		loan_amount,
+		purpose,
+		term_months,
+		phone=(profile and (profile.phone or profile.verified_phone)) or None,
+		sections=sections,
+		user=head,
+		group=cluster,
+	)
+
+	if name:
+		row = _group_draft(cluster, name)
+		if row.gdb_owner != head:
+			frappe.throw(_("The group's head has changed. Discard this draft and start again."))
+		doc = frappe.get_doc("Loan Application", name)
+		doc.update(values)
+	else:
+		doc = frappe.get_doc(dict(doctype="Loan Application", **values))
+	doc.flags.ignore_permissions = True
+	doc.save()
+	frappe.db.commit()
+	_logger().info(f"group draft {doc.name} for cluster {cluster} saved by facilitator {facilitator}")
+	return _group_case(doc.name, facilitator)
+
+
+def submit_group_application(facilitator: str, cluster: str, name: str):
+	"""Put the group's draft before the Bank.
+
+	What the group itself must be is checked here, on the server: a head who is
+	still an active member, at least one other member who has ACCEPTED (an
+	invitation is not membership, and a group of one is an individual loan), and
+	the group's details and the two plan sections an underwriter reads first.
+	Documents stay expected-not-blocking, exactly as for a citizen.
+	"""
+	cluster = _require_facilitator_of(facilitator, cluster)
+	row = _group_draft(cluster, name)
+	head = _group_head(facilitator, cluster)
+	if row.gdb_owner != head:
+		frappe.throw(_("The group's head has changed. Discard this draft and start again."))
+
+	if not [m for m in roster_split(cluster)["active"] if not cint(m.is_head)]:
+		frappe.throw(_("At least one member besides the head must accept before submitting."))
+	group = frappe.db.get_value(
+		"GDB Cluster", cluster, ["group_purpose", "region", *REQUIRED_PLAN], as_dict=True
+	)
+	if not (group.group_purpose or "").strip() or not (group.region or "").strip():
+		frappe.throw(_("Complete the group details before submitting."))
+	if any(not (group.get(f) or "").strip() for f in REQUIRED_PLAN):
+		frappe.throw(_("Complete the executive summary and shared project before submitting."))
+
+	outstanding = missing_evidence(name)
+	doc = frappe.get_doc("Loan Application", name)
+	doc.flags.ignore_permissions = True
+	doc.submit()
+	frappe.db.commit()
+	notify_group_submitted(head, cluster, name, by=facilitator)
+	_logger().info(
+		f"group application {name} for cluster {cluster} submitted by facilitator {facilitator} "
+		f"in the name of {head} for {doc.loan_amount}"
+		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")
+	)
+	return _group_case(name, facilitator)
+
+
+def discard_group_application(facilitator: str, cluster: str, name: str):
+	"""Abandon the group's draft. Never a submitted one."""
+	cluster = _require_facilitator_of(facilitator, cluster)
+	_group_draft(cluster, name)
+	frappe.delete_doc("Loan Application", name, ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"group draft {name} for cluster {cluster} discarded by facilitator {facilitator}")
+	return {"discarded": name}
+
+
 def my_loans(user: str):
 	"""The logged-in citizen's applications, newest first."""
 	# Every cluster this citizen is in, not one: a member of two groups must
 	# see both heads' applications, and `_is_shared_with` below decides which
 	# of the rows fetched are actually theirs to read.
-	heads = {
-		frappe.db.get_value("GDB Cluster", cluster, "head") for cluster in _clusters_of(user)
-	}
+	clusters = _clusters_of(user)
+	# One query for every group's head, however many groups this citizen is in.
+	heads = (
+		set(frappe.get_all("GDB Cluster", filters={"name": ["in", clusters]}, pluck="head"))
+		if clusters
+		else set()
+	)
 	owners = list({user} | {head for head in heads if head})
 	rows = frappe.get_all(
 		"Loan Application",
@@ -516,9 +686,16 @@ def loan_detail(user: str, name: str):
 	# Staff of either kind may read a case; only their own endpoints let them
 	# act on it. A draft, though, is nobody's but the applicant's — see
 	# all_loans.
-	if row.gdb_owner != user and not (_is_staff(user) and cint(row.docstatus) == 1):
-		if not _is_shared_with(row, user):
+	if row.gdb_owner != user and not _is_shared_with(row, user):
+		if not _is_staff(user):
 			frappe.throw(_("You may only view your own applications."), frappe.PermissionError)
+		if cint(row.docstatus) != 1:
+			# Said for what it is: telling an officer "your own applications"
+			# about somebody else's draft sends them looking for the wrong fault.
+			frappe.throw(
+				_("{0} is still a draft. It has not been submitted to GDB.").format(name),
+				frappe.PermissionError,
+			)
 	return _for_viewer(_portal_dict(row), user)
 
 

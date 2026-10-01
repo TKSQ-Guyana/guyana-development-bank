@@ -37,6 +37,13 @@ GUNICORN_TIMEOUT=${GUNICORN_TIMEOUT:-120}
   --preload \
   frappe.app:application &
 
+# The one seeded account: the first Platform Admin, from .env. Creates it only
+# when missing and waits for Keycloak, so it runs alongside start-up rather
+# than in front of it (gdb_bank/bootstrap_admin.py).
+if [ -n "${GDB_PLATFORM_ADMIN_EMAIL:-}" ]; then
+  bench --site "${SITE_NAME:-gdb.localhost}" execute gdb_bank.bootstrap_admin.ensure_platform_admin &
+fi
+
 export BACKEND=${BACKEND:-127.0.0.1:8000}
 export SOCKETIO=${SOCKETIO:-127.0.0.1:9000}
 export FRAPPE_SITE_NAME_HEADER=${FRAPPE_SITE_NAME_HEADER:-${SITE_NAME:-gdb.localhost}}

@@ -126,6 +126,24 @@ export interface LoanApplication {
   modified: string;
 }
 
+/** The disbursement officer's four lists, as `all_loans` names them. */
+export type LoanQueue = 'quick' | 'booking' | 'release' | 'released';
+
+/** One page of the Bank's queue (`all_loans`). `total` is how many cases match
+ *  the filter asked for; `counts`, `queues` and `totals` describe the WHOLE
+ *  queue whatever the filter, so tabs and summary cards never need a request
+ *  of their own. Every figure is the server's. */
+export interface LoanPage {
+  rows: LoanApplication[];
+  total: number;
+  start: number;
+  page_length: number;
+  /** Cases per stage, plus `All`. */
+  counts: Record<string, number>;
+  queues: Record<LoanQueue, number>;
+  totals: { quick_requested: number; released_paid: number };
+}
+
 /** One piece of evidence on the shelf. The file itself is private and is
  *  reached through `file_url`, which Frappe serves only to someone allowed to
  *  read this row. */
@@ -229,7 +247,8 @@ export interface ClusterInvitation {
   region: string | null;
   sector: string | null;
   head: string;
-  head_name: string;
+  /** The facilitator who sent it (or, for an older group, its head). */
+  invited_by: string | null;
   invited_on: string | null;
 }
 
@@ -275,6 +294,11 @@ export interface ClusterCase {
   facility_term?: number;
   purpose?: string;
   monthly_repayment?: number;
+  /** Present on the group's own case (shared) — what its facilitator resumes. */
+  use_of_funds?: UseOfFundsRow[];
+  use_of_funds_total?: number | null;
+  stage_label?: string;
+  modified?: string;
 }
 
 /** The seven questions the shared plan asks. Keyed to match the backend's
@@ -349,13 +373,11 @@ export interface OfferExecution {
   complete: boolean | null;
 }
 
-/** A GDB facilitator a group may ask for. `placeholder` is true while the
- *  roster is a stand-in rather than GDB's appointed officers. */
+/** A GDB facilitator a group may ask for. */
 export interface Facilitator {
   eid: string;
   full_name: string;
   region: string;
-  placeholder?: boolean;
 }
 
 /** What `lookup_eid` answers: a name only for an e-ID that already holds a
@@ -487,6 +509,8 @@ export interface Whoami {
    *  integration settings — and sees no case, decides no credit and moves no
    *  money. The server refuses this role at every credit and money endpoint. */
   is_platform_admin: boolean;
+  /** Forms groups and files their applications — nothing else. */
+  is_facilitator: boolean;
 }
 
 /** One row off ERPNext's Bank Transaction — money the bank has confirmed
@@ -585,11 +609,9 @@ export interface LoanOffer {
   can_sign: boolean;
 }
 
-/** What DCRA said about a registration number. `source` is load-bearing:
- *  only "dcra" is evidence — "sandbox" and "gdb_history" are conveniences. */
 /** One account the national payment switch says the applicant holds.
- *  `source` is the whole point: `sandbox` is never evidence, and
- *  `unavailable` means GDB could not tell — not that the account is bad. */
+ *  `source` is the whole point: `bank_registry` is the switch's own answer,
+ *  and `unavailable` means GDB could not tell — not that the account is bad. */
 export interface BankAccountRecord {
   bank: string;
   account_number: string;
@@ -599,9 +621,11 @@ export interface BankAccountRecord {
   status?: 'Active' | 'Dormant' | 'Closed' | 'Not Found' | 'Unavailable';
   name_match?: boolean | null;
   result?: 'Verified' | 'Name Mismatch' | 'Inactive Account' | 'Not Found' | 'Unavailable';
-  source: 'bank_registry' | 'sandbox' | 'unavailable';
+  source: 'bank_registry' | 'unavailable';
 }
 
+/** What DCRA said about a registration number. `source` is load-bearing:
+ *  `dcra` is the register's own answer; `unavailable` means GDB could not ask. */
 export interface DcraRecord {
   registration_number: string;
   business_name: string | null;
@@ -610,7 +634,7 @@ export interface DcraRecord {
   registered_on?: string;
   region?: string;
   proprietors?: string[];
-  source: 'dcra' | 'sandbox' | 'gdb_history' | 'unavailable';
+  source: 'dcra' | 'unavailable';
   /** Whether the signed-in citizen's e-ID is among this business's proprietors.
    *  null when GDB has no e-ID on file to check against; absent on results
    *  that came from the citizen's own proprietor list (my_businesses), where

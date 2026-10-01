@@ -71,6 +71,7 @@ from gdb_bank.services import access_audit
 from gdb_bank.utils.eid import EID_FIELD, EID_SHAPE, normalize_eid
 from gdb_bank.utils.session import (
 	_is_disbursement,
+	_is_facilitator,
 	_is_finance,
 	_is_platform_admin,
 	_is_underwriter,
@@ -348,6 +349,7 @@ def _session_summary(user: str, *, realm: str, provisioned: bool) -> dict:
 		"is_finance": _is_finance(user),
 		"is_disbursement": _is_disbursement(user),
 		"is_platform_admin": _is_platform_admin(user),
+		"is_facilitator": _is_facilitator(user),
 		"provisioned": provisioned,
 		"realm": realm,
 	}
@@ -372,15 +374,12 @@ def _establish(eid: str, user: str, *, created: bool, realm: str, claims: dict |
 	# account is attached to the User it turns out to be. A head can therefore
 	# invite somebody who has never signed in, which is the ordinary case in a
 	# programme reaching people who are not online yet.
-	# A cluster that named this e-ID as its facilitator waits the same way, and
-	# is attached here for the same reason.
 	from gdb_bank.profiles import record_identity_claims
-	from gdb_bank.services.cluster import link_pending_facilitator, link_pending_invitations
+	from gdb_bank.services.cluster import link_pending_invitations
 
 	if claims:
 		record_identity_claims(user, eid, claims)
 	link_pending_invitations(user, eid)
-	link_pending_facilitator(user, eid)
 
 	return _session_summary(user, realm=realm, provisioned=created)
 

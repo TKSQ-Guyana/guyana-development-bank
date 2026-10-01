@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { call } from '../api';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
+import { Pager } from '../components/ui/Pager';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { StageBadge } from '../components/ui/Stepper';
+import { PAGE_LENGTH, useLoanQueue } from '../shared/useLoanQueue';
 import type { LoanApplication, LoanStage } from '../types';
 import { formatAge, formatGyd, formatDate } from '../utils';
 
@@ -37,57 +38,15 @@ function stageSince(loan: LoanApplication): string | null {
 export function Review() {
   const [stage, setStage] = useState<(typeof STAGES)[number]>('All');
   const [sort, setSort] = useState<SortKey>('age_asc');
-  const [loans, setLoans] = useState<LoanApplication[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  // One fetch, not one per filter: every stage after the decision is still
-  // status "Approved" underneath (Signing and Disbursed are derived), so the
-  // stage filter has to run client-side against the server's own `stage`
-  // field rather than ask the server to distinguish them by status.
-  useEffect(() => {
-    setLoans(null);
-    call<LoanApplication[]>('gdb_bank.api.all_loans', {})
-      .then(setLoans)
-      .catch((err: Error) => setError(err.message));
-  }, []);
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { All: loans?.length ?? 0 };
-    for (const l of loans ?? []) c[l.stage] = (c[l.stage] ?? 0) + 1;
-    return c;
-  }, [loans]);
-
-  const rows = useMemo(() => {
-    const filtered = stage === 'All' ? (loans ?? []) : (loans ?? []).filter((l) => l.stage === stage);
-    return [...filtered].sort((a, b) => {
-      switch (sort) {
-        case 'age_asc': {
-          // Newest arrival first — the opposite reading of the same stage
-          // clock the default view sorts by.
-          const av = stageSince(a) ?? '';
-          const bv = stageSince(b) ?? '';
-          return bv.localeCompare(av);
-        }
-        case 'amount_desc':
-          return b.loan_amount - a.loan_amount;
-        case 'amount_asc':
-          return a.loan_amount - b.loan_amount;
-        case 'evidence_first': {
-          const am = a.evidence_missing?.length ?? 0;
-          const bm = b.evidence_missing?.length ?? 0;
-          return bm - am;
-        }
-        case 'age_desc':
-        default: {
-          // Oldest-in-state first — that is the end of the queue a bank
-          // should be worried about, not the newest arrival.
-          const av = stageSince(a) ?? '';
-          const bv = stageSince(b) ?? '';
-          return av.localeCompare(bv);
-        }
-      }
-    });
-  }, [loans, stage, sort]);
+  // The server filters by stage, sorts and counts, and sends one page. The
+  // queue grows for as long as the Bank lends, so it is never fetched whole.
+  const { page, error, start, setStart } = useLoanQueue({
+    stage: stage === 'All' ? undefined : stage,
+    sort,
+  });
+  const counts = page?.counts ?? {};
+  const rows = page?.rows;
 
   return (
     <div>
@@ -117,9 +76,9 @@ export function Review() {
       </div>
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>}
-      {!error && !loans && <p className="text-slate-500">Loading queue…</p>}
+      {!error && !rows && <p className="text-slate-500">Loading queue…</p>}
 
-      {loans && (
+      {rows && (
         <DataTable
           caption="Every citizen loan application submitted to GDB"
           columns={[
@@ -204,9 +163,11 @@ export function Review() {
           rows={rows}
           rowKey={(loan) => loan.name}
           minWidth="58rem"
+          footnote={false}
           empty={`No applications${stage !== 'All' ? ` in stage “${stage}”` : ''}.`}
         />
       )}
+      {page && <Pager start={start} pageLength={PAGE_LENGTH} total={page.total} onChange={setStart} />}
     </div>
   );
 }

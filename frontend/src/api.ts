@@ -35,6 +35,13 @@ function extractErrorMessage(data: unknown, fallback: string): string {
   return fallback;
 }
 
+export const WHOAMI = 'gdb_bank.api.whoami';
+
+/** Fired on the window when the server refuses a call. The session cookie is
+ *  shared by every tab, so a refusal may mean this tab's idea of who is signed
+ *  in has gone stale; the auth provider listens and re-reads it (auth.tsx). */
+export const SESSION_CHECK = 'gdb:session-check';
+
 export async function call<T>(method: string, args?: Record<string, unknown>): Promise<T> {
   const res = await fetch(`/api/method/${method}`, {
     method: 'POST',
@@ -49,6 +56,9 @@ export async function call<T>(method: string, args?: Record<string, unknown>): P
     /* non-JSON body */
   }
   if (!res.ok) {
+    if ((res.status === 401 || res.status === 403) && method !== WHOAMI) {
+      window.dispatchEvent(new Event(SESSION_CHECK));
+    }
     throw new ApiError(extractErrorMessage(data, `Request failed (${res.status})`), res.status);
   }
   // Frappe omits `message` entirely when a whitelisted method returns None

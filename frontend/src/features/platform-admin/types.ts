@@ -82,7 +82,7 @@ export interface AccessHistoryPage {
   has_more: boolean;
 }
 
-export type IntegrationMode = 'configured' | 'off' | 'live' | 'sandbox';
+export type IntegrationMode = 'configured' | 'off' | 'live';
 
 export interface IntegrationStatus {
   key: string;

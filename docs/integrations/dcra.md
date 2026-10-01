@@ -5,7 +5,8 @@ names and companies in Guyana. GDB reads it at application time so an applicant
 with an existing registered business supplies a registration number and nothing
 else — name, type, standing and proprietors come from the register.
 
-Adapter: `gdb_bank/integrations/dcra.py`. One public function, `lookup`.
+Adapter: `gdb_bank/integrations/dcra.py` — `lookup` and `businesses_for`. It
+holds no data; every call goes through `gdb_bank/integrations/client.py`.
 
 ## What GDB needs from DCRA
 
@@ -67,58 +68,49 @@ entry, never a fabricated one.
 
 ## Authentication
 
-Not yet agreed. The adapter sends no credentials. If DCRA requires an API key
-or mTLS, it goes in site config alongside `dcra_base_url` and into `_live()`.
+When `dcra_api_key` is set, every request carries
+`Authorization: Bearer <dcra_api_key>`. With no key, no credentials are sent.
+The scheme is one line in `integrations/client.py`; if DCRA asks for a
+different header or mTLS, that is the only place it changes.
 
-**FLAG: REQUIREMENT CLARIFICATION NEEDED** — auth scheme, rate limits, and
-whether GDB may cache a response (and for how long).
+**FLAG: REQUIREMENT CLARIFICATION NEEDED** — DCRA has not confirmed its auth
+scheme, its rate limits, or whether GDB may cache a response (and for how
+long).
 
 ## Configuration
 
-Set in the site config to use the live registry:
+Two settings, read through `integrations/settings.py`. The first place that
+has a value wins:
 
-```json
-{ "dcra_base_url": "https://<dcra-host>/api/v1" }
-```
+| Where | How |
+|---|---|
+| Portal | Administration → Integrations → DCRA business registry. The API key is stored encrypted and is never shown again. |
+| `site_config.json` | `"dcra_base_url": "https://<dcra-host>/api/v1"`, `"dcra_api_key": "…"` |
+| Environment | `DCRA_BASE_URL`, `DCRA_API_KEY` |
 
-Unset, the adapter serves a small sandbox register instead.
+With no base URL the integration is **off**. There is no stand-in register:
+GDB holds no business data of its own.
 
-## Three outcomes, never two
+## Two sources, never a guess
 
 Every result carries `source`:
 
 | `source` | Meaning | May an underwriter rely on it? |
 |---|---|---|
 | `dcra` | the registry answered | **yes** |
-| `sandbox` | stand-in register answered | **no** — build and test only |
 | `unavailable` | not configured, or did not respond | **no** |
 
-A configured-but-unreachable registry returns `unavailable`. It never falls
-through to the sandbox, because an unavailable check that looks like a pass is
-the failure mode this whole design exists to prevent — the same rule §5.3
-applies to every verification check.
+An unavailable check that looks like a pass is the failure mode this whole
+design exists to prevent — the same rule §5.3 applies to every verification
+check. Nothing is recalled from GDB's own earlier filings either: a remembered
+name beside a registration number reads as a confirmation it is not.
 
 `status: "Unavailable"` is therefore distinct from `status: "Not Found"`. The
 first means GDB does not know; the second means DCRA says there is no such
 registration.
 
-## Sandbox register
+## Testing against it
 
-Used only while `dcra_base_url` is unset. Contents are stand-ins, not real
-registrations, and always carry `source: "sandbox"`.
-
-| Number | Business | Status |
-|---|---|---|
-| `BN-2024-004512` | Essequibo Cassava Processors | Active |
-| `BN-2023-001987` | Demerara Coast Fisheries | Active |
-| `C-2022-000734` | Berbice Agro Supplies Inc. | Active |
-| `BN-2019-000442` | Linden Timber Works | **Struck Off** |
-
-The struck-off entry is deliberate: an underwriter must be able to see a
-business that exists but is no longer in good standing, and the flow has to
-handle it.
-
-Each sandbox entry also carries a stand-in `proprietor_eids`, matching the
-shape of the seeded e-IDs in `keycloak/gdb-realm.json`, so the proprietor
-search and the ownership check can be exercised end to end without a live
-registry.
+Point `dcra_base_url` at DCRA's own test environment, or at a mock server you
+run that speaks the contract above. The portal's Integrations screen has a
+**Test** button that reports whether the service answers.

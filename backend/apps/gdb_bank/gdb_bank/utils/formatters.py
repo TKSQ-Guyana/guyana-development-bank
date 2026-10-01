@@ -49,11 +49,26 @@ def _normalised_phone(phone: str | None) -> str:
 	if not digits:
 		return ""
 	if plus:
-		return f"+{digits}"
-	# Typed with the country code but no plus — the commonest shape by far.
-	if digits.startswith("592"):
-		return f"+{digits}"
-	return f"{GUYANA_DIAL_CODE}{digits}"
+		candidate = f"+{digits}"
+	elif digits.startswith("592") and len(digits) == 10:
+		# Typed with the country code but no plus — the commonest shape by far.
+		candidate = f"+{digits}"
+	else:
+		candidate = f"{GUYANA_DIAL_CODE}{digits}"
+	# The same test Frappe's Phone field applies on save. A number that fails
+	# it is dropped here, as this function promises, rather than handed on to
+	# fail the whole application with Frappe's own wording.
+	return candidate if is_valid_phone(candidate) else ""
+
+
+def is_valid_phone(e164: str) -> bool:
+	"""Whether `e164` is a real, dialable number (Frappe's own check)."""
+	from phonenumbers import NumberParseException, is_valid_number, parse
+
+	try:
+		return is_valid_number(parse(e164))
+	except NumberParseException:
+		return False
 
 
 def _stage_context(names: list[str]) -> dict:

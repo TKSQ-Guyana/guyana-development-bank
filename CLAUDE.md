@@ -141,7 +141,7 @@ underwriter review queue. The official name everywhere is
   kill switch, the access history, system health and integration settings.
   The role is in NONE of the authority sets (`utils/constants.py`), so every
   credit and money gate refuses it. `security/role_policy.py` limits it —
-  only the three portal roles are grantable, never to its own account, never
+  only the portal staff roles (incl. `Facilitator`, held alone) are grantable, never to its own account, never
   on an account holding System Manager / Platform Admin, never a password —
   and is enforced again by a `User.validate` hook so the desk and
   `/api/resource/User` cannot route around it. Creating a staff member makes
@@ -187,65 +187,74 @@ underwriter review queue. The official name everywhere is
 - Staff identify an applicant by **e-ID, never by mailbox** — `_portal_dict`
   carries `applicant_eid`, and the review queue, the case header and the
   cluster roster all show it.
-- **Clusters**: the head INVITES an e-ID (`invite_member`), and the invitee
-  accepts (`respond_to_invitation`) signed in as themselves. An e-ID with no
-  portal account yet is a valid invitee — the row waits against the bare e-ID
-  and `identity.link_pending_invitations` attaches it on their first e-ID
-  sign-in. `_clusters_of` counts Active rows only and returns a LIST: a citizen
-  may belong to as many clusters as they accept, so every membership question
-  goes through it (`_cluster_for`, `_is_shared_with`, `my_loans`,
-  `permissions._visible_applications`). `_cluster_of` survives as "the first
-  one" for callers that genuinely want a default; anything deciding permission
-  or visibility must use the list. Each member holds their own
-  `GDB Citizen Profile` and their own documents; members never see each
-  other's, staff see both blocks of everyone's.
-- ⚠️ **The facilitator roster is a PLACEHOLDER and the portal does not say so.**
-  `api.FACILITATOR_ROSTER` is six invented names on real national e-IDs, served
-  by `api.facilitators()` and offered to a cluster head as a dropdown. The
-  endpoint returns `placeholder: true`, and the SPA deliberately does not
-  render it — a citizen told "these are examples" would ask who it will really
-  be, which that screen cannot answer. GDB has appointed nobody yet, so anyone
-  attached today is a name, not a commitment. TO GO LIVE: grant a `Facilitator`
-  role and return the Users holding it, filtered by region; nothing else
-  changes, because what the picker hands back is already an e-ID and
-  `attach_facilitator` links it on first sign-in exactly as an invitation does.
-  A facilitator's whole authority is `_require_shared_editor` — the group's
-  shared plan and its group details, and nothing within reach of an
-  application, assessment, decision or offer.
+- **Clusters are run by a FACILITATOR, never by a citizen** (decided
+  2026-10-01). `Facilitator` is a staff-door role (realm `gdb-staff`, made by
+  the Platform Admin), in NONE of the authority sets and never combined with
+  another grantable role (`role_policy.refusal_to_combine`). The facilitator
+  forms the group (`create_cluster`), INVITES e-IDs (`invite_member`), names
+  an accepted member as head (`set_cluster_head`), writes the plan and details,
+  and files the group's application in the HEAD's name
+  (`save_group_application` / `submit_group_application` /
+  `discard_group_application`); Frappe's `owner` on the draft records the
+  facilitator. Every group endpoint checks `_require_facilitator` (role) then
+  `cluster._require_facilitator_of` (this group). Server-side gates: head must
+  be Active and not the facilitator's own person (`is_same_person`), at least
+  one other ACCEPTED member and the executive summary + shared project before
+  submit, one open draft per group (a retried first save updates it), head
+  fixed once an application exists, plan/details locked once submitted. The
+  head cannot edit, submit or discard the group draft (`_own_draft` refuses
+  any `gdb_cluster` row). Citizens only answer invitations
+  (`respond_to_invitation`, signed in as themselves), read their groups
+  (`/cluster`, read-only) and sign the Letter of Offer. An e-ID with no portal
+  account yet is a valid invitee — `identity.link_pending_invitations`
+  attaches it on first e-ID sign-in. `_clusters_of` counts Active rows only and
+  returns a LIST; anything deciding permission or visibility must use it. Each
+  member holds their own `GDB Citizen Profile` and documents; members never see
+  each other's, the facilitator sees neither, staff see both. SPA:
+  `/facilitator` (groups) and `/facilitator/groups/:cluster` (wizard).
+- **NO DEMO OR STAND-IN DATA, ANYWHERE.** Nothing is seeded but masters
+  (roles, banks, loan products, GL accounts): no demo users, no Keycloak realm
+  users, no sandbox registers, no default values typed on a citizen's behalf.
+  A fact about a person or a business comes from exactly one real source — the
+  e-ID directory, DCRA, the bank switch, or what the applicant typed — and the
+  screen says which.
+- **Outside APIs go through `integrations/client.py`, and are off until
+  configured.** Each is two settings, `<system>_base_url` and
+  `<system>_api_key`, resolved by `integrations/settings.py` (Integration
+  settings in the portal → site_config → environment). `dcra.py` and
+  `bank_registry.py` only map the API's JSON onto ours and hold no data. Not
+  configured or not reachable is `Unavailable` — never a pass, never a guess,
+  and never recalled from GDB's own earlier records. To add an API: two keys in
+  `settings.KEYS`, a group in `services/integration_settings.GROUPS`, two
+  fields on `GDB Integration Settings`, one adapter.
 - **A cluster loan is a different product, never a side effect of membership.**
-  `_cluster_for` files against a group ONLY when the caller names it: both `""`
-  and an omitted `cluster` mean the applicant's own application. Naming one
-  still requires Active membership AND being the head, so a plain member's loan
-  can never become the group's — not through the SPA, not through `apply_loan`,
-  not through a client that forgets the field.
+  A citizen naming a `cluster` on `save_application` / `apply_loan` is
+  refused (`_cluster_for`); only the facilitator path files against a group.
 - ERPNext does not run on Postgres. MariaDB 11.8 + one Redis are part of
   every environment.
 
 ## Local stack
 
 `docker compose up -d --build` → mariadb, redis, backend (first boot takes
-minutes: new-site + erpnext + lending + gdb_bank + wizard + seeds; watch
-`logs -f backend`; seeds demo users `citizen@example.gy`,
-`underwriter@gdb.gov.gy`, `finance@gdb.gov.gy`, `financeofficer@gdb.gov.gy`
-and `admin@gdb.gov.gy` (Platform Admin, deliberately WITHOUT lending's Loan
-Manager) — seeding runs on EVERY boot, not only at site creation, or a
-persona added later never appears on an existing site), keycloak :8086,
-frontend nginx :3000; desk at :8080. Staff sign in on the portal's **GDB staff** tab
-with their email and `ChangeMe@123` (realm `gdb-staff`). Frontend dev loop:
+minutes: new-site + erpnext + lending + gdb_bank + wizard + master seeds;
+watch `logs -f backend`), keycloak :8086, frontend nginx :3000; desk at :8080.
+**No accounts are seeded** — not in Frappe, not in either Keycloak realm. The
+stack comes up with the Administrator alone; README "First administrator"
+is how the first Platform Admin is made, and every other staff account is
+created through the portal. Staff sign in on the portal's **GDB staff** tab
+(realm `gdb-staff`). Frontend dev loop:
 `npm run dev` in `frontend/` → vite :5173 proxying `/api` to :8080. After
 backend app changes: `docker compose up -d --build backend` (restart runs
-migrate + seeds again). `localhost` cookies are shared across ports 3000/8080
+migrate again). `localhost` cookies are shared across ports 3000/8080
 — log out of one before logging into the other.
 
 **Keycloak :8086** (admin/admin; realms `gdb-citizen` from
 `keycloak/gdb-realm.json` and `gdb-staff` from `keycloak/gdb-staff-realm.json`,
-both auto-imported). Citizen e-ID accounts, password `ChangeMe@123`:
-`592-1111-0001` (links to the seeded citizen), `592-3333-0003` (provisions a
-new citizen — but ONLY on a site where it has never signed in; once
-provisioned it links to that User like the rest, so testing the provisioning
-path needs a fresh site or an unused e-ID). `592-2222-0002` and
-`592-5555-0005` carry staff mailboxes and are now REFUSED by design — staff
-use `gdb-staff`. Compose sets `KC_HOSTNAME=http://localhost:8086` (+
+both auto-imported, both with no users). A citizen account is created in the
+Keycloak console: username = the e-ID, an email, a permanent password. Its
+first sign-in links to a User with that email or provisions a `Citizen`. An
+e-ID whose email is a staff mailbox is REFUSED by design — staff use
+`gdb-staff`. Compose sets `KC_HOSTNAME=http://localhost:8086` (+
 backchannel dynamic) so links in Keycloak's emails are browser-reachable. **8086, not 8085** —
 the sibling MPS-Guyana stack holds 8085 and both run on this machine.
 Keycloak imports a realm ONLY if it does not already exist, so editing the

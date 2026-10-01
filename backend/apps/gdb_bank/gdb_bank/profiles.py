@@ -24,6 +24,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from gdb_bank.utils.session import _is_staff, _logger, _session_user
+from gdb_bank.utils.formatters import _normalised_phone
 from gdb_bank.utils.constants import PERSONAL_FINANCIAL_FIELDS, PERSONAL_FINANCIAL_REQUIRED
 
 DOCTYPE = "GDB Citizen Profile"
@@ -166,6 +167,121 @@ def record_consent():
 	return frappe.db.get_value(DOCTYPE, name, list(PROFILE_FIELDS), as_dict=True)
 
 
+# --------------------------------------------------------------------------
+# The application in progress
+#
+# Lending's Loan Application refuses a record with no amount or tenor, so the
+# wizard has nothing GDB can hold until the Funding step. Until then the
+# answers live HERE, on the applicant's own profile, saved whenever they move
+# on or choose to save — server-side, so they survive a closed tab, another
+# device and a dropped connection, and nothing personal is left in a browser.
+# One per applicant. Cleared the moment a Loan Application draft takes over
+# (services/application.save_application).
+# --------------------------------------------------------------------------
+
+PENDING_MAX_BYTES = 256 * 1024
+PENDING_MAX_COUNT = 10
+
+
+def _pending(name: str) -> dict:
+	"""{id: {"state": {...}, "saved_on": "..."}} — this applicant's unfinished applications."""
+	raw = frappe.db.get_value(DOCTYPE, name, "pending_application")
+	data = frappe.parse_json(raw) if isinstance(raw, str) and raw else (raw or {})
+	if not isinstance(data, dict):
+		return {}
+	# Only well-formed entries: anything else (an earlier single-draft shape) is dropped.
+	return {k: v for k, v in data.items() if isinstance(v, dict) and isinstance(v.get("state"), dict)}
+
+
+def _write_pending(name: str, data: dict) -> None:
+	text = frappe.as_json(data) if data else None
+	if text and len(text.encode()) > PENDING_MAX_BYTES:
+		frappe.throw(_("Your saved drafts are too large. Discard one you no longer need."))
+	frappe.db.set_value(DOCTYPE, name, "pending_application", text)
+
+
+def drop_pending(user: str, pending_id: str | None) -> None:
+	"""Forget one unfinished application — called once a Loan Application
+	draft holds it (services/application.save_application)."""
+	if not pending_id:
+		return
+	name = frappe.db.get_value(DOCTYPE, {"user": user})
+	if not name:
+		return
+	data = _pending(name)
+	if data.pop(pending_id, None) is not None:
+		_write_pending(name, data)
+
+
+@frappe.whitelist()
+def pending_applications():
+	"""The caller's unfinished applications, most recently saved first."""
+	user = _session_user()
+	name = frappe.db.get_value(DOCTYPE, {"user": user})
+	if not name:
+		return []
+	rows = [{"id": key, **entry} for key, entry in _pending(name).items()]
+	return sorted(rows, key=lambda r: r.get("saved_on") or "", reverse=True)
+
+
+@frappe.whitelist()
+def pending_application(id: str):
+	"""One unfinished application of the caller's, or a refusal."""
+	user = _session_user()
+	name = frappe.db.get_value(DOCTYPE, {"user": user})
+	entry = _pending(name).get(id) if name else None
+	if not entry:
+		frappe.throw(_("That draft no longer exists."), frappe.DoesNotExistError)
+	return {"id": id, **entry}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_pending_application(state, id: str | None = None, saved_on=None):
+	"""Save the wizard's answers: a new draft without `id`, that draft with it.
+
+	`saved_on` is the stamp this window last saw. A different one on file means
+	another window saved since, and overwriting it would silently discard that
+	work — so it is refused.
+	"""
+	user = _session_user()
+	name = _ensure(user)
+	state = frappe.parse_json(state) if isinstance(state, str) else state
+	if not isinstance(state, dict):
+		frappe.throw(_("A draft must be a set of answers."))
+
+	data = _pending(name)
+	if id:
+		current = data.get(id)
+		if not current:
+			frappe.throw(_("That draft no longer exists."), frappe.DoesNotExistError)
+		if saved_on and str(current.get("saved_on")) != str(saved_on):
+			frappe.throw(
+				_("This application was saved in another window. Reload to continue."),
+				frappe.TimestampMismatchError,
+			)
+	else:
+		if len(data) >= PENDING_MAX_COUNT:
+			frappe.throw(_("You have {0} unfinished applications. Finish or discard one first.").format(len(data)))
+		id = frappe.generate_hash(length=10)
+
+	stamp = str(now_datetime())
+	data[id] = {"state": state, "saved_on": stamp}
+	_write_pending(name, data)
+	frappe.db.commit()
+	_logger().info(f"unfinished application {id} saved for {user}")
+	return {"id": id, "saved_on": stamp}
+
+
+@frappe.whitelist(methods=["POST"])
+def discard_pending_application(id: str):
+	"""Abandon one unfinished application."""
+	user = _session_user()
+	drop_pending(user, id)
+	frappe.db.commit()
+	_logger().info(f"unfinished application {id} discarded by {user}")
+	return {"discarded": id}
+
+
 @frappe.whitelist(methods=["POST"])
 def save_profile(**kwargs):
 	"""The applicant fills in their own details.
@@ -191,6 +307,10 @@ def save_profile(**kwargs):
 
 	if not values:
 		frappe.throw(_("Nothing to save."))
+	# Asked here, where it is typed, rather than discovered three steps later
+	# when the application is saved with it.
+	if values.get("phone") and not _normalised_phone(values["phone"]):
+		frappe.throw(_("Enter a valid phone number, e.g. 600 1234."))
 	# Through the document, so the region is normalised and checked and the
 	# change is versioned — never a raw write of whatever arrived.
 	doc = frappe.get_doc(DOCTYPE, name)

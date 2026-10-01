@@ -1,4 +1,5 @@
-"""Cluster flow: invite -> notify -> join -> personal evidence -> offer.
+"""Cluster flow: facilitator forms -> invite -> notify -> join -> head -> file ->
+personal evidence -> offer.
 
 Every test acts through the portal's own endpoints as the person acting, and
 reads the outcome back through another endpoint. The endpoints commit, so
@@ -13,8 +14,11 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from gdb_bank import api, documents, offers, profiles
+from gdb_bank.security import role_policy
 from gdb_bank.services import cluster as cluster_service
 
+FACILITATOR = "test-gdb-facilitator@example.gy"
+OTHER_FACILITATOR = "test-gdb-facilitator2@example.gy"
 HEAD = "test-gdb-head@example.gy"
 MEMBER = "test-gdb-member@example.gy"
 OUTSIDER = "test-gdb-outsider@example.gy"
@@ -29,6 +33,8 @@ EIDS = {
 	OUTSIDER: "592-9000-0003",
 	NEWCOMER: "592-9000-0004",
 }
+
+PLAN = {"plan_executive_summary": "Shared cold store", "plan_shared_project": "Cold store at Parika"}
 
 
 def _user(email: str, *roles: str) -> None:
@@ -53,17 +59,24 @@ class TestClusterFlow(IntegrationTestCase):
 
 		for email in (HEAD, MEMBER, OUTSIDER):
 			_user(email, "Citizen")
+		_user(FACILITATOR, "Facilitator")
+		_user(OTHER_FACILITATOR, "Facilitator")
 		_user(UNDERWRITER, "Loan Underwriter")
 		_user(DISBURSER, "Disbursement Officer")
 		_user(BOTH, "Loan Underwriter", "Disbursement Officer")
 
-		with self.set_user(HEAD):
-			self.cluster = api.create_cluster(cluster_name=f"Test {frappe.generate_hash(length=8)}")["name"]
+		with self.set_user(FACILITATOR):
+			self.cluster = api.create_cluster(
+				cluster_name=f"Test {frappe.generate_hash(length=8)}",
+				group_purpose="Cassava processing",
+				region="Region 3",
+			)["name"]
+			api.save_cluster_plan(cluster=self.cluster, **PLAN)
 
 	# -- helpers ---------------------------------------------------------------
 
 	def invite(self, eid: str):
-		with self.set_user(HEAD):
+		with self.set_user(FACILITATOR):
 			api.invite_member(eid=eid, cluster=self.cluster)
 
 	def join(self, user: str):
@@ -71,11 +84,23 @@ class TestClusterFlow(IntegrationTestCase):
 		with self.set_user(user):
 			api.respond_to_invitation(cluster=self.cluster, accept=1)
 
-	def group_application(self, **extra) -> str:
-		with self.set_user(HEAD):
-			return api.save_application(
-				loan_amount=500000, purpose="Shared cold store", term_months=12, cluster=self.cluster, **extra
+	def headed(self):
+		"""HEAD has joined and been named head."""
+		self.join(HEAD)
+		with self.set_user(FACILITATOR):
+			api.set_cluster_head(cluster=self.cluster, eid=EIDS[HEAD])
+
+	def group_application(self) -> str:
+		if not frappe.db.get_value("GDB Cluster", self.cluster, "head"):
+			self.headed()
+		with self.set_user(FACILITATOR):
+			return api.save_group_application(
+				cluster=self.cluster, loan_amount=500000, purpose="Shared cold store", term_months=12
 			)["name"]
+
+	def submit(self, application: str):
+		with self.set_user(FACILITATOR):
+			api.submit_group_application(cluster=self.cluster, name=application)
 
 	def inbox(self, user: str) -> list:
 		"""What the portal's bell reads: Frappe's own Notification Log, as that user."""
@@ -86,8 +111,7 @@ class TestClusterFlow(IntegrationTestCase):
 		"""A submitted group case, approved by `approver`, with its offer issued."""
 		self.join(MEMBER)
 		application = self.group_application()
-		with self.set_user(HEAD):
-			api.submit_application(name=application)
+		self.submit(application)
 		with self.set_user(approver):
 			api.review_loan(name=application, action="approve")
 			offer = offers.issue_offer(application=application)["name"]
@@ -102,42 +126,110 @@ class TestClusterFlow(IntegrationTestCase):
 		with self.set_user(user):
 			return documents.list_documents(application=application, **kwargs)
 
+	# -- who may run a group -----------------------------------------------------
+
+	def test_a_citizen_can_neither_form_nor_file_for_a_group(self):
+		with self.set_user(HEAD), self.assertRaises(frappe.PermissionError):
+			api.create_cluster(cluster_name="Citizen group")
+		self.headed()
+		with self.set_user(HEAD), self.assertRaises(frappe.PermissionError):
+			api.save_application(
+				loan_amount=500000, purpose="Cold store", term_months=12, cluster=self.cluster
+			)
+		with self.set_user(HEAD), self.assertRaises(frappe.PermissionError):
+			api.invite_member(eid=EIDS[MEMBER], cluster=self.cluster)
+
+	def test_only_the_groups_own_facilitator_runs_it(self):
+		with self.set_user(OTHER_FACILITATOR), self.assertRaises(frappe.PermissionError):
+			api.invite_member(eid=EIDS[MEMBER], cluster=self.cluster)
+		with self.set_user(OTHER_FACILITATOR), self.assertRaises(frappe.PermissionError):
+			api.save_cluster_plan(cluster=self.cluster, plan_market="Mine now")
+
+	def test_the_head_must_have_accepted(self):
+		self.invite(EIDS[HEAD])
+		with self.set_user(FACILITATOR), self.assertRaises(frappe.ValidationError):
+			api.set_cluster_head(cluster=self.cluster, eid=EIDS[HEAD])
+
+	def test_the_head_is_fixed_once_the_group_has_an_application(self):
+		self.join(MEMBER)
+		self.group_application()
+		with self.set_user(FACILITATOR), self.assertRaises(frappe.ValidationError):
+			api.set_cluster_head(cluster=self.cluster, eid=EIDS[MEMBER])
+
+	def test_the_head_cannot_submit_or_discard_the_group_draft(self):
+		application = self.group_application()
+		with self.set_user(HEAD), self.assertRaises(frappe.PermissionError):
+			api.submit_application(name=application)
+		with self.set_user(HEAD), self.assertRaises(frappe.PermissionError):
+			api.discard_application(name=application)
+
+	def test_a_retried_first_save_does_not_open_a_second_draft(self):
+		first = self.group_application()
+		self.assertEqual(self.group_application(), first)
+
+	def test_submission_needs_an_accepted_member(self):
+		application = self.group_application()
+		self.invite(EIDS[MEMBER])  # invited, not joined
+		with self.assertRaises(frappe.ValidationError):
+			self.submit(application)
+
+	def test_submission_needs_the_plan(self):
+		self.join(MEMBER)
+		application = self.group_application()
+		with self.set_user(FACILITATOR):
+			api.save_cluster_plan(cluster=self.cluster, plan_shared_project="")
+		with self.assertRaises(frappe.ValidationError):
+			self.submit(application)
+
+	def test_the_plan_is_locked_once_submitted(self):
+		self.join(MEMBER)
+		self.submit(self.group_application())
+		with self.set_user(FACILITATOR), self.assertRaises(frappe.ValidationError):
+			api.save_cluster_plan(cluster=self.cluster, plan_market="Changed")
+
+	def test_a_facilitator_holds_no_other_role(self):
+		self.assertIsNotNone(role_policy.refusal_to_combine(["Facilitator", "Loan Underwriter"]))
+		self.assertIsNone(role_policy.refusal_to_combine(["Facilitator"]))
+		with self.set_user(FACILITATOR), self.assertRaises(frappe.PermissionError):
+			api.all_loans()
+
 	# -- membership --------------------------------------------------------------
 
 	def test_a_member_who_joins_sees_the_group_application(self):
 		self.join(MEMBER)
 		application = self.group_application()
 
-		for user, sees in ((MEMBER, True), (OUTSIDER, False)):
+		for user, sees in ((HEAD, True), (MEMBER, True), (OUTSIDER, False)):
 			with self.set_user(user):
 				names = [row["name"] for row in api.my_loans()]
 			self.assertEqual(application in names, sees, user)
 
-	def test_a_member_does_not_see_the_heads_contact_or_income(self):
+	def test_a_member_does_not_see_the_heads_contact(self):
 		self.join(MEMBER)
-		application = self.group_application(phone="600 1234", monthly_income=50000)
+		self.headed()
+		with self.set_user(HEAD):
+			profiles.save_profile(
+				date_of_birth="1990-01-01", phone="600 1234", email=HEAD, address="Parika"
+			)
+		application = self.group_application()
 
 		with self.set_user(HEAD):
 			head_view = api.loan_detail(name=application)
 		with self.set_user(MEMBER):
 			member_view = api.loan_detail(name=application)
-			listed = next(r for r in api.my_loans() if r["name"] == application)
 
-		self.assertTrue(head_view["phone"] and head_view["monthly_income"])
-		for view in (member_view, listed):
-			self.assertEqual((view["phone"], view["monthly_income"]), (None, None))
+		self.assertTrue(head_view["phone"])
+		self.assertIsNone(member_view["phone"])
 
 	def test_the_review_queue_holds_submitted_cases_and_what_they_miss(self):
+		self.join(MEMBER)
 		application = self.group_application()
 		with self.set_user(UNDERWRITER):
-			self.assertNotIn(application, [r["name"] for r in api.all_loans()])
-		with self.set_user(HEAD):
-			api.submit_application(name=application)
-			with self.assertRaises(frappe.PermissionError):
-				api.all_loans()
+			self.assertNotIn(application, [r["name"] for r in api.all_loans()["rows"]])
+		self.submit(application)
 
 		with self.set_user(UNDERWRITER):
-			row = next(r for r in api.all_loans() if r["name"] == application)
+			row = next(r for r in api.all_loans()["rows"] if r["name"] == application)
 		self.assertEqual(row["evidence_missing"], ["Identity", "Personal Financials"])
 
 	# -- notifications -----------------------------------------------------------
@@ -150,6 +242,12 @@ class TestClusterFlow(IntegrationTestCase):
 		)
 		self.assertEqual(self.inbox(OUTSIDER), [])
 
+	def test_the_facilitator_hears_the_answer(self):
+		self.join(MEMBER)
+		self.assertIn(
+			cluster_service.FACILITATOR_LINK.format(self.cluster), [n.link for n in self.inbox(FACILITATOR)]
+		)
+
 	def test_an_unregistered_eid_is_notified_on_first_sign_in(self):
 		self.invite(EIDS[NEWCOMER])
 		_user(NEWCOMER, "Citizen")
@@ -159,14 +257,14 @@ class TestClusterFlow(IntegrationTestCase):
 
 		self.assertEqual([n.link for n in self.inbox(NEWCOMER)], [cluster_service.INVITATIONS_LINK])
 
-	def test_every_signatory_is_notified_when_the_offer_is_issued(self):
+	def test_the_head_is_told_the_application_went_in_their_name(self):
 		self.join(MEMBER)
 		application = self.group_application()
-		with self.set_user(HEAD):
-			api.submit_application(name=application)
-		with self.set_user(UNDERWRITER):
-			api.review_loan(name=application, action="approve")
-			offers.issue_offer(application=application)
+		self.submit(application)
+		self.assertIn(f"/loans/{application}", [n.link for n in self.inbox(HEAD)])
+
+	def test_every_signatory_is_notified_when_the_offer_is_issued(self):
+		application, _offer = self.offered_group_application()
 
 		for user in (HEAD, MEMBER):
 			self.assertIn(f"/loans/{application}", [n.link for n in self.inbox(user)], user)
@@ -200,15 +298,13 @@ class TestClusterFlow(IntegrationTestCase):
 
 	# -- evidence ----------------------------------------------------------------
 
-	def test_the_head_owes_business_and_personal_evidence_a_member_only_personal(self):
+	def test_the_head_and_a_member_each_owe_personal_evidence(self):
 		self.join(MEMBER)
-		application = self.group_application(
-			business_stage="Existing", dcra_number="TEST-1", business_name="Test Co"
-		)
+		application = self.group_application()
 
 		head, member = self.shelf(HEAD, application), self.shelf(MEMBER, application)
 
-		self.assertEqual(head["missing"], ["Identity", "Personal Financials", "Financials"])
+		self.assertEqual(head["missing"], ["Identity", "Personal Financials"])
 		self.assertEqual(member["missing"], ["Identity", "Personal Financials"])
 		self.assertEqual(member["settings"]["types"], list(documents.PERSONAL_TYPES))
 		self.assertTrue(head["can_upload"] and member["can_upload"])
@@ -229,6 +325,7 @@ class TestClusterFlow(IntegrationTestCase):
 
 	def test_a_members_declared_financials_reach_staff_and_not_the_head(self):
 		self.join(MEMBER)
+		self.headed()
 		with self.set_user(MEMBER):
 			profiles.save_personal_financials(
 				employment_status="Self-employed", monthly_income="80000", monthly_expenses="30000"
@@ -241,7 +338,8 @@ class TestClusterFlow(IntegrationTestCase):
 
 		for staff in (UNDERWRITER, DISBURSER):
 			self.assertEqual(profile_seen_by(staff)["monthly_income"], 80000, staff)
-		self.assertIsNone(profile_seen_by(HEAD))
+		for viewer in (HEAD, FACILITATOR):
+			self.assertIsNone(profile_seen_by(viewer), viewer)
 
 	def test_declared_financials_need_employment_income_and_expenses(self):
 		with self.set_user(MEMBER), self.assertRaises(frappe.ValidationError):

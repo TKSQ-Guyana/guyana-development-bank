@@ -24,7 +24,7 @@ login_as(). Frappe runs on_login BEFORE it creates the session
 import frappe
 from frappe import _
 
-from gdb_bank.utils.constants import PLATFORM_ADMIN_ROLES, STAFF_ROLES
+from gdb_bank.utils.constants import FACILITATOR_ROLES, PLATFORM_ADMIN_ROLES, STAFF_ROLES
 from gdb_bank.utils.session import _logger
 
 CHANNEL_FLAG = "gdb_sign_in_channel"
@@ -40,7 +40,7 @@ def mark(channel: str) -> None:
 def is_staff_account(user: str) -> bool:
 	if user == "Administrator":
 		return True
-	return bool(set(frappe.get_roles(user)) & (STAFF_ROLES | PLATFORM_ADMIN_ROLES))
+	return bool(set(frappe.get_roles(user)) & (STAFF_ROLES | PLATFORM_ADMIN_ROLES | FACILITATOR_ROLES))
 
 
 def refusal(user: str, channel: str | None) -> str | None:

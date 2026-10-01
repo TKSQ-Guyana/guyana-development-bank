@@ -1,23 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
 import { Card } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { StageBadge, Stepper } from '../components/ui/Stepper';
-import { ArrowRightIcon, ChevronDownIcon, ClusterIcon, PlusIcon } from '../components/ui/icons';
+import { StageBadge } from '../components/ui/Stepper';
+import { ApplicationsIcon, PlusIcon } from '../components/ui/icons';
 import type { CitizenProfile, ClusterInvitation, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
 
 /** Closed cases: money fully drawn, or a decision that went the other way.
  *  Everything else is still moving. */
 const CLOSED_STAGES = new Set(['Disbursed', 'Rejected']);
-
-type Filter = 'all' | 'live' | 'past';
-
-/** Mine = applications a person made alone; Clusters = their groups' ones.
- *  Kept in the URL (?view=clusters) so a notification can link straight to it. */
-type View = 'mine' | 'clusters';
 
 /** The one thing this case is waiting on the APPLICANT for, or nothing.
  *  A row is collapsed by default, so whatever surfaces on the closed row has
@@ -67,162 +61,6 @@ function attentionFor(loan: LoanApplication, owesFinancials = false): Attention 
   return null;
 }
 
-function Fact({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-semibold text-slate-800">{value}</dd>
-    </div>
-  );
-}
-
-/** One application, closed to a single line by default. The header is the
- *  toggle and holds no other control, so the whole strip is one hit target and
- *  there is no interactive element nested inside the button. */
-function ApplicationRow({
-  loan,
-  attention,
-  open,
-  onToggle,
-  onDiscard,
-  discarding,
-}: {
-  loan: LoanApplication;
-  attention: Attention | null;
-  open: boolean;
-  onToggle: () => void;
-  onDiscard: (loan: LoanApplication) => void;
-  discarding: boolean;
-}) {
-  const bodyId = `case-${loan.name}`;
-  // Only ever a draft. Once an application is with the Bank it is the record
-  // of what was asked for, and withdrawing it is a decision rather than a
-  // delete — the server refuses it either way.
-  const discardable = loan.stage === 'Draft';
-
-  return (
-    <div
-      className={`overflow-hidden rounded-lg border bg-white shadow-sm transition-colors ${
-        open ? 'border-brand/30' : 'border-slate-200'
-      }`}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50/80 sm:gap-4 sm:px-5"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            {/* Identify the case by who it's for — the cluster if it's the
-                group's, else the business — never by `purpose`: that's a
-                free-text field with no length limit, and nothing stops it
-                holding a whole pasted business plan instead of a sentence. */}
-            <span className="truncate text-sm font-semibold text-slate-900">
-              {loan.cluster || loan.business_name || 'Loan application'}
-            </span>
-            {attention && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                {attention.tag}
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 truncate text-xs text-slate-400">
-            {loan.name} · started {formatDate(loan.creation)}
-          </p>
-        </div>
-
-        <div className="flex-none text-right">
-          <p className="text-sm font-bold tabular-nums text-slate-900">
-            {formatGyd(loan.facility_amount)}
-          </p>
-          <p className="hidden text-xs text-slate-400 sm:block">{loan.facility_term} months</p>
-        </div>
-
-        <div className="hidden flex-none sm:block">
-          <StageBadge stage={loan.stage} />
-        </div>
-
-        <ChevronDownIcon
-          className={`h-5 w-5 flex-none text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-
-      {open && (
-        <div id={bodyId} className="border-t border-slate-100 px-4 pb-5 pt-5 sm:px-5">
-          <div className="mb-5 sm:hidden">
-            <StageBadge stage={loan.stage} />
-          </div>
-
-          <Stepper stage={loan.stage} label={loan.stage_label} />
-
-          {attention && (
-            <p className="mt-5 rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3 text-sm text-amber-800">
-              {attention.note}
-            </p>
-          )}
-
-          <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <Fact label="Amount requested" value={formatGyd(loan.loan_amount)} />
-            {loan.approved_amount != null && (
-              <Fact label="Amount approved" value={formatGyd(loan.approved_amount)} />
-            )}
-            <Fact label="Term" value={`${loan.facility_term} months`} />
-            {loan.rate_of_interest !== null && (
-              <Fact
-                label="Interest"
-                value={loan.rate_of_interest === 0 ? '0% — interest-free' : `${loan.rate_of_interest}%`}
-              />
-            )}
-            {loan.monthly_repayment !== null && (
-              <Fact label="Monthly repayment" value={formatGyd(loan.monthly_repayment)} />
-            )}
-            {loan.disbursed_amount > 0 && (
-              <Fact label="Disbursed" value={formatGyd(loan.disbursed_amount)} />
-            )}
-            {loan.monthly_income > 0 && (
-              <Fact label="Monthly income declared" value={formatGyd(loan.monthly_income)} />
-            )}
-            <Fact label="Started" value={formatDate(loan.creation)} />
-            <Fact label="Last updated" value={formatDate(loan.modified)} />
-          </dl>
-
-          {loan.underwriter_remarks && (
-            <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                From the Bank
-              </p>
-              <p className="mt-1 text-sm text-slate-700">{loan.underwriter_remarks}</p>
-            </div>
-          )}
-
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            <Link
-              to={attention?.action?.to ?? `/loans/${loan.name}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
-            >
-              {attention?.action?.label ?? 'Open case'}
-              <ArrowRightIcon className="h-4 w-4" />
-            </Link>
-            {discardable && (
-              <button
-                type="button"
-                onClick={() => onDiscard(loan)}
-                disabled={discarding}
-                className="rounded-full px-4 py-2 text-sm font-semibold text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-              >
-                {discarding ? 'Discarding…' : 'Discard this draft'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** An invitation to a group, answered right here. */
 function InvitationCard({
   invite,
@@ -251,7 +89,8 @@ function InvitationCard({
   return (
     <Card className="border border-gdb-gold/60">
       <p className="text-base font-semibold text-slate-800">
-        {invite.head_name} invited you to join {invite.cluster_name || invite.name}
+        {invite.invited_by ? `${invite.invited_by} invited you to join` : 'Invitation to join'}{' '}
+        {invite.cluster_name || invite.name}
       </p>
       <p className="mt-1 text-sm text-slate-500">
         {facts ? `${facts} · ` : ''}invited {formatDate(invite.invited_on)}
@@ -283,22 +122,137 @@ function InvitationCard({
   );
 }
 
+/** An unfinished application, kept on the profile until GDB holds a Loan
+ *  Application for it (profiles.pending_applications). Only the fields this
+ *  page shows are typed. */
+interface Pending {
+  id: string;
+  state: { stage?: string; businessName?: string; amount?: string; step?: string };
+  saved_on: string;
+}
+
+/** The wizard's sections in order — how far an unfinished draft has got. */
+const WIZARD_STEPS = ['route', 'about', 'business', 'operations', 'finances', 'funding', 'evidence'];
+
+const savedLabel = (value: string) =>
+  new Date(value.replace(' ', 'T')).toLocaleString('en-GY', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+/** One application, whatever state it is in: the same row for an unfinished
+ *  draft, a draft GDB holds, and a case with the Bank. */
+interface Row {
+  key: string;
+  title: string;
+  reference: string;
+  product: string;
+  status: ReactNode;
+  /** Draft progress, 0..1 — drawn as a bar under the status. */
+  progress?: number;
+  detail: string;
+  amount: number | null;
+  flag?: string;
+  primary: { to: string; label: string };
+  secondary?: { to: string; label: string };
+  onDelete?: () => void;
+}
+
+function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
+  return (
+    // Fixed columns from md up, so status, amount and actions line up down the
+    // list however many buttons a row has; stacked on a phone.
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-5 gap-y-3 rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm sm:px-5 md:grid-cols-[auto_minmax(0,1fr)_14rem_8rem_15rem]">
+      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md bg-brand-light text-brand">
+        <ApplicationsIcon className="h-4 w-4" />
+      </span>
+
+      <div className="min-w-0">
+        <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+          <span className="truncate">{row.title}</span>
+          {row.flag && (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+              {row.flag}
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-slate-500">
+          <span className="font-mono text-brand">{row.reference}</span> · {row.product}
+        </p>
+      </div>
+
+      <div className="col-span-2 md:col-span-1">
+        {row.status}
+        <p className="mt-1 truncate text-xs text-slate-500">{row.detail}</p>
+        {row.progress !== undefined && (
+          <div className="mt-1.5 h-1 w-full rounded-full bg-slate-100">
+            <div className="h-1 rounded-full bg-brand" style={{ width: `${Math.round(row.progress * 100)}%` }} />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <p className="text-[11px] text-slate-400">Requested</p>
+        <p className="text-sm font-bold tabular-nums text-slate-900">
+          {row.amount ? formatGyd(row.amount) : '—'}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        {row.secondary && (
+          <Link
+            to={row.secondary.to}
+            className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
+          >
+            {row.secondary.label}
+          </Link>
+        )}
+        <Link
+          to={row.primary.to}
+          className="rounded-full border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          {row.primary.label}
+        </Link>
+        {row.onDelete && (
+          <button
+            type="button"
+            onClick={row.onDelete}
+            disabled={deleting}
+            className="rounded-full bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const draftPill = (
+  <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+    Draft
+  </span>
+);
+
 export function Applications() {
   const { user } = useAuth();
-  const [params, setParams] = useSearchParams();
-  const view: View = params.get('view') === 'clusters' ? 'clusters' : 'mine';
   const [loans, setLoans] = useState<LoanApplication[] | null>(null);
+  const [pending, setPending] = useState<Pending[]>([]);
   const [invites, setInvites] = useState<ClusterInvitation[]>([]);
   const [financialsDone, setFinancialsDone] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
-  const [discarding, setDiscarding] = useState<string | null>(null);
+  const [tab, setTab] = useState<'current' | 'past'>('current');
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const load = useCallback(() => {
     call<LoanApplication[]>('gdb_bank.api.my_loans')
       .then(setLoans)
       .catch((err: Error) => setError(err.message));
+    call<Pending[]>('gdb_bank.profiles.pending_applications')
+      .then((rows) => setPending(rows ?? []))
+      .catch(() => setPending([]));
     call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
       .then(setInvites)
       .catch((err: Error) => setError(err.message));
@@ -307,83 +261,102 @@ export function Applications() {
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  // A member (not the head) owes their personal financials on each group case.
-  const attention = (loan: LoanApplication) =>
-    attentionFor(loan, Boolean(loan.cluster) && loan.applicant !== user?.user && !financialsDone);
-
   useEffect(load, [load]);
 
-  const setView = (next: View) =>
-    setParams(next === 'clusters' ? { view: 'clusters' } : {}, { replace: true });
-
-  const { own, group } = useMemo(() => {
-    const all = loans ?? [];
-    return { own: all.filter((l) => !l.cluster), group: all.filter((l) => l.cluster) };
-  }, [loans]);
-
-  const inView = view === 'clusters' ? group : own;
-  const live = inView.filter((l) => !CLOSED_STAGES.has(l.stage));
-  const past = inView.filter((l) => CLOSED_STAGES.has(l.stage));
-  const needsAction = inView.filter((l) => attention(l)).length;
-  // Still-moving cases first whichever filter is on: what is live is what the
-  // applicant came to check.
-  const shown = filter === 'live' ? live : filter === 'past' ? past : [...live, ...past];
-  const allOpen = shown.length > 0 && shown.every((l) => openIds.has(l.name));
-  const clustersWaiting = invites.length > 0 || group.some((l) => attention(l));
-
-  /** Abandon a draft. Drafts only — the server refuses anything that has been
-   *  submitted, because that is the Bank's record of what was asked for.
-   *
-   *  Confirmed first and named in the prompt: this deletes, and an applicant
-   *  who has been filling a form in for twenty minutes deserves to be asked
-   *  rather than to find out. */
-  async function discard(loan: LoanApplication) {
-    const label = loan.business_name || loan.cluster || 'this draft';
-    if (
-      !window.confirm(
-        `Discard ${label}? The draft and everything typed into it are deleted. This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    setDiscarding(loan.name);
+  /** Delete a draft — confirmed first, because it cannot be undone. Drafts
+   *  only: the server refuses anything submitted. */
+  const remove = async (key: string, label: string, run: () => Promise<unknown>) => {
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    setDeleting(key);
     try {
-      await call('gdb_bank.api.discard_application', { name: loan.name });
-      // Reload rather than splice it out locally: the list is server state,
-      // and what the Bank holds is the answer to what is left.
+      await run();
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'That draft could not be discarded.');
+      setError(err instanceof Error ? err.message : 'That draft could not be deleted.');
     } finally {
-      setDiscarding(null);
+      setDeleting(null);
     }
-  }
+  };
 
-  function toggle(name: string) {
-    setOpenIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }
+  const productOf = (loan: LoanApplication) =>
+    loan.product === 'quick' ? 'Quick Loan' : loan.cluster ? 'Group loan' : 'SME Direct Loan';
+
+  const pendingRows: Row[] = pending.map((p) => {
+    const done = Math.max(0, WIZARD_STEPS.indexOf(p.state.step ?? 'route'));
+    const title = p.state.businessName || 'New application';
+    return {
+      key: `pending-${p.id}`,
+      title,
+      reference: `DRAFT-${p.id.slice(0, 8).toUpperCase()}`,
+      product: 'SME Direct Loan',
+      status: draftPill,
+      progress: done / WIZARD_STEPS.length,
+      detail: `${done} of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(p.saved_on)}`,
+      amount: p.state.amount ? Number(p.state.amount) : null,
+      primary: { to: `/apply/draft/${p.id}`, label: 'Resume draft' },
+      onDelete: () =>
+        void remove(`pending-${p.id}`, title, () =>
+          call('gdb_bank.profiles.discard_pending_application', { id: p.id }),
+        ),
+    };
+  });
+
+  const loanRow = (loan: LoanApplication): Row => {
+    // A member (not the head) owes their personal financials on each group case.
+    const attention = attentionFor(
+      loan,
+      Boolean(loan.cluster) && loan.applicant !== user?.user && !financialsDone,
+    );
+    const draft = loan.stage === 'Draft';
+    const title = loan.cluster || loan.business_name || 'Loan application';
+    return {
+      key: loan.name,
+      title,
+      reference: loan.name,
+      product: productOf(loan),
+      status: draft ? draftPill : <StageBadge stage={loan.stage} />,
+      // A Loan Application draft exists only once Funding is saved.
+      progress: draft ? 6 / WIZARD_STEPS.length : undefined,
+      detail: draft
+        ? `6 of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(loan.modified)}`
+        : loan.stage_label,
+      amount: loan.loan_amount,
+      flag: !draft && attention ? attention.tag : undefined,
+      primary: draft
+        ? {
+            to: loan.product === 'quick' ? `/apply/quick/${loan.name}` : `/apply/${loan.name}`,
+            label: 'Resume draft',
+          }
+        : { to: `/loans/${loan.name}`, label: 'View' },
+      secondary: !draft && attention?.action ? attention.action : undefined,
+      // The head cannot delete a group's draft — its facilitator manages it.
+      onDelete:
+        draft && !loan.cluster
+          ? () => void remove(loan.name, title, () => call('gdb_bank.api.discard_application', { name: loan.name }))
+          : undefined,
+    };
+  };
+
+  const all = loans ?? [];
+  const current = [...pendingRows, ...all.filter((l) => !CLOSED_STAGES.has(l.stage)).map(loanRow)];
+  const past = all.filter((l) => CLOSED_STAGES.has(l.stage)).map(loanRow);
+  const shown = tab === 'current' ? current : past;
 
   if (error) {
     return <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">My applications</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {needsAction > 0 ? (
-              <span className="font-semibold text-amber-700">{needsAction} waiting on you</span>
-            ) : (
-              'Everything you have applied for, and where each one stands today.'
-            )}
-          </p>
+          <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold text-slate-900">
+            My applications
+            <span className="rounded-full bg-brand-light px-2.5 py-0.5 text-xs font-semibold text-brand-text">
+              {current.length} active application{current.length === 1 ? '' : 's'}
+            </span>
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">Your GDB loan applications. Drafts have not been sent to GDB.</p>
         </div>
         <Link
           to="/apply/new"
@@ -394,133 +367,51 @@ export function Applications() {
         </Link>
       </div>
 
-      <SegmentedControl<View>
-        value={view}
-        onChange={setView}
-        options={[
-          { id: 'mine', label: `Mine (${own.length})` },
-          {
-            id: 'clusters',
-            label: (
-              <span className="inline-flex items-center gap-1.5">
-                Clusters ({group.length})
-                {clustersWaiting && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-gdb-gold" aria-label="Something is waiting on you" />
-                )}
-              </span>
-            ),
-          },
-        ]}
-      />
-
-      {/* Shown on BOTH tabs, not only under Clusters. An unanswered invitation
-          is the single thing standing between this person and a group
-          application they cannot otherwise see — and somebody who has never
-          joined a group has no reason to look under a tab called Clusters. It
-          used to be reachable only from the one bell notification sent at
-          invite time, so missing that meant never being told again. */}
       {invites.length > 0 && (
         <section className="space-y-3">
-          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400">
-            {invites.length === 1 ? 'An invitation is waiting for you' : 'Invitations waiting for you'}
+          <h3 className="text-sm font-bold text-slate-700">
+            {invites.length === 1 ? 'Group invitation' : 'Group invitations'}
           </h3>
-          <p className="text-sm text-slate-500">
-            Until you accept, you will not see the group&rsquo;s application and you cannot sign
-            its Letter of Offer.
-          </p>
           {invites.map((invite) => (
             <InvitationCard key={invite.name} invite={invite} onAnswered={load} />
           ))}
         </section>
       )}
 
+      <SegmentedControl<'current' | 'past'>
+        value={tab}
+        onChange={setTab}
+        options={[
+          { id: 'current', label: `Current ${current.length}` },
+          { id: 'past', label: `Past ${past.length}` },
+        ]}
+      />
+
       {!loans ? (
         <Card className="animate-pulse">
           <div className="h-4 w-40 rounded bg-slate-100" />
           <div className="mt-4 h-2 w-full rounded bg-slate-100" />
         </Card>
-      ) : inView.length === 0 ? (
-        view === 'clusters' ? (
-          <Link
-            to="/cluster"
-            className="flex items-center gap-3 rounded-lg border border-dashed border-slate-200 px-4 py-3.5 transition-colors hover:border-brand hover:bg-white sm:px-5"
-          >
-            <ClusterIcon className="h-5 w-5 flex-none text-slate-300" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700">No group applications yet</p>
-              <p className="mt-0.5 text-xs text-slate-400">Start a cluster, or join one you are invited to.</p>
-            </div>
-            <ArrowRightIcon className="h-4 w-4 flex-none text-slate-400" />
-          </Link>
-        ) : (
-          <Card className="border border-dashed border-slate-200 py-12 text-center">
-            <p className="text-base font-semibold text-slate-700">No applications yet</p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-              An application is saved as you go. Nothing reaches the Bank until you submit it.
-            </p>
-            <Link
-              to="/apply/new"
-              className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
-            >
-              <PlusIcon className="h-4 w-4" />
-              Start your first application
-            </Link>
-          </Card>
-        )
+      ) : shown.length === 0 ? (
+        <Card className="border border-dashed border-slate-200 py-10 text-center">
+          <p className="text-sm font-semibold text-slate-700">
+            {tab === 'current' ? 'No applications in progress' : 'No past applications'}
+          </p>
+        </Card>
       ) : (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl<Filter>
-              value={filter}
-              onChange={setFilter}
-              options={[
-                { id: 'all', label: `All (${inView.length})` },
-                { id: 'live', label: `In progress (${live.length})` },
-                { id: 'past', label: `Decided (${past.length})` },
-              ]}
-            />
-            {shown.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setOpenIds(allOpen ? new Set() : new Set(shown.map((l) => l.name)))}
-                className="text-sm font-semibold text-slate-500 transition-colors hover:text-brand"
-              >
-                {allOpen ? 'Collapse all' : 'Expand all'}
-              </button>
-            )}
-          </div>
-
-          {shown.length === 0 ? (
-            <Card className="border border-dashed border-slate-200 py-10 text-center">
-              <p className="text-sm text-slate-500">
-                {filter === 'live'
-                  ? 'Nothing in progress — every application has been decided.'
-                  : 'No decided applications yet.'}
-              </p>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {shown.map((loan) => (
-                <ApplicationRow
-                  key={loan.name}
-                  loan={loan}
-                  attention={attention(loan)}
-                  open={openIds.has(loan.name)}
-                  onToggle={() => toggle(loan.name)}
-                  onDiscard={discard}
-                  discarding={discarding === loan.name}
-                />
-              ))}
-            </div>
-          )}
-
-          {view === 'clusters' && (
-            <Link to="/cluster" className="inline-block text-sm font-semibold text-brand hover:underline">
-              Manage your groups →
-            </Link>
-          )}
-        </section>
+        <div className="space-y-2">
+          {shown.map((row) => (
+            <ApplicationCard key={row.key} row={row} deleting={deleting === row.key} />
+          ))}
+        </div>
       )}
+
+      <Link
+        to="/"
+        className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+      >
+        Back to dashboard
+      </Link>
     </div>
   );
 }

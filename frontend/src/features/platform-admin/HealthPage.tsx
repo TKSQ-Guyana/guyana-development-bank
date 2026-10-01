@@ -12,7 +12,6 @@ const SCHEDULER_TONE = { running: 'success', inactive: 'warning', paused: 'warni
 const MODE_LABEL: Record<IntegrationMode, { text: string; tone: 'success' | 'warning' | 'neutral' }> = {
   configured: { text: 'Configured', tone: 'success' },
   live: { text: 'Live', tone: 'success' },
-  sandbox: { text: 'Sandbox — not evidence', tone: 'warning' },
   off: { text: 'Not configured', tone: 'neutral' },
 };
 

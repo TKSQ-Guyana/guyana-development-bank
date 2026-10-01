@@ -37,15 +37,15 @@ The backend app code is baked into the image — only `sites` is a volume. Editi
 
 ## 2. Credentials
 
-| Who | e-ID | Email | Password |
-| --- | --- | --- | --- |
-| Citizen | `592-1111-0001` | `citizen@example.gy` | e-ID `ChangeMe@123` · email `admin` |
-| Underwriter | `592-2222-0002` | `underwriter@gdb.gov.gy` | e-ID `ChangeMe@123` · email `admin` |
-| New citizen | `592-3333-0003` | *provisions on first sign-in* | `ChangeMe@123` |
+**None are seeded.** There are no demo accounts in the portal or in Keycloak.
+Before any test below, create the accounts it needs: the first platform
+administrator as in the top-level README ("First administrator"), staff
+through the portal, citizens in Keycloak realm `gdb-citizen`.
 
-Two credential stores, deliberately: Keycloak holds the e-ID passwords, Frappe
-holds the email ones. Both end in the same `sid` session, so every test below
-works after either.
+> The scripts and walkthroughs in §3–§5 still name the accounts the old seed
+> created (`citizen@example.gy`, `underwriter@gdb.gov.gy`, `finance@gdb.gov.gy`)
+> and sign them in through Frappe's password login. Substitute accounts you
+> created; citizens and staff now sign in through Keycloak only.
 
 Portal <http://localhost:3000> · desk <http://localhost:8080> · Keycloak
 <http://localhost:8086> (`admin`/`admin`).

@@ -4,7 +4,11 @@
 # site on first run, migrates after.
 #
 # Env: SITE_NAME, DB_HOST, DB_PORT, DB_ROOT_PASSWORD, ADMIN_PASSWORD,
-#      REDIS_CACHE, REDIS_QUEUE (host:port[/db]), GDB_DEMO_PASSWORD (optional)
+#      REDIS_CACHE, REDIS_QUEUE (host:port[/db])
+#
+# No accounts are seeded. The site comes up with the Administrator alone; the
+# first platform administrator is created by hand (README, "First
+# administrator"), and every other account through the portal.
 set -euo pipefail
 
 SITE="${SITE_NAME:-gdb.localhost}"
@@ -46,14 +50,7 @@ fi
 # citizen to reach the payout step gets a 500 from a column that was never
 # created. Idempotent, so it costs a no-op on every later boot.
 echo "Migrating $SITE ..."
-bench --site "$SITE" migrate 
-
-# Demo personas, on every boot rather than only at site creation. It is
-# idempotent (each user is created only if absent), and running it only on a
-# fresh site meant a persona added later — the finance officer, say — never
-# appeared on an existing one, so the role split could not be demonstrated
-# without rebuilding the database.
-bench --site "$SITE" execute gdb_bank.install.make_demo_users
+bench --site "$SITE" migrate
 
 # The React portal is a separate origin proxied through nginx; the classic
 # frappe CSRF token is not available to it, so disable CSRF for this API-only

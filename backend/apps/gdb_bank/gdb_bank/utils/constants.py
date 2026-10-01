@@ -38,6 +38,15 @@ STAFF_ROLES = UNDERWRITER_ROLES | FINANCE_ROLES | DISBURSEMENT_ROLES
 PLATFORM_ADMIN_ROLE = "Platform Admin"
 PLATFORM_ADMIN_ROLES = {PLATFORM_ADMIN_ROLE, "System Manager"}
 
+# Forms a group, enrols its members, writes its plan and files the group's
+# application in its head's name (services/cluster.py, services/application.py
+# save_group_application). Deliberately NOT in STAFF_ROLES nor in any authority
+# set above: a facilitator prepares a case and never reads the Bank's queue,
+# decides credit or moves money. role_policy also refuses it alongside any other
+# grantable role, so one account cannot both prepare a case and decide it.
+FACILITATOR_ROLE = "Facilitator"
+FACILITATOR_ROLES = {FACILITATOR_ROLE, "System Manager"}
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}

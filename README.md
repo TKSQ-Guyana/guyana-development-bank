@@ -16,7 +16,7 @@ ERPNext):
 | --- | --- |
 | **[frappe/lending](https://github.com/frappe/lending) v16.5.0** | Baked into the image; loans are its official `Loan Application` doctype (`ACC-LOAP-…`) with real amortization from the seeded loan product (e.g. 0% on 2.5M/36mo → GYD 69,444/mo) |
 | **`gdb_bank` custom app** | Roles (Citizen, Loan Underwriter), 7 portal REST endpoints (`signup, whoami, apply_loan, my_loans, loan_detail, all_loans, review_loan`), `gdb_*` custom fields (purpose, income, remarks, reviewer, portal-user link), frappe-native INFO logging to `logs/gdb_bank.log` |
-| **Seeding (idempotent)** | Headless setup-wizard completion (company "Guyana Development Bank", GYD), "GDB Standard Loan" product + demand offset order, demo users |
+| **Seeding (idempotent)** | Masters only: headless setup-wizard completion (company "Guyana Development Bank", GYD), the loan products + demand offset order, banks, GL accounts. **No accounts and no demo data.** |
 | **`start-backend.sh`** | On start: lock-guarded site create/migrate → gunicorn + worker + scheduler → the image's nginx on **:8080** (serves the ERPNext desk UI + API) |
 
 ### 2. Frontend — `gdb-frontend` image ([frontend/](frontend))
@@ -49,7 +49,7 @@ CORS):
 - [docs/testing.md](docs/testing.md) — manual lifecycle walkthrough ·
   [docs/troubleshooting.md](docs/troubleshooting.md) — stack-down recovery
 - This README, [CLAUDE.md](CLAUDE.md), [k8s/README.md](k8s/README.md) —
-  architecture, run instructions, demo credentials, the RWX-volume caveat
+  architecture, run instructions, the RWX-volume caveat
 
 **Verified end-to-end** (cold start from empty volumes): signup → apply →
 underwriter queue → approve → citizen history → 403 authz checks → desk
@@ -98,19 +98,43 @@ docker compose up -d --build
 
 First boot takes several minutes — the backend creates the Frappe site,
 installs ERPNext + lending + gdb_bank, completes the setup wizard, and seeds
-demo users and the loan product. Watch it: `docker compose logs -f backend`.
+the masters (loan products, banks, GL accounts). Watch it:
+`docker compose logs -f backend`.
 
 Then open the **portal at http://localhost:3000** and the **ERPNext desk at
-http://localhost:8080**. Demo logins (password = `ADMIN_PASSWORD` env, default
-`admin`):
+http://localhost:8080**.
 
-| user | role |
-| --- | --- |
-| `citizen@example.gy` | Citizen (portal) |
-| `underwriter@gdb.gov.gy` | Loan Underwriter + Loan Manager (portal + desk) |
-| `Administrator` | System Manager (desk) |
+### First administrator
 
-Citizens can also self-register from the portal's **Create an account** page.
+**No accounts are seeded** — no demo users in the portal, none in Keycloak.
+A new stack has exactly one way in: `Administrator` on the desk (:8080,
+password = `ADMIN_PASSWORD`). That account is the break-glass superuser, not a
+working login; use it once, to make the first platform administrator:
+
+1. **Desk** (:8080, as `Administrator`) → User → New. Their work email, type
+   *System User*, role **Platform Admin** and nothing else. Do not set a
+   password — no staff password lives in Frappe.
+2. **Keycloak** (:8086 → realm `gdb-staff` → Users → Add user). Username and
+   email = that same work email. Credentials → set a password with *Temporary*
+   **on**.
+3. They sign in on the portal's **GDB staff** tab, are asked to choose their
+   own password, and land on Administration.
+
+From there the platform administrator creates every other staff account in the
+portal (which creates the Keycloak account and shows a one-time password once).
+A citizen account is created in Keycloak realm `gdb-citizen` — username = the
+e-ID, an email, a permanent password — and opens in the portal on first
+sign-in.
+
+### Outside APIs
+
+DCRA and the bank switch are **off until configured**, and an API that is off
+answers "Unavailable" — nothing stands in for it. Each is two settings, a base
+URL and an API key, set in the portal (Administration → Integrations) or in
+`.env` (`DCRA_BASE_URL`, `DCRA_API_KEY`, `BANK_REGISTRY_BASE_URL`,
+`BANK_REGISTRY_API_KEY`). The request and response each API must speak are in
+[docs/integrations/](docs/integrations).
+
 Heads-up: `localhost` cookies are shared across ports — log out of the portal
 before logging into the desk (or use a second browser profile).
 

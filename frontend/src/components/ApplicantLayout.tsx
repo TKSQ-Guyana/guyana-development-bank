@@ -8,6 +8,7 @@ import {
   PaymentsIcon,
   PortfolioIcon,
   ProfileIcon,
+  ClusterIcon,
   ReviewIcon,
   StatementsIcon,
   TrainingIcon,
@@ -30,6 +31,7 @@ const NAV_ITEMS: SidebarItem[] = [
  *  reads as the application module. */
 const MODULE_TITLES: [string, string][] = [
   ['/apply/new', 'New application'],
+  ['/apply/draft', 'Draft application'],
   ['/apply/quick', 'Quick Loan'],
   ['/apply', 'My applications'],
   ['/payments/history', 'Payment history'],
@@ -37,7 +39,9 @@ const MODULE_TITLES: [string, string][] = [
   ['/statements', 'Statements'],
   ['/training', 'Training'],
   ['/profile', 'My details'],
-  ['/cluster', 'My cluster'],
+  ['/cluster', 'My groups'],
+  ['/facilitator/groups/new', 'New group'],
+  ['/facilitator', 'Groups'],
   ['/loans/', 'Application'],
   ['/review', 'Review queue'],
   ['/disbursements', 'Disbursements'],
@@ -80,6 +84,9 @@ export function ApplicantLayout() {
   }
   if (user?.is_finance) {
     staffItems.push({ to: '/finance/reconciliation', label: 'Finance', icon: <PortfolioIcon /> });
+  }
+  if (user?.is_facilitator) {
+    staffItems.push({ to: '/facilitator', label: 'Groups', icon: <ClusterIcon /> });
   }
   if (user?.is_platform_admin) {
     staffItems.push({ to: '/admin/users', label: 'Administration', icon: <UsersIcon /> });
@@ -142,6 +149,11 @@ export function ApplicantLayout() {
             {user?.is_disbursement && (
               <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                 Disbursement Officer
+              </span>
+            )}
+            {user?.is_facilitator && (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                Facilitator
               </span>
             )}
           </div>

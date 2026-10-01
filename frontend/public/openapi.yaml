@@ -107,7 +107,7 @@ paths:
               required: [eid, password]
               properties:
                 eid: { type: string, pattern: '^\d{3}-\d{4}-\d{4}$', example: '592-1111-0001' }
-                password: { type: string, format: password, example: ChangeMe@123 }
+                password: { type: string, format: password }
       responses:
         '200':
           description: 'Logged in; `Set-Cookie: sid=…`'
@@ -201,7 +201,7 @@ paths:
               required: [email, password]
               properties:
                 email: { type: string, format: email, example: underwriter@gdb.gov.gy }
-                password: { type: string, format: password, example: ChangeMe@123 }
+                password: { type: string, format: password }
       responses:
         '200':
           description: |
@@ -928,7 +928,12 @@ paths:
   /api/method/gdb_bank.api.all_loans:
     post:
       tags: [underwriter]
-      summary: 'Underwriter queue: all applications, optionally by status'
+      summary: 'Staff queue: one page of the submitted applications, with counts for all of them'
+      description: |
+        Paged. The server filters, sorts and counts, and returns one page; the
+        full record is built only for the rows on that page. `counts`, `queues`
+        and `totals` describe the WHOLE queue whatever filter was asked for, so
+        tabs and summary cards need no request of their own.
       security: [{ cookieAuth: [] }]
       requestBody:
         content:
@@ -939,18 +944,51 @@ paths:
                 status:
                   type: string
                   enum: [Submitted, Approved, Rejected]
+                stage:
+                  type: string
+                  description: The review queue's filter.
+                  enum: [Review, Approved, Signing, Disbursed, Rejected]
+                queue:
+                  type: string
+                  description: One of the disbursement officer's lists.
+                  enum: [quick, booking, release, released]
+                sort:
+                  type: string
+                  default: age_asc
+                  enum: [age_asc, age_desc, amount_desc, amount_asc, evidence_first]
+                start: { type: integer, minimum: 0, default: 0 }
+                page_length: { type: integer, minimum: 1, maximum: 100, default: 25 }
       responses:
         '200':
-          description: Application list
+          description: One page of the queue
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   message:
-                    type: array
-                    items: { $ref: '#/components/schemas/LoanApplication' }
-        '403': { description: Caller is not a Loan Underwriter / System Manager }
+                    type: object
+                    properties:
+                      rows:
+                        type: array
+                        items: { $ref: '#/components/schemas/LoanApplication' }
+                      total: { type: integer, description: Cases matching the filter }
+                      start: { type: integer }
+                      page_length: { type: integer }
+                      counts:
+                        type: object
+                        description: Cases per stage, plus `All`
+                        additionalProperties: { type: integer }
+                      queues:
+                        type: object
+                        description: Cases on each disbursement list
+                        additionalProperties: { type: integer }
+                      totals:
+                        type: object
+                        properties:
+                          quick_requested: { type: number }
+                          released_paid: { type: number }
+        '403': { description: Caller is not GDB staff }
 
   /api/method/gdb_bank.api.review_loan:
     post:

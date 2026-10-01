@@ -56,8 +56,29 @@ const SECTIONS: SectionSpec[] = [
     title: 'What the business does',
     source: 'Declared',
     fields: [
+      { key: 'executive_summary', label: 'Executive summary' },
       { key: 'products_services', label: 'Products / services' },
+      { key: 'unique_selling_point', label: 'Unique selling proposition' },
+    ],
+  },
+  {
+    letter: 'C2',
+    title: 'Jobs',
+    source: 'Declared',
+    fields: [
+      { key: 'jobs_created', label: 'Jobs to be created (first year)' },
+      { key: 'staff_count', label: 'Current staff' },
       { key: 'employment_impact', label: 'Employment / development impact' },
+    ],
+  },
+  {
+    letter: 'C3',
+    title: 'Direction and goals',
+    source: 'Declared',
+    fields: [
+      { key: 'vision', label: 'Vision' },
+      { key: 'mission', label: 'Mission' },
+      { key: 'goals', label: 'Goals' },
     ],
   },
   {

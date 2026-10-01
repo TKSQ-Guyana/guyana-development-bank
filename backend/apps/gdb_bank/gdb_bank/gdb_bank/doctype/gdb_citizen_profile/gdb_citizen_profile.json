@@ -49,7 +49,9 @@
   "financials_updated_on",
   "section_break_consent",
   "consent_version",
-  "consent_accepted_on"
+  "consent_accepted_on",
+  "section_break_pending",
+  "pending_application"
  ],
  "fields": [
   {"fieldname": "user", "fieldtype": "Link", "options": "User", "label": "Portal User", "reqd": 1, "unique": 1, "read_only": 1, "in_list_view": 1},
@@ -94,11 +96,13 @@
   {"fieldname": "financials_updated_on", "fieldtype": "Datetime", "label": "Financials Updated On", "read_only": 1},
   {"fieldname": "section_break_consent", "fieldtype": "Section Break", "label": "Consent to fetch records"},
   {"fieldname": "consent_version", "fieldtype": "Data", "label": "Consent Text Version", "read_only": 1},
-  {"fieldname": "consent_accepted_on", "fieldtype": "Datetime", "label": "Consent Accepted On", "read_only": 1}
+  {"fieldname": "consent_accepted_on", "fieldtype": "Datetime", "label": "Consent Accepted On", "read_only": 1},
+  {"fieldname": "section_break_pending", "fieldtype": "Section Break", "label": "Application in progress", "permlevel": 1},
+  {"fieldname": "pending_application", "fieldtype": "JSON", "label": "Application in Progress", "read_only": 1, "permlevel": 1, "description": "The applicant's unfinished applications ({id: {state, saved_on}}) before GDB holds a Loan Application for each. permlevel 1 with no permission row: no role reads it through the desk or REST; only profiles.py does, for the applicant."}
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-30 00:00:00.000000",
+ "modified": "2026-10-01 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "GDB Bank",
  "name": "GDB Citizen Profile",

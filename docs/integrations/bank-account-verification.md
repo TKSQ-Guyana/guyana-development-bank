@@ -11,7 +11,8 @@ payment switch which accounts the applicant's e-ID holds, and the applicant
 picks one.
 
 Adapter: `gdb_bank/integrations/bank_registry.py`. Two public functions,
-`accounts_for` and `verify`.
+`accounts_for` and `verify`. It holds no data; every call goes through
+`gdb_bank/integrations/client.py`.
 
 ## What GDB needs from the switch
 
@@ -89,13 +90,14 @@ class of misdirected payment that stops being caught.
 
 ## Authentication
 
-Not yet agreed. The adapter sends no credentials. If the switch requires an API
-key or mTLS, it goes in site config alongside `bank_registry_base_url` and into
-`_live_accounts()` / `_live_verify()`.
+When `bank_registry_api_key` is set, every request carries
+`Authorization: Bearer <bank_registry_api_key>`. With no key, no credentials
+are sent. The scheme is one line in `integrations/client.py`; if the switch
+asks for a different header or mTLS, that is the only place it changes.
 
 **FLAG: REQUIREMENT CLARIFICATION NEEDED** — four things:
 
-1. **Auth scheme** and rate limits.
+1. **Auth scheme** (not yet confirmed by the switch) and rate limits.
 2. **Consent.** Discovery returns every account a person holds, keyed on their
    national ID. That is a disclosure, not a lookup, and it almost certainly
    needs the citizen's recorded consent at the point of asking — which the
@@ -111,27 +113,30 @@ key or mTLS, it goes in site config alongside `bank_registry_base_url` and into
 
 ## Configuration
 
-Set in the site config to use the live switch:
+Two settings, read through `integrations/settings.py`. The first place that
+has a value wins:
 
-```json
-{ "bank_registry_base_url": "https://<switch-host>/api/v1" }
-```
+| Where | How |
+|---|---|
+| Portal | Administration → Integrations → Bank account registry. The API key is stored encrypted and is never shown again. |
+| `site_config.json` | `"bank_registry_base_url": "https://<switch-host>/api/v1"`, `"bank_registry_api_key": "…"` |
+| Environment | `BANK_REGISTRY_BASE_URL`, `BANK_REGISTRY_API_KEY` |
 
-Unset, the adapter serves a small sandbox register instead.
+With no base URL the integration is **off**. There is no stand-in register:
+discovery returns nothing, the citizen types the account, and `verify` answers
+`Unavailable`.
 
-## Three sources, five outcomes
+## Two sources, five outcomes
 
 Every result carries `source`:
 
 | `source` | Meaning | May an underwriter rely on it? |
 |---|---|---|
 | `bank_registry` | the switch answered | **yes** |
-| `sandbox` | stand-in register answered | **no** — build and test only |
 | `unavailable` | not configured, or did not respond | **no** |
 
-A configured-but-unreachable switch returns `unavailable`. It never falls
-through to the sandbox, because an unavailable check that looks like a pass is
-the failure mode this design exists to prevent (plan.md §6.1).
+An unavailable check that looks like a pass is the failure mode this design
+exists to prevent (plan.md §6.1).
 
 `api._check_result` reduces a result to one of five recorded outcomes:
 
@@ -161,29 +166,16 @@ needs is now recorded on every nominated account; the check that refuses to
 authorise a payment instruction unless `gdb_verification_status` is `Verified`
 belongs in the release path and is still to be built.
 
-## Sandbox register
-
-Used only while `bank_registry_base_url` is unset. Contents are stand-ins, not
-real accounts, and always carry `source: "sandbox"`. Keyed by e-ID.
-
-| e-ID | Bank | Account | Status |
-|---|---|---|---|
-| `592-1111-0001` | Citizens Bank Guyana | `0009111122223333` | Active |
-| `592-1111-0001` | Demerara Bank | `0001222233334444` | Active |
-| `592-2222-0002` | Demerara Bank | `0001777788889999` | Active |
-| `592-3333-0003` | Citizens Bank Guyana | `0009000087654321` | Active |
-| `592-3333-0003` | Republic Bank (Guyana) | `0004555566667777` | **Dormant** |
-| `592-4444-0004` | Demerara Bank | `0001445566778` | Active |
-
-Two entries are deliberate. `592-1111-0001` holds two accounts, so the "which
-one?" path is exercised by the default demo login rather than only by a
-hand-built case. `592-3333-0003`'s dormant account is a real account in the
-right name that still cannot receive funds — the same reason DCRA's sandbox
-carries a struck-off registration.
+## Who discovery works for
 
 Discovery is keyed on `User.gdb_eid`, which `identity.py` writes the first
 time that person signs in with an e-ID and which then persists. So it is the
-**account**, not the session, that decides: once linked, discovery works on a
-later email login too. A user who has never signed in with an e-ID — a
-staff-created account, or a seeded demo user before its first e-ID login — has
-no `gdb_eid`, gets the manual path, and `verify` carries the whole control.
+**account**, not the session, that decides. A user who has never signed in
+with an e-ID has no `gdb_eid`, gets the manual path, and `verify` carries the
+whole control.
+
+## Testing against it
+
+Point `bank_registry_base_url` at the switch's own test environment, or at a
+mock server you run that speaks the contract above. The portal's Integrations
+screen has a **Test** button that reports whether the service answers.

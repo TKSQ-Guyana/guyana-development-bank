@@ -23,8 +23,10 @@
   "keycloak_admin_client_secret",
   "section_break_registries",
   "dcra_base_url",
+  "dcra_api_key",
   "column_break_registries",
-  "bank_registry_base_url"
+  "bank_registry_base_url",
+  "bank_registry_api_key"
  ],
  "fields": [
   {"fieldname": "section_break_citizen", "fieldtype": "Section Break", "label": "Citizen e-ID sign-in (Keycloak)", "description": "Empty fields fall back to site_config.json, then the environment."},
@@ -43,10 +45,12 @@
   {"fieldname": "keycloak_admin_client_id", "fieldtype": "Data", "label": "Admin Client ID"},
   {"fieldname": "column_break_admin", "fieldtype": "Column Break"},
   {"fieldname": "keycloak_admin_client_secret", "fieldtype": "Password", "label": "Admin Client Secret"},
-  {"fieldname": "section_break_registries", "fieldtype": "Section Break", "label": "Registries", "description": "Empty uses the sandbox register, which is never evidence."},
+  {"fieldname": "section_break_registries", "fieldtype": "Section Break", "label": "Registries", "description": "With no base URL a registry is off: every check answers Unavailable."},
   {"fieldname": "dcra_base_url", "fieldtype": "Data", "label": "DCRA Base URL"},
+  {"fieldname": "dcra_api_key", "fieldtype": "Password", "label": "DCRA API Key"},
   {"fieldname": "column_break_registries", "fieldtype": "Column Break"},
-  {"fieldname": "bank_registry_base_url", "fieldtype": "Data", "label": "Bank Registry Base URL"}
+  {"fieldname": "bank_registry_base_url", "fieldtype": "Data", "label": "Bank Registry Base URL"},
+  {"fieldname": "bank_registry_api_key", "fieldtype": "Password", "label": "Bank Registry API Key"}
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,

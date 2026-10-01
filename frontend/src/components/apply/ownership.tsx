@@ -46,12 +46,7 @@ export function OwnershipBlock({
         <p className="text-sm font-bold text-slate-800">
           {partnership ? 'Ownership of the partnership' : 'Ownership of the company'}
         </p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          GDB lends to you, not to the whole business, so it matters how much of it is
-          yours. Naming a {word} here records what you have declared &mdash; it does not
-          sign them up. GDB contacts each {word} separately, and they confirm through
-          their own sign-in.
-        </p>
+        <p className="mt-1 text-xs text-slate-500">Declared ownership. Each {word} confirms separately.</p>
       </div>
 
       <div className="sm:max-w-xs">
@@ -62,7 +57,6 @@ export function OwnershipBlock({
           inputMode="numeric"
           required
           placeholder="e.g. 50"
-          hint={`How much of the ${partnership ? 'partnership' : 'company'} you hold.`}
         />
       </div>
 
@@ -71,10 +65,7 @@ export function OwnershipBlock({
           Other {plural}
         </p>
         {owners.length === 0 && (
-          <p className="text-xs text-slate-500">
-            None named yet. You can add them below, or leave this empty if you would
-            rather GDB asked you later.
-          </p>
+          <p className="text-xs text-slate-500">None named.</p>
         )}
         {owners.map((o, i) => (
           <div
@@ -91,7 +82,7 @@ export function OwnershipBlock({
                   ? update(i, { name: found.name })
                   : undefined
               }
-              unknownNote="No GDB account against this e-ID yet. That is fine — GDB will confirm them separately."
+              unknownNote="Not yet registered with GDB. Confirmed separately."
             />
             <TextField
               label="Name"
@@ -133,14 +124,12 @@ export function OwnershipBlock({
           reading 60% declared knows to ask about the rest. */}
       {declared > 100 && (
         <Notice tone="warn">
-          The shares add up to {declared}%. They cannot come to more than 100% &mdash;
-          check the figures before you continue.
+          Shares total {declared}%. They cannot exceed 100%.
         </Notice>
       )}
       {declared > 0 && declared < 100 && (
         <Notice tone="info">
-          {declared}% of the {partnership ? 'partnership' : 'company'} is accounted for.
-          You can leave the rest unnamed &mdash; GDB will ask if it needs to.
+          {declared}% declared. The remainder may be left unnamed.
         </Notice>
       )}
     </div>

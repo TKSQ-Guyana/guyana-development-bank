@@ -38,6 +38,7 @@ from gdb_bank.utils.session import (  # noqa: F401  (re-exported for siblings)
 	_is_underwriter,
 	_logger,
 	_require_disbursement,
+	_require_facilitator,
 	_require_finance,
 	_require_staff,
 	_require_underwriter,
@@ -73,6 +74,7 @@ def save_application(
 	sections=None,
 	name: str | None = None,
 	product: str | None = None,
+	pending: str | None = None,
 ):
 	"""Create or update the applicant's own DRAFT application.
 
@@ -93,6 +95,7 @@ def save_application(
 		sections=sections,
 		name=name,
 		product=product,
+		pending=pending,
 	)
 
 
@@ -172,10 +175,21 @@ def loan_detail(name: str):
 
 
 @frappe.whitelist()
-def all_loans(status: str | None = None):
-	"""The Bank's review queue. Any staff role may read it; only review_loan decides."""
+def all_loans(
+	status: str | None = None,
+	stage: str | None = None,
+	queue: str | None = None,
+	sort: str | None = None,
+	start=0,
+	page_length=None,
+):
+	"""One page of the Bank's queue, with the counts for the whole of it.
+
+	Any staff role may read it; only review_loan decides. `stage` filters the
+	review queue, `queue` picks one of the disbursement officer's lists.
+	"""
 	_require_staff()
-	return underwriting_service.all_loans(status)
+	return underwriting_service.all_loans(status, stage, queue, sort, start, page_length)
 
 
 @frappe.whitelist()
@@ -191,6 +205,10 @@ def convert_lead(lead: str, cluster: str | None = None, purpose: str | None = No
 
 # --------------------------------------------------------------------------
 # Clusters — the rules live in services/cluster.py
+#
+# Formed and run by a GDB facilitator (`_require_facilitator`, then
+# cluster._require_facilitator_of for the group itself). Citizens only answer
+# invitations and read the groups they have joined.
 # --------------------------------------------------------------------------
 
 
@@ -199,45 +217,68 @@ def create_cluster(
 	cluster_name: str,
 	region: str | None = None,
 	sector: str | None = None,
-	loan_purpose: str | None = None,
-	business_plan: str | None = None,
 	group_purpose: str | None = None,
 	locality: str | None = None,
 	is_registered: str | None = None,
-	facilitator_eid: str | None = None,
-	facilitator_requested: int | None = None,
 ):
 	return cluster_service.create_cluster(
-		_session_user(),
+		_require_facilitator(),
 		cluster_name,
 		region=region,
 		sector=sector,
-		loan_purpose=loan_purpose,
-		business_plan=business_plan,
 		group_purpose=group_purpose,
 		locality=locality,
 		is_registered=is_registered,
-		facilitator_eid=facilitator_eid,
-		facilitator_requested=facilitator_requested,
 	)
 
 
 @frappe.whitelist()
 def invite_member(eid: str, full_name: str | None = None, cluster: str | None = None):
-	return cluster_service.invite_member(_session_user(), eid, full_name=full_name, cluster=cluster)
+	return cluster_service.invite_member(_require_facilitator(), eid, full_name=full_name, cluster=cluster)
 
 
 @frappe.whitelist()
 def remove_member(eid: str | None = None, member: str | None = None, cluster: str | None = None):
-	"""The head withdraws an invitation, or removes a member who had joined.
+	"""The facilitator withdraws an invitation, or removes a member who joined.
 
 	A withdrawn invitation is deleted (nothing had happened); a member who
 	joined is marked Exited and kept, because they are part of the group's
 	history. Refused while that member still owes a signature on a live offer.
 	"""
 	return cluster_service.remove_member(
-		_session_user(), eid=eid, member=member, cluster=cluster
+		_require_facilitator(), eid=eid, member=member, cluster=cluster
 	)
+
+
+@frappe.whitelist()
+def set_cluster_head(cluster: str, eid: str):
+	"""Name the accepted member the group's application is filed for."""
+	return cluster_service.set_head(_require_facilitator(), cluster, eid)
+
+
+@frappe.whitelist()
+def save_group_application(
+	cluster: str,
+	loan_amount,
+	purpose: str,
+	term_months,
+	sections=None,
+	name: str | None = None,
+):
+	"""The facilitator's draft of the group's application, in the head's name."""
+	return application_service.save_group_application(
+		_require_facilitator(), cluster, loan_amount, purpose, term_months, sections=sections, name=name
+	)
+
+
+@frappe.whitelist()
+def submit_group_application(cluster: str, name: str):
+	return application_service.submit_group_application(_require_facilitator(), cluster, name)
+
+
+@frappe.whitelist()
+def discard_group_application(cluster: str, name: str):
+	return application_service.discard_group_application(_require_facilitator(), cluster, name)
 
 
 @frappe.whitelist()
@@ -266,19 +307,8 @@ def cluster_view(cluster: str):
 
 
 @frappe.whitelist()
-def save_plan(
-	loan_purpose: str | None = None,
-	business_plan: str | None = None,
-	cluster: str | None = None,
-):
-	return cluster_service.save_plan(
-		_session_user(), loan_purpose=loan_purpose, business_plan=business_plan, cluster=cluster
-	)
-
-
-@frappe.whitelist()
 def save_cluster_plan(cluster: str, **sections):
-	return cluster_service.save_cluster_plan(_session_user(), cluster, sections)
+	return cluster_service.save_cluster_plan(_require_facilitator(), cluster, sections)
 
 
 @frappe.whitelist()
@@ -291,7 +321,7 @@ def save_cluster_details(
 	is_registered: str | None = None,
 ):
 	return cluster_service.save_cluster_details(
-		_session_user(),
+		_require_facilitator(),
 		cluster,
 		region=region,
 		sector=sector,
@@ -302,21 +332,10 @@ def save_cluster_details(
 
 
 @frappe.whitelist()
-def facilitators(region: str | None = None):
-	_session_user()
-	return cluster_service.facilitators(region)
-
-
-@frappe.whitelist()
 @rate_limit(limit=40, seconds=60 * 5)
 def lookup_eid(eid: str):
 	"""Rate-limited per caller: a name-for-a-number endpoint is otherwise a directory."""
 	return cluster_service.lookup_eid(_session_user(), eid)
-
-
-@frappe.whitelist()
-def attach_facilitator(cluster: str, eid: str | None = None, requested: int | None = None):
-	return cluster_service.attach_facilitator(_session_user(), cluster, eid=eid, requested=requested)
 
 
 # --------------------------------------------------------------------------
@@ -764,8 +783,8 @@ def save_bank_details(
 # e-ID holds, and they pick one.
 #
 # Adapter: gdb_bank/integrations/bank_registry.py, contract in
-# docs/integrations/bank-account-verification.md. Sandbox until the switch
-# exists, and `source` says which answered on every result.
+# docs/integrations/bank-account-verification.md. Until the switch is
+# configured every check answers Unavailable, and `source` says so.
 # --------------------------------------------------------------------------
 
 
@@ -809,7 +828,7 @@ def my_bank_accounts():
 
 	from gdb_bank.integrations import bank_registry
 
-	found = bank_registry.accounts_for(eid, frappe.utils.get_fullname(user))
+	found = bank_registry.accounts_for(eid)
 	# Only banks GDB can actually pay. An account at a bank with no Bank record
 	# cannot be saved as a destination, so offering it is offering a dead end.
 	known = set(frappe.get_all("Bank", pluck="name"))
@@ -847,37 +866,20 @@ def verify_bank_account(bank: str, bank_account_no: str):
 # that a development loan is going to a real trading concern rather than a
 # name on a form.
 #
-# There is no DCRA API wired up. `dcra_lookup` therefore answers from what GDB
-# already knows — a returning applicant's own earlier filings — and returns
-# `source` so the caller can tell a confirmed registry hit from a recalled
-# one. When DCRA exposes a service, it slots in at the marked seam and the
-# portal contract does not change.
+# DCRA is the ONLY source for a business. The adapter
+# (gdb_bank/integrations/dcra.py) answers from the registry or says
+# Unavailable; nothing is recalled from GDB's own earlier filings, because a
+# remembered name beside a registration number reads as a confirmation it is
+# not.
 # --------------------------------------------------------------------------
-
-
-def _dcra_from_history(dcra_number: str, user: str | None = None) -> dict | None:
-	"""The most recent application carrying this registration number."""
-	filters = {"gdb_dcra_number": dcra_number}
-	if user:
-		filters["gdb_owner"] = user
-	rows = frappe.get_all(
-		"Loan Application",
-		filters=filters,
-		fields=["gdb_dcra_number", "gdb_business_name", "creation"],
-		order_by="creation desc",
-		limit=1,
-	)
-	return rows[0] if rows else None
 
 
 @frappe.whitelist()
 def dcra_lookup(dcra_number: str):
 	"""Resolve a DCRA registration number to a business.
 
-	The registry is the authority, so this asks DCRA first through the adapter
-	in gdb_bank.integrations.dcra. GDB's own earlier filings are consulted only
-	when the registry has nothing to say, and the reply always states which of
-	the two answered so nothing recalled is mistaken for something verified.
+	The registry is the authority and the only one asked. `source` on the reply
+	is `dcra` when it answered and `unavailable` when it could not.
 	"""
 	user = _session_user()
 	from gdb_bank.integrations import dcra
@@ -892,20 +894,7 @@ def dcra_lookup(dcra_number: str):
 		# say so rather than let a correct lookup read as confirmed ownership.
 		eid = frappe.db.get_value("User", user, "gdb_eid")
 		result["owned_by_caller"] = dcra.owned_by(result, eid) if eid else None
-		_logger().info(f"dcra lookup {number} -> {result.get('source')} ({result.get('status')})")
-		return result
-
-	# Registry silent. Fall back to what this citizen told GDB before, clearly
-	# labelled — a remembered name is a convenience, never evidence.
-	row = _dcra_from_history(number, user=user)
-	if row:
-		return {
-			"registration_number": number,
-			"business_name": row.gdb_business_name,
-			"status": result.get("status"),
-			"source": "gdb_history",
-			"last_seen": row.creation,
-		}
+	_logger().info(f"dcra lookup {number} -> {result.get('source')} ({result.get('status')})")
 	return result
 
 

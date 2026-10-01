@@ -117,6 +117,12 @@ export function QuickApplyPage() {
   const index = QUICK_STEPS.findIndex((s) => s.id === step);
   const current = QUICK_STEPS[index];
   const isLast = step === 'review';
+  // How far the applicant has got. Going back to change an answer must not
+  // cost the way forward again, so the rail stays open up to here.
+  const [furthest, setFurthest] = useState(0);
+  useEffect(() => {
+    setFurthest((f) => Math.max(f, index));
+  }, [index]);
 
   const saveDraft = async (): Promise<LoanApplication> => {
     const saved = await call<LoanApplication>(
@@ -150,25 +156,27 @@ export function QuickApplyPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const goNext = async () => {
-    if (!terms) return;
+  /** Leave the step on screen: its check, then whatever it saves. True when
+   *  the step may be left. Shared by Continue and by the rail. */
+  const leave = async (): Promise<boolean> => {
+    if (!terms) return false;
     const blocker = blockerFor(step, answers, terms);
     if (blocker) {
       setError(blocker);
-      return;
+      return false;
     }
     if (step === 'eligibility' && answers.how === 'help') {
       setError(null);
       setHelping(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
+      return false;
     }
     if (step === 'eligibility' && !consented) {
       if (!consentChecked) {
         setError('Agree to let GDB look up your bank accounts to continue.');
-        return;
+        return false;
       }
-      if (!(await run(() => call('gdb_bank.profiles.record_consent')))) return;
+      if (!(await run(() => call('gdb_bank.profiles.record_consent')))) return false;
       setConsented(true);
     }
     // Date of birth and national ID are the person's, so they go on the profile.
@@ -178,10 +186,10 @@ export function QuickApplyPage() {
         call('gdb_bank.profiles.save_profile', { date_of_birth: answers.dob, national_id: answers.nationalId }),
       ))
     )
-      return;
+      return false;
     // The loan step is the first the server will hold as a draft; from here
     // on, moving forward saves to GDB.
-    if (step === 'loan' && !(await run(saveDraft))) return;
+    if (step === 'loan' && !(await run(saveDraft))) return false;
     if (step === 'bank') {
       const saved = await run(async () => {
         await call('gdb_bank.api.save_bank_details', {
@@ -192,9 +200,28 @@ export function QuickApplyPage() {
         });
         await saveDraft();
       });
-      if (!saved) return;
+      if (!saved) return false;
     }
-    goTo(QUICK_STEPS[Math.min(index + 1, QUICK_STEPS.length - 1)].id);
+    return true;
+  };
+
+  const goNext = async () => {
+    if (await leave()) goTo(QUICK_STEPS[Math.min(index + 1, QUICK_STEPS.length - 1)].id);
+  };
+
+  /** Rail navigation. Back is free. Forward goes as far as the applicant has
+   *  already been, and stops at the first step in between that is no longer
+   *  complete. */
+  const jumpTo = async (i: number) => {
+    if (i === index || i > furthest || busy || !terms) return;
+    if (i < index) {
+      goTo(QUICK_STEPS[i].id);
+      return;
+    }
+    if (!(await leave())) return;
+    const stuck = QUICK_STEPS.slice(index + 1, i).find((s) => blockerFor(s.id, answers, terms));
+    goTo((stuck ?? QUICK_STEPS[i]).id);
+    if (stuck) setError(blockerFor(stuck.id, answers, terms));
   };
 
   const submit = async () => {
@@ -348,14 +375,15 @@ export function QuickApplyPage() {
       <nav className="mb-6 overflow-x-auto scrollbar-none" aria-label="Quick Loan steps">
         <ol className="flex min-w-max items-center">
           {QUICK_STEPS.map((s, i) => {
-            const done = i < index;
             const active = i === index;
+            const done = !active && i <= furthest;
             return (
               <li key={s.id} className="flex items-center">
                 <button
                   type="button"
-                  onClick={() => i <= index && goTo(s.id)}
-                  disabled={i > index}
+                  onClick={() => void jumpTo(i)}
+                  disabled={i > furthest}
+                  aria-current={active ? 'step' : undefined}
                   className={`flex items-center gap-2 rounded-md px-2.5 py-2 transition-colors ${
                     active ? 'bg-white shadow-sm' : done ? 'hover:bg-white/60' : 'cursor-default'
                   }`}

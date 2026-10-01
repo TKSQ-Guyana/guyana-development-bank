@@ -83,7 +83,7 @@ def _clean_roles(roles) -> list[str]:
 	wanted = sorted({str(r).strip() for r in (parsed or []) if str(r).strip()})
 	if not wanted:
 		frappe.throw(_("A staff account needs at least one role. To remove access, disable the account."))
-	refusal = role_policy.refusal_to_grant(wanted)
+	refusal = role_policy.refusal_to_grant(wanted) or role_policy.refusal_to_combine(wanted)
 	if refusal:
 		frappe.throw(refusal, frappe.PermissionError)
 	return wanted

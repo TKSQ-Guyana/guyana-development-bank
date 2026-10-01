@@ -17,6 +17,7 @@ from frappe import _
 
 from gdb_bank.utils.constants import (
 	DISBURSEMENT_ROLES,
+	FACILITATOR_ROLES,
 	FINANCE_ROLES,
 	PLATFORM_ADMIN_ROLES,
 	STAFF_ROLES,
@@ -110,6 +111,20 @@ def _require_staff() -> str:
 	if not _is_staff(user):
 		_logger().warning(f"denied staff endpoint to {user}")
 		frappe.throw(_("Only GDB staff may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_facilitator(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & FACILITATOR_ROLES)
+
+
+def _require_facilitator() -> str:
+	"""Group formation and the group's application — nothing else. Which group a
+	facilitator may touch is cluster._require_facilitator_of; this is the role."""
+	user = _session_user()
+	if not _is_facilitator(user):
+		_logger().warning(f"denied facilitator endpoint to {user}")
+		frappe.throw(_("Only a GDB facilitator may do this."), frappe.PermissionError)
 	return user
 
 

@@ -25,11 +25,6 @@ const QUICK_LINKS = [
     to: '/apply/new',
   },
   {
-    title: 'Cluster-supported loan',
-    body: 'The cluster head applies for the group. Every member keeps their own record.',
-    to: '/cluster',
-  },
-  {
     title: 'Quick Loan',
     body: 'For market vendors, small services and other small businesses. No business registration needed.',
     to: '/apply/quick',
@@ -91,8 +86,7 @@ export function Dashboard() {
               {firstName ? `Good day, ${firstName}.` : 'Welcome.'}
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-white/75">
-              Zero-interest financing for Guyanese businesses. Apply in your own name, with a
-              partner, or through a cluster — and follow every step of the decision here.
+              Zero-interest financing for Guyanese businesses.
             </p>
           </div>
           <Link

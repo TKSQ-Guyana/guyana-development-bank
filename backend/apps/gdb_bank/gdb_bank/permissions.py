@@ -17,14 +17,25 @@ def _visible_applications(user: str) -> list[str]:
 	application for every cluster they belong to."""
 	names = frappe.get_all("Loan Application", filters={"gdb_owner": user}, pluck="name")
 
-	for cluster in _clusters_of(user):
-		head = frappe.db.get_value("GDB Cluster", cluster, "head")
-		if head:
-			names += frappe.get_all(
+	# Two queries for every group this citizen is in, not two per group: this
+	# runs on every Loan read a citizen makes, because it is the permission hook.
+	clusters = _clusters_of(user)
+	if clusters:
+		heads = {
+			row.name: row.head
+			for row in frappe.get_all("GDB Cluster", filters={"name": ["in", clusters]}, fields=["name", "head"])
+			if row.head
+		}
+		if heads:
+			for row in frappe.get_all(
 				"Loan Application",
-				filters={"gdb_cluster": cluster, "gdb_owner": head},
-				pluck="name",
-			)
+				filters={"gdb_cluster": ["in", list(heads)], "gdb_owner": ["in", list(set(heads.values()))]},
+				fields=["name", "gdb_cluster", "gdb_owner"],
+			):
+				# A head's application on THEIR group — not one they happen to
+				# own on another group this citizen is also in.
+				if heads[row.gdb_cluster] == row.gdb_owner:
+					names.append(row.name)
 
 	return list(dict.fromkeys(names))
 

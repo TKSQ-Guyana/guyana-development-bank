@@ -19,29 +19,25 @@ Admin console: <http://localhost:8086> (`admin` / `admin`). Neither realm sends
 email: a new staff member's first password is a one-time password the portal
 shows the administrator (below).
 
-## Seeded citizen e-ID accounts (`gdb-citizen`)
+## No accounts are seeded
 
-All of them use password **`ChangeMe@123`**.
+Both realm files carry **no users** — only the clients, and in `gdb-staff` the
+service account of the `gdb-portal-admin` client. Nothing in this repository
+holds a password anybody can sign in with.
 
-| e-ID | Email | What it proves on first sign-in |
-| --- | --- | --- |
-| `592-1111-0001` | `citizen@example.gy` | **Links** to the Frappe user the stack already seeds — no duplicate account |
-| `592-3333-0003` | `asha.persaud@example.gy` | **Provisions** a new Website User with the `Citizen` role |
-| `592-2222-0002` | `underwriter@gdb.gov.gy` | **Refused** — that mailbox is a staff account, and the e-ID door never opens one (`security/sign_in_policy.py`). Staff sign in through `gdb-staff`. |
-| `592-5555-0005` | `finance@gdb.gov.gy` | **Refused**, for the same reason |
+**A citizen** is created in the admin console, in realm `gdb-citizen`:
+username = the national e-ID (`123-4567-8901`), an email, and a password with
+*Temporary* switched **off**. On first sign-in the portal links that e-ID to
+the Frappe user with the same email, or provisions a new Website User with the
+`Citizen` role. An e-ID whose email is a staff mailbox is **refused** — the
+e-ID door never opens a staff account (`security/sign_in_policy.py`).
 
-## Seeded staff accounts (`gdb-staff`)
+**The first platform administrator** is the one staff account made by hand —
+see "First administrator" in the top-level `README.md`. Roles always come from
+Frappe, never from Keycloak.
 
-Username = work email, password **`ChangeMe@123`**. Each matches a Frappe
-account `install.make_demo_users` seeds; the roles come from Frappe, never from
-Keycloak.
-
-| Email | Portal persona |
-| --- | --- |
-| `underwriter@gdb.gov.gy` | Loan Underwriter |
-| `finance@gdb.gov.gy` | Disbursement Officer |
-| `financeofficer@gdb.gov.gy` | Finance Officer |
-| `admin@gdb.gov.gy` | Platform Admin |
+**Every other staff account** is created in the portal by the platform
+administrator, and that creates it here too.
 
 A staff account the platform administrator creates in the portal is created
 here too, by the confidential client **`gdb-portal-admin`** (service account
@@ -67,21 +63,20 @@ JSON takes no comments, so they are recorded here.
    fully set up".
 2. **`credentials[].temporary` must be `false`.** A temporary password sets the
    `UPDATE_PASSWORD` required action, and a required action makes the password
-   grant fail — with that same misleading message. `requiredActions: []` is
-   spelled out on each user for the same reason.
+   grant fail — with that same misleading message. This is why a citizen
+   account made in the console needs *Temporary* switched off.
 3. **`directAccessGrantsEnabled: true` on the client.** This is the password
    grant itself, and Keycloak leaves it **off** for new clients. Without it the
    token endpoint answers `unauthorized_client`.
 4. **`loginWithEmailAllowed: false` in `gdb-citizen`.** The e-ID is the
-   username and must be the only way in — otherwise `citizen@example.gy` would
+   username and must be the only way in — otherwise a citizen's email would
    also be accepted as a login, and the portal would have two spellings of one
    identity. (`gdb-staff` is the opposite: the email IS the username.)
 
 The staff realm adds one more: **a one-time password is meant to fail the
 password grant**, because it carries the `UPDATE_PASSWORD` required action.
 The portal reads that one answer as "choose your own password" and opens no
-session until they have. The seeded staff accounts above are the exception —
-their `ChangeMe@123` is permanent, so they sign in directly.
+session until they have.
 
 ## Troubleshooting: "Could not reach the sign-in service"
 

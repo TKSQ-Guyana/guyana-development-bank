@@ -145,6 +145,8 @@ interface TextAreaFieldProps {
   required?: boolean;
   rows?: number;
   disabled?: boolean;
+  /** Character limit, shown as a running count under the box. */
+  max?: number;
 }
 
 export function TextAreaField({
@@ -156,6 +158,7 @@ export function TextAreaField({
   required,
   rows = 3,
   disabled,
+  max,
 }: TextAreaFieldProps) {
   return (
     <Field label={label} hint={hint} required={required}>
@@ -164,9 +167,15 @@ export function TextAreaField({
         value={value}
         disabled={disabled}
         placeholder={placeholder}
+        maxLength={max}
         onChange={(e) => onChange(e.target.value)}
         className={`${controlClass} resize-y leading-relaxed`}
       />
+      {max && (
+        <span className="mt-0.5 block text-right text-[11px] tabular-nums text-slate-400">
+          {value.length.toLocaleString('en-GY')} / {max.toLocaleString('en-GY')}
+        </span>
+      )}
     </Field>
   );
 }

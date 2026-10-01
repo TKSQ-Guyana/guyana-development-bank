@@ -309,7 +309,7 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 
 	def in_queue(self, name: str) -> dict:
 		with self.set_user(UNDERWRITER):
-			return next(case for case in api.all_loans() if case["name"] == name)
+			return next(case for case in api.all_loans()["rows"] if case["name"] == name)
 
 	def test_a_submitted_quick_loan_reaches_the_review_queue_as_a_quick_loan(self):
 		case = self.in_queue(self.submitted())

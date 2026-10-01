@@ -322,6 +322,12 @@ export function Login() {
                   <p id="new-password-help" className={fieldHelp}>
                     At least {NEW_PASSWORD_MIN} characters. Not the one-time password, and not your
                     email.
+                    {/* Live, so a greyed-out button is never a mystery. */}
+                    {newPassword && newPassword.length < NEW_PASSWORD_MIN && (
+                      <span className="mt-1 block font-semibold text-rose-600">
+                        {newPassword.length} of {NEW_PASSWORD_MIN} characters
+                      </span>
+                    )}
                   </p>
 
                   <label className="mt-4 block">

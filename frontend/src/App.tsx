@@ -1,45 +1,80 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { Fragment, Suspense, lazy } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth';
 import { deskFor, isStaff } from './shared/personas';
 import { ApplicantLayout } from './components/ApplicantLayout';
 import { FinanceLayout } from './components/FinanceLayout';
-import { Applications } from './pages/Applications';
-import { Apply } from './pages/Apply';
-import { Cluster } from './pages/Cluster';
-import { Disbursements } from './pages/Disbursements';
-import { Reconciliation } from './pages/Finance/Reconciliation';
-import { Portfolio } from './pages/Finance/Portfolio';
-import { Ledger } from './pages/Finance/Ledger';
-import { RuleProposals } from './pages/Finance/RuleProposals';
-import { Dashboard } from './pages/Dashboard';
-import { MyFinancialsPage } from './features/personal-financials/MyFinancialsPage';
-import { QuickApplyPage } from './features/quick-loan/QuickApplyPage';
-import { Landing } from './pages/Landing';
-import { LoanDetail } from './pages/LoanDetail';
-import { Login } from './pages/Login';
-import { Payments } from './pages/Payments';
-import { PaymentHistoryPage } from './features/payment-history/PaymentHistoryPage';
-import { Profile } from './pages/Profile';
-import { Statements } from './pages/Statements';
-import { Training } from './pages/Training';
-import { Review } from './pages/Review';
-import { AccessHistoryPage } from './features/platform-admin/AccessHistoryPage';
 import { AdminLayout } from './features/platform-admin/AdminLayout';
-import { HealthPage } from './features/platform-admin/HealthPage';
-import { IntegrationsPage } from './features/platform-admin/IntegrationsPage';
-import { UsersPage } from './features/platform-admin/UsersPage';
+
+const LOADING = <p className="p-8 text-center text-slate-500">Loading…</p>;
+
+/** A page in its own chunk, fetched the first time its route is opened — a
+ *  citizen never downloads the finance ledger, and nobody downloads the
+ *  2,400-line application wizard to read a dashboard. The Suspense boundary is
+ *  the page's own, so the layout around it stays put while the chunk arrives. */
+function page(load: () => Promise<{ default: ComponentType }>) {
+  const Lazy = lazy(load);
+  return function Page() {
+    return (
+      <Suspense fallback={LOADING}>
+        <Lazy />
+      </Suspense>
+    );
+  };
+}
+
+const Landing = page(() => import('./pages/Landing').then((m) => ({ default: m.Landing })));
+const Login = page(() => import('./pages/Login').then((m) => ({ default: m.Login })));
+const Dashboard = page(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
+const Applications = page(() => import('./pages/Applications').then((m) => ({ default: m.Applications })));
+const Apply = page(() => import('./pages/Apply').then((m) => ({ default: m.Apply })));
+const QuickApplyPage = page(() =>
+  import('./features/quick-loan/QuickApplyPage').then((m) => ({ default: m.QuickApplyPage })),
+);
+const LoanDetail = page(() => import('./pages/LoanDetail').then((m) => ({ default: m.LoanDetail })));
+const MyFinancialsPage = page(() =>
+  import('./features/personal-financials/MyFinancialsPage').then((m) => ({ default: m.MyFinancialsPage })),
+);
+const Payments = page(() => import('./pages/Payments').then((m) => ({ default: m.Payments })));
+const PaymentHistoryPage = page(() =>
+  import('./features/payment-history/PaymentHistoryPage').then((m) => ({ default: m.PaymentHistoryPage })),
+);
+const Statements = page(() => import('./pages/Statements').then((m) => ({ default: m.Statements })));
+const Training = page(() => import('./pages/Training').then((m) => ({ default: m.Training })));
+const Cluster = page(() => import('./pages/Cluster').then((m) => ({ default: m.Cluster })));
+const Profile = page(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
+const Review = page(() => import('./pages/Review').then((m) => ({ default: m.Review })));
+const GroupsPage = page(() => import('./features/facilitator/GroupsPage').then((m) => ({ default: m.GroupsPage })));
+const GroupWizard = page(() => import('./features/facilitator/GroupWizard').then((m) => ({ default: m.GroupWizard })));
+const Disbursements = page(() => import('./pages/Disbursements').then((m) => ({ default: m.Disbursements })));
+const Reconciliation = page(() =>
+  import('./pages/Finance/Reconciliation').then((m) => ({ default: m.Reconciliation })),
+);
+const Portfolio = page(() => import('./pages/Finance/Portfolio').then((m) => ({ default: m.Portfolio })));
+const Ledger = page(() => import('./pages/Finance/Ledger').then((m) => ({ default: m.Ledger })));
+const RuleProposals = page(() =>
+  import('./pages/Finance/RuleProposals').then((m) => ({ default: m.RuleProposals })),
+);
+const UsersPage = page(() => import('./features/platform-admin/UsersPage').then((m) => ({ default: m.UsersPage })));
+const HealthPage = page(() => import('./features/platform-admin/HealthPage').then((m) => ({ default: m.HealthPage })));
+const IntegrationsPage = page(() =>
+  import('./features/platform-admin/IntegrationsPage').then((m) => ({ default: m.IntegrationsPage })),
+);
+const AccessHistoryPage = page(() =>
+  import('./features/platform-admin/AccessHistoryPage').then((m) => ({ default: m.AccessHistoryPage })),
+);
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) {
-    return <p className="p-8 text-center text-slate-500">Loading…</p>;
-  }
+  if (loading) return LOADING;
   if (!user) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
-  return <>{children}</>;
+  // Keyed on who is signed in: if the session changes under an open tab, every
+  // page below remounts and re-reads its data as the person it now is.
+  return <Fragment key={user.user}>{children}</Fragment>;
 }
 
 /**
@@ -60,14 +95,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function ApplicantShell() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) {
-    return <p className="p-8 text-center text-slate-500">Loading…</p>;
-  }
+  if (loading) return LOADING;
   if (!user) {
     if (location.pathname === '/') return <Landing />;
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
-  return <ApplicantLayout />;
+  // Keyed on who is signed in, for the same reason as RequireAuth.
+  return <ApplicantLayout key={user.user} />;
 }
 
 function RequireUnderwriter({ children }: { children: ReactNode }) {
@@ -124,6 +158,15 @@ function RequireFinance({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Groups — forming them and filing their applications — are the
+ *  facilitator's. Mirrored server-side in api._require_facilitator and
+ *  cluster._require_facilitator_of. */
+function RequireFacilitator({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_facilitator) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 /** Money movement is the disbursement officer's, not Finance's and not the
  *  underwriter's. Mirrored server-side in api._require_disbursement. */
 function RequireDisbursement({ children }: { children: ReactNode }) {
@@ -153,12 +196,17 @@ export function App() {
                 orphaned. */}
             <Route element={<CitizenOnly />}>
               <Route path="/apply" element={<Applications />} />
+              {/* Not keyed: the first save moves this same form to
+                  /apply/draft/:pid and must not remount it. /apply/new is only
+                  reached from outside the form (the list, the dashboard), so
+                  it always mounts empty. */}
               <Route path="/apply/new" element={<Apply />} />
               {/* The Quick Loan is a different product on its own form. A
                   static segment outranks `:name`, so /apply/quick is never
                   read as a draft called "quick". */}
               <Route path="/apply/quick" element={<QuickApplyPage />} />
               <Route path="/apply/quick/:name" element={<QuickApplyPage />} />
+              <Route path="/apply/draft/:pid" element={<Apply />} />
               <Route path="/apply/:name" element={<Apply />} />
               <Route path="/payments" element={<Payments />} />
               <Route path="/payments/history" element={<PaymentHistoryPage />} />
@@ -187,6 +235,30 @@ export function App() {
                 <RequireDisbursement>
                   <Disbursements />
                 </RequireDisbursement>
+              }
+            />
+            <Route
+              path="/facilitator"
+              element={
+                <RequireFacilitator>
+                  <GroupsPage />
+                </RequireFacilitator>
+              }
+            />
+            <Route
+              path="/facilitator/groups/new"
+              element={
+                <RequireFacilitator>
+                  <GroupWizard />
+                </RequireFacilitator>
+              }
+            />
+            <Route
+              path="/facilitator/groups/:cluster"
+              element={
+                <RequireFacilitator>
+                  <GroupWizard />
+                </RequireFacilitator>
               }
             />
           </Route>

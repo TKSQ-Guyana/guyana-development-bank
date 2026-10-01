@@ -28,7 +28,11 @@ from gdb_bank.utils.constants import PLATFORM_ADMIN_ROLE
 
 # The only roles the portal grants. Each is one side of a control that
 # utils/constants.py's authority sets enforce.
-GRANTABLE_ROLES = ("Loan Underwriter", "Disbursement Officer", "Finance Officer")
+GRANTABLE_ROLES = ("Loan Underwriter", "Disbursement Officer", "Finance Officer", "Facilitator")
+
+# Held alone or not at all. A facilitator prepares a group's case; an account
+# that could also decide or pay it would be its own checker.
+EXCLUSIVE_ROLES = ("Facilitator",)
 
 # An account holding any of these is out of an administrator's reach: the
 # superuser, and other administrators — minting or removing an administrator is
@@ -76,6 +80,15 @@ def refusal_to_grant(roles) -> str | None:
 	return None
 
 
+def refusal_to_combine(roles) -> str | None:
+	"""Why this full set of roles may not be held together, or None."""
+	held = set(roles) & set(GRANTABLE_ROLES)
+	for role in EXCLUSIVE_ROLES:
+		if role in held and len(held) > 1:
+			return _("{0} cannot be combined with another role.").format(role)
+	return None
+
+
 def _role_set(rows) -> set:
 	return {r.role for r in rows or []} - _AUTOMATIC_ROLES
 
@@ -106,6 +119,7 @@ def validate_user_change(doc, method=None):
 	refusal = (
 		(None if doc.is_new() else refusal_to_manage(actor, doc.name, before_roles))
 		or refusal_to_grant(roles_changed)
+		or refusal_to_combine(after_roles)
 		or (
 			_("An administrator never sets a password. Passwords are managed in Keycloak.")
 			if password_set

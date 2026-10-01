@@ -23,7 +23,7 @@ const DOCTYPE = 'GDB Applicant Document';
 
 // `Financials` is the business's accounts; the stored value predates the split.
 const LABELS: Record<string, string> = { Financials: 'Business Financials' };
-const label = (type: string) => LABELS[type] ?? type;
+export const docLabel = (type: string) => LABELS[type] ?? type;
 
 const STATUS_STYLE: Record<string, string> = {
   Received: 'bg-slate-100 text-slate-700',
@@ -34,12 +34,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 /** The formats the server accepts for one type — photos for a Trading Photo,
  *  PDF for everything the shelf held before it. */
-function acceptsFor(settings: Shelf['settings'], type: string): string {
+export function acceptsFor(settings: Shelf['settings'], type: string): string {
   return settings.accepts_by_type?.[type] ?? settings.accepts;
 }
 
 /** ".jpg,.jpeg,.png" → "JPG, JPEG or PNG" */
-function formatsLabel(accepts: string): string {
+export function formatsLabel(accepts: string): string {
   const names = accepts
     .split(',')
     .map((e) => e.trim().replace(/^\./, '').toUpperCase())
@@ -47,10 +47,54 @@ function formatsLabel(accepts: string): string {
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
 }
 
-function sizeLabel(bytes: number | null): string {
+export function sizeLabel(bytes: number | null): string {
   if (!bytes) return '';
   const mb = bytes / 1024 / 1024;
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/** Check the file against the shelf's own published rules, then the three
+ *  calls. Throws with a message the applicant can act on.
+ *
+ *  The checks are not a second rule — the same two numbers the shelf already
+ *  publishes (accepts, max_bytes). The point is WHO answers: an oversize body
+ *  never reaches Frappe's check, it dies at nginx, and an nginx 413 is HTML the
+ *  applicant cannot act on. */
+export async function addDocument(
+  file: File,
+  type: string,
+  settings: Shelf['settings'],
+  application?: string,
+): Promise<void> {
+  const accepts = acceptsFor(settings, type);
+  const accepted = accepts
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+  if (accepted.length && !accepted.includes(extension)) {
+    throw new Error(`${file.name}: use ${formatsLabel(accepts)}.`);
+  }
+  if (file.size > settings.max_bytes) {
+    throw new Error(
+      `${file.name} is ${sizeLabel(file.size)}. The limit is ${Math.round(
+        settings.max_bytes / 1024 / 1024,
+      )} MB.`,
+    );
+  }
+  const row = await call<ApplicantDocument>('gdb_bank.documents.new_document', {
+    document_type: type,
+    application,
+  });
+  try {
+    await uploadFile(file, { doctype: DOCTYPE, docname: row.name });
+    await call('gdb_bank.documents.confirm_document', { name: row.name });
+  } catch (err) {
+    // The row was opened for a file that never arrived. Clear it up rather
+    // than leaving an empty shelf entry the applicant cannot explain.
+    await call('gdb_bank.documents.delete_document', { name: row.name }).catch(() => {});
+    throw err;
+  }
 }
 
 export function DocumentShelf({
@@ -106,49 +150,11 @@ export function DocumentShelf({
   }, [load]);
 
   const add = async (file: File) => {
-    if (!type) return;
-    // Say what the server would say, before the file crosses the network.
-    // Not a second rule — the same two numbers the shelf already publishes
-    // (document_settings: accepts, max_bytes). The point is WHO answers: an
-    // oversize body never reaches Frappe's check, it dies at nginx, and an
-    // nginx 413 is HTML the applicant cannot act on. Checked here, they are
-    // told the size and the limit the moment they pick the file.
-    const accepts = shelf ? acceptsFor(shelf.settings, type) : '';
-    const accepted = accepts
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    if (accepted.length && !accepted.includes(extension)) {
-      setError(`${file.name}: use ${formatsLabel(accepts)}.`);
-      if (fileInput.current) fileInput.current.value = '';
-      return;
-    }
-    if (shelf && file.size > shelf.settings.max_bytes) {
-      setError(
-        `${file.name} is ${sizeLabel(file.size)}. The limit is ${Math.round(
-          shelf.settings.max_bytes / 1024 / 1024,
-        )} MB — please upload a smaller scan.`,
-      );
-      if (fileInput.current) fileInput.current.value = '';
-      return;
-    }
+    if (!type || !shelf) return;
     setBusy(true);
     setError(null);
     try {
-      const row = await call<ApplicantDocument>('gdb_bank.documents.new_document', {
-        document_type: type,
-        application,
-      });
-      try {
-        await uploadFile(file, { doctype: DOCTYPE, docname: row.name });
-        await call('gdb_bank.documents.confirm_document', { name: row.name });
-      } catch (err) {
-        // The row was opened for a file that never arrived. Clear it up rather
-        // than leaving an empty shelf entry the applicant cannot explain.
-        await call('gdb_bank.documents.delete_document', { name: row.name }).catch(() => {});
-        throw err;
-      }
+      await addDocument(file, type, shelf.settings, application);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
@@ -220,7 +226,7 @@ export function DocumentShelf({
           banner was dropped per product ask. */}
       {!canUpload && shelf.missing.length > 0 && (
         <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Not on file: <strong>{shelf.missing.map(label).join(', ')}</strong>
+          Not on file: <strong>{shelf.missing.map(docLabel).join(', ')}</strong>
         </p>
       )}
 
@@ -234,7 +240,7 @@ export function DocumentShelf({
             <li key={d.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-800">
-                  {label(d.document_type)}
+                  {docLabel(d.document_type)}
                   <span
                     className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
                       STATUS_STYLE[d.status] ?? 'bg-slate-100 text-slate-700'
@@ -314,7 +320,7 @@ export function DocumentShelf({
             >
               {shelf.settings.types.map((t) => (
                 <option key={t} value={t}>
-                  {label(t)}
+                  {docLabel(t)}
                 </option>
               ))}
             </select>
@@ -345,7 +351,7 @@ export function DocumentShelf({
           <ul className="mt-2 space-y-1">
             {replaced.map((d) => (
               <li key={d.name}>
-                {label(d.document_type)} · {d.file_name} · {formatDate(d.uploaded_on)}
+                {docLabel(d.document_type)} · {d.file_name} · {formatDate(d.uploaded_on)}
               </li>
             ))}
           </ul>

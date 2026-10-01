@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { call } from '../api';
 import { useAuth } from '../auth';
-import { DocumentShelf } from '../components/DocumentShelf';
+import { ApplicationDocuments, type DocRow } from '../components/apply/ApplicationDocuments';
 import { DataTable } from '../components/ui/DataTable';
 import { Card } from '../components/ui/Card';
 import { ArrowRightIcon, CheckIcon } from '../components/ui/icons';
+import { AttentionList, QuestionGroup, ReviewSections, StepRail } from '../components/apply/wizard';
 import {
   ChoiceCard,
   MoneyField,
@@ -16,23 +17,12 @@ import {
   TextAreaField,
   TextField,
 } from '../components/apply/fields';
-import {
-  ClusterIdentity,
-  GroupDetails,
-  matchRegion,
-  MembersTable,
-  PLAN_SECTIONS,
-  REGIONS,
-  SharedPlan,
-} from '../components/apply/cluster';
+import { matchRegion, REGIONS } from '../components/apply/cluster';
 import { OwnershipBlock } from '../components/apply/ownership';
 import { EMPTY_EID, isCompleteEid } from '../eid';
 import type {
   BankAccountRecord,
   CitizenProfile,
-  Cluster,
-  ClusterPlan,
-  ClusterPlanSection,
   DcraRecord,
   LoanApplication,
   OwnershipRow,
@@ -44,9 +34,11 @@ import { encodeUseOfFunds, formatDate, formatGyd, parseUseOfFunds } from '../uti
  *
  *  Deliberately a wizard, not one long form. The first answers change what the
  *  rest of the application may ask: an existing trading business is asked for
- *  its financials, a start-up for the plan it intends to trade on, and a
- *  cluster head is asked whose loan this is before anything is asked about the
- *  loan itself. A single scrolling form cannot express that, and it also cannot
+ *  its financials, and a start-up for the plan it intends to trade on. Group
+ *  (cluster) applications are not filed here: a GDB facilitator prepares them
+ *  (features/facilitator).
+ *
+ *  A single scrolling form cannot express that, and it also cannot
  *  be resumed honestly on a Region 9 phone connection.
  *
  *  Section letters match the programme specification, so an applicant on the
@@ -79,7 +71,7 @@ const SECTORS = [
 /** How the applicant is applying. Asked AFTER existing-vs-new: whether the
  *  business already trades decides which questions the form may ask at all,
  *  and how it is owned is the next question rather than the first one. */
-type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported' | 'Incorporated (Inc.)';
+type Structure = '' | 'Sole Trader' | 'Partnership' | 'Incorporated (Inc.)';
 
 /** What DCRA's own `business_type` means in the words this form uses. The
  *  register tells three kinds of ownership apart and the portal asks the same
@@ -87,10 +79,7 @@ type Structure = '' | 'Sole Trader' | 'Partnership' | 'Cluster-supported' | 'Inc
  *  repeat what the register already says — the applicant cannot answer it
  *  better than DCRA can, and two answers to one question is how a company
  *  reaches the Bank filed as a sole trader.
- *
- *  'Cluster-supported' is deliberately ABSENT. DCRA does not record one,
- *  because borrowing as a group is a decision about this loan, not a fact
- *  about the business — so it stays a question, asked separately. */
+ */
 const DCRA_STRUCTURE: Record<string, Structure> = {
   'Business Name': 'Sole Trader',
   Company: 'Incorporated (Inc.)',
@@ -125,46 +114,53 @@ type StepId =
   | 'consent'
   | 'route'
   | 'about'
-  | 'group'
-  | 'members'
-  | 'plan'
   | 'business'
   | 'operations'
   | 'finances'
   | 'funding'
   | 'evidence';
 
-/** The steps only a cluster application asks. They are filtered out entirely
- *  for an applicant applying alone, rather than shown and skipped: a step that
- *  appears in the rail and cannot be reached is a step somebody will phone
- *  GDB about. */
-const CLUSTER_STEPS: StepId[] = ['group', 'members', 'plan'];
-
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
-  { id: 'consent', title: 'Consent', blurb: 'Let GDB fetch the records this application needs' },
-  { id: 'route', title: 'How you are applying', blurb: 'Who the loan is for, and what kind of business it is' },
-  { id: 'about', title: 'About you', blurb: 'Your details, confirmed against your e-ID' },
-  { id: 'group', title: 'About your group', blurb: 'What the group does, and where it works' },
-  { id: 'members', title: 'Group members', blurb: 'Who is in the group' },
-  { id: 'plan', title: 'The shared plan', blurb: 'What the group is building together' },
-  { id: 'business', title: 'Your business', blurb: 'Identity, what it does, and who it sells to' },
-  { id: 'operations', title: 'Operations', blurb: 'How the work gets done' },
-  { id: 'finances', title: 'Financial information', blurb: 'What the business earns, or expects to' },
-  { id: 'funding', title: 'Funding request', blurb: 'How much, for how long, and where GDB pays it' },
-  { id: 'evidence', title: 'Documents and submit', blurb: 'Attach your evidence and send the application' },
+  { id: 'consent', title: 'Consent', blurb: 'Authorise GDB to retrieve your records.' },
+  { id: 'route', title: 'Application type', blurb: 'Applicant type and legal structure.' },
+  { id: 'about', title: 'About you', blurb: 'Identity details are verified against your e-ID.' },
+  { id: 'business', title: 'Business details', blurb: 'Open one group at a time.' },
+  { id: 'operations', title: 'Operations', blurb: 'Optional operating information.' },
+  { id: 'finances', title: 'Financial information', blurb: 'Financial position of the business.' },
+  { id: 'funding', title: 'Funding', blurb: 'Loan amount, tenor and disbursement account.' },
+  { id: 'evidence', title: 'Review', blurb: '' },
 ];
+
+/** Which section an expected document belongs to, so the review flags it
+ *  against the right row. Anything else is shown under Documents only. */
+const DOC_SECTION: Record<string, StepId> = {
+  Identity: 'about',
+  'Proof of Address': 'about',
+  Financials: 'finances',
+  'Business Plan': 'finances',
+};
+
+const OTHER_DOC: DocRow = {
+  type: 'Other',
+  title: 'Other supporting documents',
+  hint: 'Letters of support, contracts or licences',
+};
 
 type Sections = Record<string, string>;
 
-/** Everything the wizard holds, so it can be restored after a dropped
- *  connection. Kept on the device until there is enough to open a server
- *  draft — the server will not accept an application with no amount, term or
- *  purpose, and writing placeholder figures to get past that would put numbers
- *  in the Bank's record that nobody typed. */
+// The Business details step's groups, by the section keys each one asks.
+const BRIEF_KEYS = ['executive_summary', 'products_services', 'unique_selling_point'];
+const MARKET_KEYS = ['customer_segments', 'target_market', 'competitors'];
+const DIRECTION_KEYS = ['vision', 'mission', 'goals'];
+
+/** Everything the wizard holds before GDB has a Loan Application for it.
+ *  Saved server-side on the applicant's own profile
+ *  (profiles.save_pending_application) — lending refuses a Loan Application
+ *  with no amount or tenor, and writing placeholder figures to get past that
+ *  would put numbers in the Bank's record that nobody typed. */
 interface Saved {
   stage: '' | 'Existing' | 'New';
   structure: Structure;
-  applyAsCluster: boolean | null;
   coApplicants: string[];
   amount: string;
   term: string;
@@ -175,19 +171,13 @@ interface Saved {
   sections: Sections;
   useOfFunds: UseOfFundsRow[];
   step: StepId;
-  clusterName?: string;
-  wantsFacilitator?: boolean | null;
-  facilitatorEid?: string;
+  applicantShare?: string;
+  owners?: OwnershipRow[];
   profileDob?: string;
   profilePhone?: string;
   profileEmail?: string;
   profileAddress?: string;
 }
-
-// An e-ID directory does not always carry a birth date, and a bank still
-// needs a value to hold rather than a blank the applicant could skip past.
-// Flagged as a placeholder in the field's own hint text.
-const DEFAULT_DOB = '1990-01-01';
 
 export function Apply() {
   const navigate = useNavigate();
@@ -197,20 +187,20 @@ export function Apply() {
   // fresh application — the two used to share one route and one blob of
   // browser storage, which is why "start an application" continued the last
   // abandoned one.
-  const { name: routeName } = useParams<{ name: string }>();
+  // `pid` is an unfinished application kept on the profile (`/apply/draft/:pid`).
+  const { name: routeName, pid } = useParams<{ name: string; pid: string }>();
 
   const [step, setStep] = useState<StepId>('consent');
+  // The furthest step the applicant has reached. Going back to change an
+  // answer must not cost the way forward again: every step up to this one
+  // stays one click away on the rail.
+  const [furthest, setFurthest] = useState<StepId>('consent');
   // null = not checked yet. Fetched once from the citizen's own profile, so a
   // returning applicant who already agreed is never asked again.
   const [consentAccepted, setConsentAccepted] = useState<boolean | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [stage, setStage] = useState<'' | 'Existing' | 'New'>('');
   const [structure, setStructure] = useState<Structure>('');
-  // null = not answered yet. Asked of an existing business INSTEAD of the
-  // ownership cards, and held apart from `structure` on purpose: once the
-  // register supplies the ownership, `structure` is never empty, so it can no
-  // longer tell an unanswered cluster question from a "No" nobody gave.
-  const [applyAsCluster, setApplyAsCluster] = useState<boolean | null>(null);
   // Named partners, as declared. Naming somebody is not the same as that
   // person agreeing — a co-applicant consents through their own sign-in.
   const [coApplicants, setCoApplicants] = useState<string[]>([EMPTY_EID]);
@@ -239,29 +229,6 @@ export function Apply() {
   const [profileEmail, setProfileEmail] = useState('');
   const [profileAddress, setProfileAddress] = useState('');
 
-  // The cluster this application is being filed for, once it exists, and the
-  // groups this citizen already heads. A person may lead several — each group
-  // applies separately, and naming one here is what makes this the group's
-  // application rather than their own.
-  const [cluster, setCluster] = useState<Cluster | null>(null);
-  const [myClusters, setMyClusters] = useState<Cluster[]>([]);
-  const [chosenCluster, setChosenCluster] = useState('');
-  const [clusterName, setClusterName] = useState('');
-  const [wantsFacilitator, setWantsFacilitator] = useState<boolean | null>(null);
-  const [facilitatorEid, setFacilitatorEid] = useState(EMPTY_EID);
-  const [groupPurpose, setGroupPurpose] = useState('');
-  const [groupRegion, setGroupRegion] = useState('');
-  const [groupLocality, setGroupLocality] = useState('');
-  const [groupRegistered, setGroupRegistered] = useState('');
-  const [plan, setPlan] = useState<ClusterPlan>({
-    plan_executive_summary: '',
-    plan_how_formed: '',
-    plan_governance: '',
-    plan_market: '',
-    plan_shared_project: '',
-    plan_operations: '',
-    plan_impact: '',
-  });
   const [banks, setBanks] = useState<string[]>([]);
   const [bank, setBank] = useState('');
   const [accountNo, setAccountNo] = useState('');
@@ -288,15 +255,11 @@ export function Apply() {
   const [busy, setBusy] = useState(false);
   const [restored, setRestored] = useState(false);
   const [submitted, setSubmitted] = useState<LoanApplication | null>(null);
+  const [tab, setTab] = useState<'application' | 'documents'>('application');
 
-  // Filing against the group is a consequence of the structure chosen, not a
-  // separate switch that could disagree with it.
-  const forCluster = structure === 'Cluster-supported';
-  const storageKey = `gdb.apply.${user?.user ?? 'anon'}`;
 
   // Ownership shares are a question only where ownership is divided. A sole
-  // trader owns all of it; a cluster is a group of separate borrowers, not a
-  // jointly-owned company.
+  // trader owns all of it.
   const sharesApply = structure === 'Partnership' || structure === 'Incorporated (Inc.)';
 
   // What the register says this business is, and whether it said anything at
@@ -327,46 +290,30 @@ export function Apply() {
   const sharesDeclared =
     Number(applicantShare || 0) + namedOwners.reduce((sum, o) => sum + Number(o.share || 0), 0);
 
-  // Who GDB actually heard this from. A confirmed registry hit and a name
-  // recalled from the applicant's own earlier filing are not the same evidence
-  // and must not carry the same label — the adapter's `source` is the only
-  // thing that can tell them apart, so it is what the badge reads.
-  const dcraSourceLabel =
-    dcraRecord?.source === 'dcra'
-      ? 'Confirmed by DCRA'
-      : dcraRecord?.source === 'gdb_history'
-        ? 'From your earlier application'
-        : 'Not confirmed';
+  // Who GDB heard this from. DCRA is the only source there is: either the
+  // register answered, or nothing is confirmed.
+  const dcraSourceLabel = dcraRecord?.source === 'dcra' ? 'Confirmed by DCRA' : 'Not confirmed';
 
-  // Only the steps this route actually asks. A sole trader never sees the
-  // group screens at all.
-  const steps = useMemo(
-    () => STEPS.filter((s) => forCluster || !CLUSTER_STEPS.includes(s.id)),
-    [forCluster],
-  );
-
-  // A group's application is a DIFFERENT application, never the personal draft
-  // carried over. Switching route — or switching which group — drops the
-  // server draft so the next save opens a new one, and the case an underwriter
-  // reads is the one that was actually filled in for that group.
-  const lastTarget = useRef<string | null>(null);
-  useEffect(() => {
-    const target = forCluster ? `cluster:${chosenCluster || clusterName}` : 'own';
-    if (lastTarget.current !== null && lastTarget.current !== target) {
-      setDraft(null);
-      setMissing([]);
-    }
-    lastTarget.current = target;
-  }, [forCluster, chosenCluster, clusterName]);
-
-  // A step that has just been filtered away must not be the one on screen.
-  useEffect(() => {
-    if (!steps.some((s) => s.id === step)) setStep('route');
-  }, [steps, step]);
-  const validCoApplicants = coApplicants.filter(isCompleteEid);
+  const steps = STEPS;
 
   const set = (key: string) => (v: string) => setSections((s) => ({ ...s, [key]: v }));
   const val = (key: string) => sections[key] ?? '';
+  // A section answer can come back from the server as a number (an Int field),
+  // so anything shown in a box or trimmed goes through String().
+  const text = (key: string) => String(sections[key] ?? '');
+  const filled = (keys: string[]) => keys.filter((k) => text(k).trim()).length;
+
+  // Which Business details group is open. One at a time.
+  const [openGroup, setOpenGroup] = useState(1);
+  const toggleGroup = (n: number) => setOpenGroup((g) => (g === n ? 0 : n));
+  const jobKeys =
+    stage === 'Existing'
+      ? ['jobs_created', 'staff_count', 'employment_impact']
+      : ['jobs_created', 'employment_impact'];
+  const identityTotal = stage === 'Existing' ? 3 : 2;
+  const identityAnswered = [businessName, stage === 'Existing' ? dcra : 'n/a', text('sector')].filter(
+    (v) => v.trim() && v !== 'n/a',
+  ).length;
 
   // --- resume -------------------------------------------------------------
   /** Load a draft back from GDB. This is the resume path: the server holds the
@@ -391,6 +338,11 @@ export function Apply() {
         navigate(`/loans/${name}`, { replace: true });
         return;
       }
+      if (loan.cluster) {
+        // A group's draft is its facilitator's to prepare; the head reads it.
+        navigate(`/loans/${name}`, { replace: true });
+        return;
+      }
       if (loan.product === 'quick') {
         // A Quick Loan draft is resumed on its own form.
         navigate(`/apply/quick/${name}`, { replace: true });
@@ -400,11 +352,6 @@ export function Apply() {
       setStage((loan.business_stage as '' | 'Existing' | 'New') ?? '');
       const filedAs = ((loan.sections?.legal_structure as Structure) ?? '') as Structure;
       setStructure(filedAs);
-      // A draft that was already filed has answered the cluster question by
-      // filing — re-asking it on resume would block a returning applicant on a
-      // decision they have made. A draft holding no structure at all never got
-      // that far, so it is still unanswered.
-      setApplyAsCluster(filedAs ? filedAs === 'Cluster-supported' : null);
       setAmount(loan.loan_amount ? String(loan.loan_amount) : '');
       setTerm(loan.term_months ? String(loan.term_months) : '12');
       setIncome(loan.monthly_income ? String(loan.monthly_income) : '');
@@ -429,11 +376,13 @@ export function Apply() {
           : named.map((eid) => ({ eid, name: '', share: 0 })),
       );
       setCoApplicants(named.length ? named : [EMPTY_EID]);
-      if (loan.cluster) setChosenCluster(loan.cluster);
       // A resumed draft is past the consent question by definition — it could
       // not have been saved otherwise — so open it on the first step that
       // actually asks something.
       setStep('route');
+      // GDB only holds a draft once the funding step has been left, so a
+      // resumed draft has been through every step: all of them are reachable.
+      setFurthest('evidence');
       setRestored(true);
     } catch (err) {
       setError(
@@ -444,10 +393,50 @@ export function Apply() {
     }
   };
 
+  // The application in progress before GDB holds a Loan Application for it.
+  // Server-side, so it survives a closed tab or another device and leaves
+  // nothing personal in this browser. `pendingSavedOn` is the stamp this window
+  // last saw; the server refuses a save made over somebody else's newer one.
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingSavedOn, setPendingSavedOn] = useState<string | null>(null);
+  const loadedPending = useRef<string | null>(null);
+
+  const hydrate = (s: Saved) => {
+    setStage(s.stage ?? '');
+    setStructure(s.structure ?? '');
+    setCoApplicants(s.coApplicants?.length ? s.coApplicants : [EMPTY_EID]);
+    setAmount(s.amount ?? '');
+    setTerm(s.term ?? '12');
+    setIncome(s.income ?? '');
+    setPurpose(s.purpose ?? '');
+    setDcra(s.dcra ?? '');
+    setBusinessName(s.businessName ?? '');
+    setSections(s.sections ?? {});
+    // A use-of-funds saved before the table existed is one free-text
+    // sentence — carried forward as a single row rather than dropped.
+    const legacyUseOfFunds = s.sections?.use_of_funds;
+    setUseOfFunds(
+      s.useOfFunds?.length
+        ? s.useOfFunds
+        : (parseUseOfFunds(legacyUseOfFunds) ??
+            (legacyUseOfFunds ? [{ item: legacyUseOfFunds, amount: 0 }] : [{ item: '', amount: 0 }])),
+    );
+    setApplicantShare(s.applicantShare ?? '');
+    setOwners(s.owners ?? []);
+    setProfileDob((cur) => s.profileDob || cur);
+    setProfilePhone((cur) => s.profilePhone || cur);
+    setProfileEmail((cur) => s.profileEmail || cur);
+    setProfileAddress((cur) => s.profileAddress || cur);
+    // Consent is the server's record and is re-checked on its own; a step id
+    // from an older wizard would point nowhere, so only a current one is used.
+    if (s.step && s.step !== 'consent' && STEPS.some((st) => st.id === s.step)) {
+      setStep(s.step);
+      setFurthest(s.step);
+    }
+  };
+
   useEffect(() => {
-    // `/apply/:name` resumes that draft from GDB. `/apply/new` starts empty and
-    // deliberately ignores — and clears — whatever this browser was holding:
-    // "start an application" has to mean a new one.
+    // `/apply/:name` resumes that Loan Application draft from GDB.
     if (routeName) {
       // Already ours — this is the URL catching up with a draft we just saved,
       // not a request to open a different one.
@@ -455,114 +444,26 @@ export function Apply() {
       void resumeFromServer(routeName);
       return;
     }
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {
-      /* a browser that refuses storage is not a reason to block an application */
+    // `/apply/draft/:pid` continues that unfinished application. `/apply/new`
+    // is always a new one — it never reopens a draft.
+    if (pid) {
+      if (loadedPending.current === pid) return;
+      loadedPending.current = pid;
+      call<{ id: string; state: Saved; saved_on: string }>('gdb_bank.profiles.pending_application', { id: pid })
+        .then((p) => {
+          hydrate(p.state);
+          setPendingId(p.id);
+          setPendingSavedOn(p.saved_on);
+          setRestored(true);
+        })
+        .catch((err: Error) => setError(err.message));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeName, storageKey]);
+  }, [routeName, pid]);
 
-  // Crash recovery for the window BEFORE a server draft exists — the funding
-  // step is the earliest point the server will accept one, and a connection
-  // that drops before then should not cost the applicant everything they
-  // typed. Superseded by the server draft the moment there is one, which is
-  // why the write below stops and clears once `draft` is set.
-  useEffect(() => {
-    if (routeName || draft) return;
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
-      const s = JSON.parse(raw) as Saved;
-      setStage(s.stage ?? '');
-      setStructure(s.structure ?? '');
-      setApplyAsCluster(s.applyAsCluster ?? null);
-      setCoApplicants(s.coApplicants?.length ? s.coApplicants : [EMPTY_EID]);
-      setAmount(s.amount ?? '');
-      setTerm(s.term ?? '12');
-      setIncome(s.income ?? '');
-      setPurpose(s.purpose ?? '');
-      setDcra(s.dcra ?? '');
-      setBusinessName(s.businessName ?? '');
-      setSections(s.sections ?? {});
-      // A device with a draft from before this table existed still has its
-      // use-of-funds as one free-text sentence — carried forward as a single
-      // row rather than silently dropped, JSON-parsed if it already matches
-      // the table shape.
-      const legacyUseOfFunds = s.sections?.use_of_funds;
-      setUseOfFunds(
-        s.useOfFunds?.length
-          ? s.useOfFunds
-          : (parseUseOfFunds(legacyUseOfFunds) ??
-              (legacyUseOfFunds ? [{ item: legacyUseOfFunds, amount: 0 }] : [{ item: '', amount: 0 }])),
-      );
-      // Consent is re-checked against the server below, never trusted from a
-      // device's local draft — it is a record GDB keeps, not a form value.
-      // A step id from before a wizard change (e.g. the old 'market' step)
-      // would otherwise point nowhere in the current STEPS list.
-      setClusterName(s.clusterName ?? '');
-      setWantsFacilitator(s.wantsFacilitator ?? null);
-      setFacilitatorEid(s.facilitatorEid ?? EMPTY_EID);
-      setProfileDob(s.profileDob ?? '');
-      setProfilePhone(s.profilePhone ?? '');
-      setProfileEmail(s.profileEmail ?? '');
-      setProfileAddress(s.profileAddress ?? '');
-      if (s.step && s.step !== 'consent' && STEPS.some((st) => st.id === s.step)) setStep(s.step);
-      setRestored(true);
-    } catch {
-      /* a browser that refuses storage is not a reason to block an application */
-    }
-    // Deliberately keyed on the storage key alone: this is a once-on-mount
-    // recovery, and re-running it as `draft` changes would overwrite what the
-    // applicant is typing with what the browser last wrote.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
-
-  useEffect(() => {
-    // Once GDB holds the draft, GDB is where it lives. Keeping a second copy
-    // on the device would be duplicated server state, and — because these
-    // fields are somebody's address, phone and income — it would leave that
-    // PII in localStorage for whoever opens the browser next. Cleared here
-    // rather than merely stopped, so an earlier copy does not survive.
-    if (draft || routeName) {
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {
-        /* private window, quota, blocked storage — never fatal */
-      }
-      return;
-    }
-    const payload: Saved = {
-      stage,
-      structure,
-      applyAsCluster,
-      coApplicants,
-      amount,
-      term,
-      income,
-      purpose,
-      dcra,
-      businessName,
-      sections,
-      useOfFunds,
-      step,
-      clusterName,
-      wantsFacilitator,
-      facilitatorEid,
-      profileDob,
-      profilePhone,
-      profileEmail,
-      profileAddress,
-    };
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(payload));
-    } catch {
-      /* private window, quota, blocked storage — never fatal */
-    }
-  }, [
+  const snapshot = (at: StepId): Saved => ({
     stage,
     structure,
-    applyAsCluster,
     coApplicants,
     amount,
     term,
@@ -572,33 +473,39 @@ export function Apply() {
     businessName,
     sections,
     useOfFunds,
-    step,
-    draft,
-    routeName,
-    storageKey,
-    clusterName,
-    wantsFacilitator,
-    facilitatorEid,
+    step: at,
+    applicantShare,
+    owners,
     profileDob,
     profilePhone,
     profileEmail,
     profileAddress,
-  ]);
+  });
+
+  /** Save wherever this application lives now: the Loan Application draft
+   *  once GDB holds one, the profile's in-progress copy before that. `at` is
+   *  the step it should reopen on. */
+  const saveProgress = async (at: StepId = step) => {
+    if (draft) {
+      await saveDraft();
+      return;
+    }
+    const saved = await call<{ id: string; saved_on: string }>('gdb_bank.profiles.save_pending_application', {
+      state: snapshot(at),
+      id: pendingId ?? undefined,
+      saved_on: pendingSavedOn,
+    });
+    setPendingSavedOn(saved.saved_on);
+    if (!pendingId) {
+      setPendingId(saved.id);
+      // The URL becomes the one that continues it, so a reload does too.
+      loadedPending.current = saved.id;
+      navigate(`/apply/draft/${saved.id}`, { replace: true });
+    }
+  };
 
   // --- reference data -----------------------------------------------------
   useEffect(() => {
-    call<Cluster[]>('gdb_bank.api.my_clusters')
-      .then((all) => {
-        const mine = (all ?? []).filter((c) => c.is_head);
-        setMyClusters(mine);
-        // Only pre-select when there is exactly one and no ambiguity about
-        // which group is meant. Two groups is a question for the applicant.
-        if (mine.length === 1) {
-          setCluster(mine[0]);
-          if (mine[0].loan_purpose) setPurpose((p) => p || mine[0].loan_purpose || '');
-        }
-      })
-      .catch(() => setMyClusters([]));
     call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
     void loadMyAccounts();
     call<CitizenProfile>('gdb_bank.profiles.my_profile')
@@ -608,7 +515,9 @@ export function Apply() {
         // Prefer what the applicant already declared over the directory's
         // assertion, and never overwrite a value a restored draft already
         // holds — a functional update is what makes both true at once.
-        setProfileDob((cur) => cur || p.date_of_birth || p.verified_birth_date || DEFAULT_DOB);
+        // No invented value: when neither the applicant nor the e-ID directory
+        // gave a birth date the field stays empty, and the step asks for it.
+        setProfileDob((cur) => cur || p.date_of_birth || p.verified_birth_date || '');
         setProfilePhone((cur) => cur || p.phone || p.verified_phone || '');
         setProfileEmail((cur) => cur || p.email || p.verified_email || '');
         setProfileAddress((cur) => cur || p.address || p.verified_address || '');
@@ -654,16 +563,12 @@ export function Apply() {
             setBranchCode(d.branch_code ?? '');
           })
           .catch(() => undefined);
-        setAccountNote(
-          'We could not find an account registered in your name. Enter it yourself and GDB will verify it before paying out.',
-        );
+        setAccountNote('No account found in your name. Enter it below; GDB verifies it before disbursement.');
       }
     } catch {
       setMyAccounts([]);
       setManualAccount(true);
-      setAccountNote(
-        'Your bank could not be reached. Enter your account details and GDB will verify them before paying out.',
-      );
+      setAccountNote('Bank unavailable. Enter your account; GDB verifies it before disbursement.');
     } finally {
       setAccountsLoading(false);
     }
@@ -704,10 +609,6 @@ export function Apply() {
     const fromRegistry = deriveStructure(b);
     if (fromRegistry) {
       setStructure((current) => {
-        // A cluster answer belongs to the applicant, not to the register.
-        // Changing which business the loan is for must not silently un-choose
-        // it — that decision was about how they want to borrow.
-        if (current === 'Cluster-supported') return current;
         // Auto-selection while a draft is being restored must not overwrite
         // what the applicant already filed. Only an empty structure is filled
         // in on that path; picking from the dropdown always re-derives.
@@ -717,15 +618,6 @@ export function Apply() {
     }
     if (b.region)
       setSections((s) => ({ ...s, operating_location: s.operating_location || matchRegion(b.region!) }));
-  };
-
-  /** The cluster question, asked of an existing business in place of the
-   *  ownership cards it no longer needs. Answering it is what sets
-   *  `structure`: "yes" files the application against the group, "no" returns
-   *  it to whatever the register said this business is. */
-  const chooseCluster = (wants: boolean) => {
-    setApplyAsCluster(wants);
-    setStructure(wants ? 'Cluster-supported' : registryStructure);
   };
 
   const loadMyBusinesses = async () => {
@@ -742,12 +634,12 @@ export function Apply() {
       else if (found?.length === 1) selectBusiness(found[0], { keepStructure: true });
       if (!found?.length) {
         setManualEntry(true);
-        setDcraNote('DCRA has no business registered to you. Enter the details yourself and GDB will verify them.');
+        setDcraNote('No DCRA registration found for your e-ID. Enter the details; GDB will verify them.');
       }
     } catch {
       setMyBusinesses([]);
       setManualEntry(true);
-      setDcraNote('DCRA could not be reached. Enter the details yourself and GDB will verify them.');
+      setDcraNote('DCRA unavailable. Enter the details; GDB will verify them.');
     } finally {
       setLooking(false);
     }
@@ -778,7 +670,7 @@ export function Apply() {
         setBusinessName(result.business_name);
         setDcraNote(
           result.owned_by_caller === false
-            ? "This registration doesn't list your e-ID as a proprietor. GDB will confirm your connection to it before this goes further."
+            ? 'Your e-ID is not listed as a proprietor. GDB will verify your connection.'
             : null,
         );
         if (result.region) {
@@ -791,13 +683,13 @@ export function Apply() {
         setDcraRecord(null);
         setDcraNote(
           result.status === 'Not Found'
-            ? 'DCRA has no business under that registration number. Check it, or enter the details yourself and GDB will verify them.'
-            : 'DCRA could not be reached to confirm that number. Enter the details yourself and GDB will verify them.',
+            ? 'No DCRA record for that registration number.'
+            : 'DCRA unavailable. GDB will verify the number.',
         );
       }
     } catch {
       setDcraRecord(null);
-      setDcraNote('Could not check that number with DCRA. Enter the details yourself and GDB will verify them.');
+      setDcraNote('DCRA unavailable. GDB will verify the number.');
     } finally {
       setDcraChecking(false);
     }
@@ -826,8 +718,8 @@ export function Apply() {
     if (!bank || !accountNo) {
       throw new Error(
         (myAccounts?.length ?? 0) > 0 && !manualAccount
-          ? 'Choose which account GDB should pay into.'
-          : 'Tell us where GDB should pay you: choose your bank and enter your account number.',
+          ? 'Select the disbursement account.'
+          : 'Enter the disbursement account.',
       );
     }
     // The payout destination first: if this fails the applicant should fix it
@@ -847,10 +739,8 @@ export function Apply() {
       business_stage: stage,
       dcra_number: dcra,
       business_name: businessName,
-      // Always explicit. An empty string is the answer "this one is mine" —
-      // omitting the field would mean "whatever cluster I belong to", which is
-      // exactly the silent reassignment this screen exists to prevent.
-      cluster: forCluster && cluster ? cluster.name : '',
+      // Always this applicant's own. Group applications are filed by a facilitator.
+      cluster: '',
       sections: {
         ...sections,
         legal_structure: structure,
@@ -870,8 +760,11 @@ export function Apply() {
         ownership_lines: askOwnership ? namedOwners : [],
       },
       name: draft?.name,
+      // The unfinished copy this draft continues; the server forgets it now.
+      pending: draft ? undefined : (pendingId ?? undefined),
     });
     setDraft(saved);
+    setPendingId(null);
     // Claim it before the URL changes, so the resume effect below knows this
     // draft is already on screen and leaves the wizard where it is.
     loaded.current = saved.name;
@@ -888,187 +781,91 @@ export function Apply() {
   );
   const current = steps[index];
   const isLast = index === steps.length - 1;
-
-  // The rail hides its own scrollbar (deliberately — see .scrollbar-none),
-  // which removes the one hint that there was more to scroll to. Without
-  // this, advancing past whatever fits the viewport leaves the active step
-  // sitting off-screen with nothing on screen moving to show it.
-  const activeStepRef = useRef<HTMLButtonElement | null>(null);
+  // How far along the rail the applicant may go: as far as they have been.
+  const reached = Math.max(
+    index,
+    steps.findIndex((s) => s.id === furthest),
+  );
   useEffect(() => {
-    activeStepRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
-  }, [index]);
+    if (index > steps.findIndex((s) => s.id === furthest)) setFurthest(step);
+  }, [index, steps, furthest, step]);
 
-  /** What this step still needs before it can be left. Returns null when the
-   *  step is complete. Presentation only — the server re-checks everything. */
-  const blocker = useMemo((): string | null => {
+  /** What a step still needs before it can be left, or null when it is
+   *  complete. Presentation only — the server re-checks everything. A plain
+   *  function of the answers, so the rail can ask it of ANY step, not only the
+   *  one on screen. */
+  const blockerFor = (step: StepId): string | null => {
     if (step === 'consent') {
-      if (!consentAccepted && !consentChecked) return 'Agree to let GDB fetch these records to continue.';
+      if (!consentAccepted && !consentChecked) return 'Authorise GDB to retrieve these records.';
     }
     if (step === 'route') {
-      if (!stage) return 'Tell us whether this is an existing business or a new venture.';
+      if (!stage) return 'Select the application type.';
       if (stage === 'Existing' && (myBusinesses?.length ?? 0) > 0 && !dcra.trim()) {
-        return 'Tell us which business this application is for.';
+        return 'Select the registered business.';
       }
-      // Where the register answered the ownership, `structure` is already set
-      // and can no longer hold this screen open — so the cluster question
-      // blocks on its own. Without it, "No" would be applied to somebody who
-      // never read the question.
       if (registryPending && looking) return 'Checking the register…';
-      if (registryAnswers && applyAsCluster === null) {
-        return 'Tell us whether you want to apply as a cluster.';
-      }
-      if (!structure) return 'Tell us how you are applying.';
+      if (!structure) return 'Select the legal structure.';
       // These three hold the screen open on the ownership block. They are
       // asked ONLY while that block is on it — a rule about a question the
       // applicant cannot see is a dead end, not a check.
       if (askOwnership && structure === 'Partnership' && namedOwners.length === 0) {
-        return 'Name at least one partner, or apply as a sole proprietorship.';
+        return 'Name at least one partner.';
       }
       if (askOwnership && !applicantShare) {
-        return structure === 'Partnership'
-          ? 'Tell us what share of the partnership is yours.'
-          : 'Tell us what share of the company is yours.';
+        return 'Enter your ownership share.';
       }
       // Over 100% cannot be true of anything, and the server refuses it too.
       // Under 100% is deliberately allowed — see OwnershipBlock.
       if (askOwnership && sharesDeclared > 100) {
-        return `The declared shares add up to ${sharesDeclared}%. They cannot exceed 100%.`;
-      }
-      if (forCluster) {
-        if (!chosenCluster && !clusterName.trim()) return 'Give your group a name.';
-        if (wantsFacilitator === null) return 'Tell us whether you would like a regional facilitator.';
-        // Nothing to validate on the facilitator itself: it is chosen from a
-        // list the server supplied, and choosing nobody is a valid answer —
-        // GDB attaches one for the group's region instead.
+        return `Ownership shares total ${sharesDeclared}%. They cannot exceed 100%.`;
       }
     }
     if (step === 'about') {
-      if (!profileDob) return 'Give a date of birth.';
-      if (!profilePhone.trim()) return 'Give a phone number.';
-      if (!profileEmail.trim()) return 'Give an email address.';
-      if (!profileAddress.trim()) return 'Give a residential address.';
-    }
-    if (step === 'group') {
-      if (!groupPurpose.trim()) return 'Tell us what the group does.';
-      if (!groupRegion) return 'Tell us which region the group works in.';
-      if (!groupRegistered) return 'Tell us whether the group is registered.';
-    }
-    if (step === 'members') {
-      // One member besides the head. A "group" of one is an individual
-      // application, and filing it as a group's would put a facility in a
-      // name nobody else agreed to.
-      const others = (cluster?.members ?? []).filter((m) => !m.is_head);
-      if (others.length === 0) return 'Add at least one other member to the group.';
-    }
-    if (step === 'plan') {
-      if (!(plan.plan_executive_summary ?? '').trim()) {
-        return 'Write the executive summary — it is what an underwriter reads first.';
+      if (!profileDob) return 'Enter your date of birth.';
+      if (!profilePhone.trim()) return 'Enter your phone number.';
+      // Guyana numbers are seven digits (592 in front when typed with the
+      // country code). The server applies the full check on save.
+      const phoneDigits = profilePhone.replace(/\D/g, '');
+      if (
+        !profilePhone.trim().startsWith('+') &&
+        !(phoneDigits.length === 7 || (phoneDigits.length === 10 && phoneDigits.startsWith('592')))
+      ) {
+        return 'Enter a valid phone number, e.g. 600 1234.';
       }
-      if (!(plan.plan_shared_project ?? '').trim()) {
-        return 'Describe the shared project the group is building.';
-      }
+      if (!profileEmail.trim()) return 'Enter your email address.';
+      if (!profileAddress.trim()) return 'Enter your residential address.';
     }
     if (step === 'business') {
-      if (!businessName.trim()) return 'Give the name of the business.';
-      if (stage === 'Existing' && !dcra.trim()) return 'Give the DCRA registration number.';
-      if (!val('products_services').trim()) return 'Describe what the business sells or does.';
+      if (!text('executive_summary').trim()) return 'Enter the executive summary.';
+      if (!text('products_services').trim()) return 'Enter the products and services.';
+      if (!text('unique_selling_point').trim()) return 'Enter the unique selling proposition.';
+      if (!businessName.trim()) return 'Enter the business name.';
+      if (stage === 'Existing' && !dcra.trim()) return 'Enter the DCRA registration number.';
+      if (!text('sector').trim()) return 'Select the sector.';
     }
     if (step === 'funding') {
-      if (!amount || Number(amount) <= 0) return 'Enter how much you are asking for.';
-      if (!term || Number(term) < 1 || Number(term) > 360) return 'Enter a term between 1 and 360 months.';
-      if (!purpose.trim()) return 'Say what the money is for.';
-      if (!bank || !accountNo) return 'Tell us where GDB should pay you.';
+      if (!amount || Number(amount) <= 0) return 'Enter the loan amount.';
+      if (!term || Number(term) < 1 || Number(term) > 360) return 'Enter a tenor of 1 to 360 months.';
+      if (!purpose.trim()) return 'Enter the purpose of the loan.';
+      if (!bank || !accountNo) return 'Enter the disbursement account.';
     }
     return null;
-  }, [
-    step,
-    consentAccepted,
-    consentChecked,
-    stage,
-    structure,
-    registryAnswers,
-    registryPending,
-    looking,
-    applyAsCluster,
-    // The ownership block's state, all of it. Missing from here, the memo kept
-    // answering "name at least one partner" after a partner had been named —
-    // the rule was right and simply never re-ran.
-    namedOwners.length,
-    applicantShare,
-    sharesApply,
-    askOwnership,
-    sharesDeclared,
-    forCluster,
-    chosenCluster,
-    clusterName,
-    wantsFacilitator,
-    facilitatorEid,
-    profileDob,
-    profilePhone,
-    profileEmail,
-    profileAddress,
-    groupPurpose,
-    groupRegion,
-    groupRegistered,
-    cluster,
-    plan,
-    businessName,
-    dcra,
-    myBusinesses,
-    sections,
-    amount,
-    term,
-    purpose,
-    bank,
-    accountNo,
-  ]);
+  };
 
-  const goNext = async () => {
+  /** Leave the step on screen: its check, then whatever it saves. True when
+   *  the step may be left. Shared by Continue and by the rail, so there is one
+   *  way out of a step and nothing is saved by one path and skipped by the
+   *  other. */
+  const leaveStep = async (next: StepId): Promise<boolean> => {
+    const blocker = blockerFor(step);
     if (blocker) {
       setError(blocker);
-      return;
+      if (step === 'business') setOpenGroup(BRIEF_KEYS.some((k) => !text(k).trim()) ? 1 : 5);
+      return false;
     }
     setError(null);
     if (step === 'consent' && !consentAccepted) {
-      if (!(await acceptConsent())) return;
-    }
-
-    // Leaving the route step on the cluster path is what BRINGS THE GROUP INTO
-    // BEING: the head has named it and said whether they want a facilitator,
-    // which is everything a group needs to exist. The rest — what it does,
-    // who is in it, what it plans — is asked of a group that already has a
-    // name, because members are invited to something.
-    if (step === 'route' && forCluster) {
-      setBusy(true);
-      try {
-        const group = chosenCluster
-          ? await call<Cluster>('gdb_bank.api.cluster_view', { cluster: chosenCluster })
-          : cluster?.name === clusterName.trim()
-            ? cluster
-            : await call<Cluster>('gdb_bank.api.create_cluster', {
-                cluster_name: clusterName.trim(),
-                facilitator_eid: wantsFacilitator && isCompleteEid(facilitatorEid) ? facilitatorEid : '',
-                facilitator_requested: wantsFacilitator ? 1 : 0,
-              });
-        setCluster(group);
-        // A group picked from the list arrives with its own answers already
-        // in it; the screens ahead edit those rather than start blank.
-        setGroupPurpose((v) => v || group.group_purpose || '');
-        setGroupRegion((v) => v || group.region || '');
-        setGroupLocality((v) => v || group.locality || '');
-        setGroupRegistered((v) => v || group.is_registered || '');
-        setPlan((p) => ({ ...p, ...Object.fromEntries(
-          PLAN_SECTIONS.map((sec) => [sec.key, p[sec.key] || group.plan?.[sec.key] || '']),
-        ) } as ClusterPlan));
-        if (group.facilitator_eid && !isCompleteEid(facilitatorEid)) {
-          setFacilitatorEid(group.facilitator_eid);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not create your group');
-        setBusy(false);
-        return;
-      }
-      setBusy(false);
+      if (!(await acceptConsent())) return false;
     }
 
     // Written to the citizen's own profile — the same record the standalone
@@ -1088,44 +885,11 @@ export function Apply() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save your details');
         setBusy(false);
-        return;
+        return false;
       }
       setBusy(false);
     }
 
-    if (step === 'group' && cluster) {
-      setBusy(true);
-      try {
-        setCluster(
-          await call<Cluster>('gdb_bank.api.save_cluster_details', {
-            cluster: cluster.name,
-            group_purpose: groupPurpose,
-            region: groupRegion,
-            locality: groupLocality,
-            is_registered: groupRegistered,
-          }),
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not save your group's details");
-        setBusy(false);
-        return;
-      }
-      setBusy(false);
-    }
-
-    if (step === 'plan' && cluster) {
-      setBusy(true);
-      try {
-        setCluster(
-          await call<Cluster>('gdb_bank.api.save_cluster_plan', { cluster: cluster.name, ...plan }),
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not save the shared plan');
-        setBusy(false);
-        return;
-      }
-      setBusy(false);
-    }
     // From the funding step onward there is enough to hold a server draft, and
     // from then on every move forward writes one.
     if (step === 'funding') {
@@ -1135,12 +899,70 @@ export function Apply() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save your application');
         setBusy(false);
+        return false;
+      }
+      setBusy(false);
+      return true;
+    }
+
+    // Every other step saves too, so the application can be left at any point
+    // and resumed from My applications on the step that comes next.
+    if (draft || stage) {
+      setBusy(true);
+      try {
+        await saveProgress(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save your application');
+        setBusy(false);
+        return false;
+      }
+      setBusy(false);
+    }
+    return true;
+  };
+
+  const goNext = async () => {
+    const next = steps[Math.min(index + 1, steps.length - 1)].id;
+    if (!(await leaveStep(next))) return;
+    setStep(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** Rail navigation. Back is free. Forward goes as far as the applicant has
+   *  already been, through the same check-and-save Continue runs — and stops
+   *  at the first step in between that is no longer complete, because an
+   *  answer changed on the way back can make a later step wrong. */
+  const jumpTo = async (i: number) => {
+    if (i === index || i > reached || busy) return;
+    if (i < index) {
+      setError(null);
+      setStep(steps[i].id);
+      return;
+    }
+    if (!(await leaveStep(steps[i].id))) return;
+    const stuck = steps.slice(index + 1, i).find((s) => blockerFor(s.id));
+    setStep((stuck ?? steps[i]).id);
+    if (stuck) setError(blockerFor(stuck.id));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /** Save, then leave for My applications, where it resumes on this step.
+   *  Nothing to save before the application type is chosen — consent is
+   *  already recorded on the profile. */
+  const exitToApplications = async () => {
+    if (draft || stage) {
+      setBusy(true);
+      setError(null);
+      try {
+        await saveProgress();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save your application');
+        setBusy(false);
         return;
       }
       setBusy(false);
     }
-    setStep(steps[Math.min(index + 1, steps.length - 1)].id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigate('/apply');
   };
 
   const goBack = () => {
@@ -1159,11 +981,6 @@ export function Apply() {
       const loan = await call<LoanApplication>('gdb_bank.api.submit_application', {
         name: saved.name,
       });
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {
-        /* nothing to clean up */
-      }
       setSubmitted(loan);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit application');
@@ -1172,23 +989,207 @@ export function Apply() {
     }
   };
 
+  // --- review -------------------------------------------------------------
+  const goTo = (id: StepId) => {
+    setTab('application');
+    setError(null);
+    setStep(id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Every expected document the wizard can attach, in the order the tab lists
+  // them. Financial evidence follows the route: accounts for a trading
+  // business, a plan for a new one.
+  const docRows: DocRow[] = [
+    ...(stage === 'Existing'
+      ? [{ type: 'Financials', title: 'Financial statements', hint: 'Accounts for the last financial year · Financial information' }]
+      : []),
+    ...(stage === 'New'
+      ? [{ type: 'Business Plan', title: 'Business plan', hint: 'With financial projections · Financial information' }]
+      : []),
+    { type: 'Bank Statement', title: 'Bank statements', hint: 'Business account statements' },
+    { type: 'Quotation', title: 'Supplier quotations', hint: 'For items to be financed · Funding' },
+    { type: 'Identity', title: 'Identity document', hint: 'National ID or passport · About you' },
+    { type: 'Proof of Address', title: 'Proof of address', hint: 'Utility bill or bank letter · About you' },
+    OTHER_DOC,
+  ];
+  const docTitle = (type: string) => docRows.find((r) => r.type === type)?.title ?? type;
+
+  const reviewSteps = steps.filter((s) => s.id !== 'consent' && s.id !== 'evidence');
+  const fieldIssues = reviewSteps.flatMap((s) => {
+    const blocker = blockerFor(s.id);
+    return blocker
+      ? [{ section: s.id, title: blocker, where: s.title, kind: 'Required field missing', action: 'Go to field', go: () => goTo(s.id) }]
+      : [];
+  });
+  // Advisory: shown, never a bar to submitting — the Bank chases paperwork.
+  const docIssues = missing.map((t) => ({
+    section: DOC_SECTION[t] ?? ('evidence' as StepId),
+    title: `Attach your ${docTitle(t).toLowerCase()}`,
+    where: steps.find((s) => s.id === DOC_SECTION[t])?.title ?? 'Documents',
+    kind: 'Optional',
+    action: 'Go to documents',
+    go: () => setTab('documents'),
+  }));
+  const issues = [...fieldIssues, ...docIssues];
+  // Unanswered questions only. Expected documents are counted apart: they are
+  // optional at submission, and showing them as "missing" reads as a question
+  // left blank.
+  const issuesIn = (id: StepId) => fieldIssues.filter((i) => i.section === id).length;
+  const docsIn = (id: StepId) => docIssues.filter((i) => i.section === id).length;
+
+  const lastSaved = draft?.modified ?? pendingSavedOn;
+  const savedAt = lastSaved
+    ? new Date(lastSaved.replace(' ', 'T')).toLocaleTimeString('en-GY', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  const statusLine = savedAt ? `Draft · Last saved ${savedAt}` : 'Draft';
+
+  const show = (v: string | null | undefined) => (v && String(v).trim()) || '—';
+  const money = (key: string) => (val(key) ? formatGyd(Number(val(key))) : '—');
+  const stageLabel = stage === 'Existing' ? 'Existing business' : stage === 'New' ? 'New venture' : '';
+  const structureLabel = STRUCTURE_LABEL[structure] ?? '';
+  const OPERATIONS_KEYS = ['operating_location', 'production_process', 'equipment_required', 'suppliers', 'permits_required'];
+
+  const summaryFor = (id: StepId): string => {
+    const join = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' · ');
+    switch (id) {
+      case 'route':
+        return join(stageLabel, structureLabel);
+      case 'about':
+        return join(
+          profile?.verified_full_name || user?.full_name,
+          (user?.eid || profile?.eid) && `e-ID ${user?.eid || profile?.eid}`,
+          profileAddress,
+        );
+      case 'business':
+        return join(businessName, dcra, val('sector'));
+      case 'operations':
+        return `Optional · ${OPERATIONS_KEYS.filter((k) => val(k).trim()).length} of ${OPERATIONS_KEYS.length} answered`;
+      case 'finances':
+        return stage === 'Existing' ? 'Declared figures, last financial year' : stage === 'New' ? 'Projections' : '';
+      case 'funding':
+        return join(amount && formatGyd(Number(amount)), term && `${term} months`, purpose);
+      default:
+        return '';
+    }
+  };
+
+  const answersFor = (id: StepId): [string, string][] => {
+    switch (id) {
+      case 'route':
+        return [
+          ['Application type', show(stageLabel)],
+          ['Legal structure', show(structureLabel)],
+          ...(askOwnership
+            ? ([
+                ['Your ownership share', applicantShare ? `${applicantShare}%` : '—'],
+                ['Other owners', show(namedOwners.map((o) => `${o.name || o.eid} (${o.share || 0}%)`).join(', '))],
+              ] as [string, string][])
+            : []),
+        ];
+      case 'about':
+        return [
+          ['Full name', show(profile?.verified_full_name || user?.full_name)],
+          ['e-ID', show(user?.eid || profile?.eid)],
+          ['Date of birth', profileDob ? formatDate(profileDob) : '—'],
+          ['Phone number', show(profilePhone)],
+          ['Email address', show(profileEmail)],
+          ['Residential address', show(profileAddress)],
+        ];
+      case 'business':
+        return [
+          ['Business name', show(businessName)],
+          ...(stage === 'Existing' ? [['DCRA registration', show(dcra)] as [string, string]] : []),
+          ['Sector', show(text('sector'))],
+          ['Sub-sector', show(text('sub_sector'))],
+          ['Executive summary', show(text('executive_summary'))],
+          ['Products and services', show(text('products_services'))],
+          ['Unique selling proposition', show(text('unique_selling_point'))],
+          ['Customer segments', show(text('customer_segments'))],
+          ['Target market', show(text('target_market'))],
+          ['Competitors', show(text('competitors'))],
+          ['Jobs to be created', show(text('jobs_created'))],
+          ...(stage === 'Existing' ? [['Current staff', show(text('staff_count'))] as [string, string]] : []),
+          ['Employment impact', show(text('employment_impact'))],
+          ['Vision', show(text('vision'))],
+          ['Mission', show(text('mission'))],
+          ['Goals', show(text('goals'))],
+        ];
+      case 'operations':
+        return [
+          ['Operating region', show(val('operating_location'))],
+          ['Production process', show(val('production_process'))],
+          ['Equipment and fixed assets', show(val('equipment_required'))],
+          ['Key suppliers', show(val('suppliers'))],
+          ['Licences and permits', show(val('permits_required'))],
+        ];
+      case 'finances':
+        return stage === 'Existing'
+          ? [
+              ['Annual revenue', money('annual_revenue')],
+              ['Cost of sales', money('cost_of_sales')],
+              ['Operating expenses', money('operating_expenses')],
+              ['Annual debt service', money('existing_obligations')],
+              ['Cash and bank balances', money('cash_position')],
+            ]
+          : stage === 'New'
+            ? [
+                ['Projected sales volume', show(val('expected_sales_volume'))],
+                ['Projected annual revenue', money('projected_revenue')],
+                ['Projected annual costs', money('projected_costs')],
+                ['Start-up costs', money('initial_costs')],
+                ['Projected monthly cash flow', money('expected_cash_position')],
+                ['Key assumptions', show(val('assumptions'))],
+              ]
+            : [];
+      case 'funding':
+        return [
+          ['Loan amount', amount ? formatGyd(Number(amount)) : '—'],
+          ['Tenor', term ? `${term} months` : '—'],
+          ['Interest rate', '0%'],
+          ['Purpose', show(purpose)],
+          [
+            'Use of proceeds',
+            show(
+              useOfFunds
+                .filter((r) => r.item.trim())
+                .map((r) => `${r.item} — ${formatGyd(r.amount || 0)}`)
+                .join('\n'),
+            ),
+          ],
+          ['Personal monthly income', income ? formatGyd(Number(income)) : '—'],
+          ['Disbursement account', bank ? `${bank} ••••${accountNo.slice(-4)}` : '—'],
+        ];
+      default:
+        return [];
+    }
+  };
+
+  const reviewSections = reviewSteps.map((s) => ({
+    id: s.id,
+    title: s.title,
+    summary: summaryFor(s.id),
+    issues: issuesIn(s.id),
+    docs: docsIn(s.id),
+    answers: answersFor(s.id),
+  }));
+
   if (submitted) {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
           <CheckIcon className="h-7 w-7" />
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">Application sent</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Application submitted</h1>
         <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-          GDB has {submitted.name}. An underwriter reviews it next, and any request for more
-          information will show on the case page.
+          Reference {submitted.name}. Now with an underwriter.
         </p>
         <button
           type="button"
           onClick={() => navigate(`/loans/${submitted.name}`)}
           className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand px-6 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
         >
-          View your application
+          View application
           <ArrowRightIcon className="h-4 w-4" />
         </button>
       </div>
@@ -1196,74 +1197,80 @@ export function Apply() {
   }
 
   return (
-    <div>
-      {/* Step rail. Every step is visible from the start, because an applicant
-          deciding whether to begin needs to see what the whole thing asks. */}
-      <nav className="mb-6 overflow-x-auto scrollbar-none">
-        <ol className="flex min-w-max items-center">
-          {steps.map((s, i) => {
-            const done = i < index;
-            const active = i === index;
-            return (
-              <li key={s.id} className="flex items-center">
-                <button
-                  ref={active ? activeStepRef : undefined}
-                  type="button"
-                  onClick={() => {
-                    // Backwards only. Skipping ahead past an unanswered branch
-                    // would ask Section G questions of a business that has not
-                    // said whether it exists yet.
-                    if (i <= index) {
-                      setError(null);
-                      setStep(s.id);
-                    }
-                  }}
-                  disabled={i > index}
-                  className={`flex items-center gap-2 rounded-md px-2.5 py-2 transition-colors ${
-                    active ? 'bg-white shadow-sm' : i < index ? 'hover:bg-white/60' : 'cursor-default'
-                  }`}
-                >
-                  <span
-                    className={`flex h-6 w-6 flex-none items-center justify-center rounded-full text-[11px] font-bold ${
-                      done
-                        ? 'bg-brand text-white'
-                        : active
-                          ? 'bg-brand text-white ring-4 ring-brand/15'
-                          : 'border-2 border-slate-200 bg-white text-slate-300'
-                    }`}
-                  >
-                    {done ? <CheckIcon className="h-3 w-3" /> : i + 1}
-                  </span>
-                  <span
-                    className={`hidden text-xs whitespace-nowrap sm:inline ${
-                      active ? 'font-bold text-slate-900' : done ? 'font-medium text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    {s.title}
-                  </span>
-                </button>
-                {i < STEPS.length - 1 && <span className="mx-1 h-px w-4 flex-none bg-slate-200 sm:w-8" />}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => void exitToApplications()}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition-colors hover:text-brand disabled:opacity-50"
+      >
+        <ArrowRightIcon className="h-4 w-4 rotate-180" />
+        My applications
+      </button>
 
-      <div className="min-w-0">
-        <header className="mb-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
-            Step {index + 1} of {steps.length}
-          </p>
-          <h2 className="mt-1 text-2xl font-bold text-slate-900">{current.title}</h2>
-          <p className="mt-1 text-sm text-slate-500">{current.blurb}</p>
-        </header>
+      {/* Every step is visible from the start, because an applicant deciding
+          whether to begin needs to see what the whole thing asks. */}
+      <StepRail
+        steps={steps}
+        index={index}
+        reached={reached}
+        active={tab === 'application'}
+        attention={(id) => id !== 'evidence' && issuesIn(id as StepId) > 0}
+        onJump={(i) => {
+          setTab('application');
+          void jumpTo(i);
+        }}
+      />
 
-        {restored && step === 'route' && (
+      <div className="flex gap-6 border-b border-slate-200" role="tablist">
+        {(
+          [
+            ['application', 'Your application'],
+            ['documents', 'Documents'],
+          ] as const
+        ).map(([id, text]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${
+              tab === id ? 'border-brand text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'documents' && (
+        <Card className="space-y-4 p-6">
+          <header>
+            <h2 className="text-xl font-bold text-slate-900">Documents</h2>
+            <p className="mt-1 text-sm text-slate-500">Each document is linked to its section.</p>
+          </header>
+          {draft ? (
+            <ApplicationDocuments application={draft.name} rows={docRows} onChange={setMissing} />
+          ) : (
+            <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              Available once the Funding step is saved.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => setTab('application')}
+            className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Back to application
+          </button>
+        </Card>
+      )}
+
+      <div className={`min-w-0 ${tab === 'application' ? '' : 'hidden'}`}>
+        {restored && (
           <div className="mb-4">
-            <Notice tone="info">
-              We restored what you had already typed on this device. Nothing has been sent to GDB
-              yet.
-            </Notice>
+            <Notice tone="info">Resumed from your saved draft.</Notice>
           </div>
         )}
 
@@ -1275,25 +1282,31 @@ export function Apply() {
 
         {/* `pb-20` clears the sticky action bar below. Without it the bar
             rests ON the card's last control once the page is scrolled to the
-            end — and the last control on this step is now a REQUIRED question,
+            end — and the last control on a step can be a REQUIRED question,
             so a translucent bar sitting over it is not a cosmetic problem: the
             answer cannot be given, and the click lands on Continue instead. */}
-        <Card className="space-y-6 pb-20">
+        <Card className={`space-y-6 p-6 ${isLast ? '' : 'pb-20'}`}>
+          {!isLast && (
+            <header>
+              <h2 className="text-xl font-bold text-slate-900">
+                {current.title}
+                {step === 'business' && stageLabel ? ` · ${stageLabel}` : ''}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {step === 'business' && stageLabel ? `${stageLabel} · ${statusLine}` : statusLine}
+              </p>
+              {current.blurb && <p className="mt-1 text-sm text-slate-500">{current.blurb}</p>}
+            </header>
+          )}
+
           {/* --------------------------------------------------- STEP: CONSENT */}
           {step === 'consent' && (
-            <Section
-              letter="1"
-              title="Let GDB fetch these records"
-              blurb="Before anything else, because the rest of this application depends on it."
-            >
+            <Section letter="1" title="Records authorisation">
               <ul className="list-disc space-y-1.5 pl-5 text-sm text-slate-600">
-                <li>Your business registration at the Deeds and Commercial Registries Authority.</li>
-                <li>The bank accounts registered in your name, to verify where GDB pays you.</li>
+                <li>Business registration — Deeds and Commercial Registries Authority (DCRA)</li>
+                <li>Bank accounts held in your name — to verify the disbursement account</li>
               </ul>
-              <p className="text-xs text-slate-500">
-                GDB only looks these up to fill the application in for you and to pay you
-                correctly. Nothing is shared beyond GDB.
-              </p>
+              <p className="text-xs text-slate-500">Used for this application only. Not shared outside GDB.</p>
               <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50/80 p-3.5">
                 <input
                   type="checkbox"
@@ -1303,7 +1316,7 @@ export function Apply() {
                   className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                 />
                 <span className="text-sm font-medium text-slate-800">
-                  I agree to let GDB fetch these records.
+                  I authorise GDB to retrieve these records.
                 </span>
               </label>
             </Section>
@@ -1314,14 +1327,12 @@ export function Apply() {
             <>
               <Section
                 letter="1"
-                title="Is this an existing business, a new venture, or a quick loan?"
-                blurb="Asked first because it decides what the rest of the application may ask you for. A trading business is asked what it has earned; a new venture what it expects to."
+                title="Application type"
               >
                 <div className="grid gap-3 sm:grid-cols-3">
                   <ChoiceCard
                     title="Existing business"
-                    body="Already trading, and registered with DCRA."
-                    note="You will be asked for revenue, costs and current obligations, and for financial records as evidence."
+                    body="Trading and registered with DCRA."
                     selected={stage === 'Existing'}
                     onSelect={() => {
                       setStage('Existing');
@@ -1339,8 +1350,7 @@ export function Apply() {
                   />
                   <ChoiceCard
                     title="New venture"
-                    body="Starting out, not registered yet."
-                    note="You will be asked for projections instead of accounts, and for a business plan as evidence."
+                    body="Start-up, not yet registered."
                     selected={stage === 'New'}
                     onSelect={() => {
                       setStage('New');
@@ -1354,8 +1364,7 @@ export function Apply() {
                       registration, accounts or plan for this form to ask about. */}
                   <ChoiceCard
                     title="Quick Loan"
-                    body="For market vendors, small services and other small businesses."
-                    note="No business registration needed."
+                    body="Informal traders · no registration required."
                     selected={false}
                     onSelect={() => navigate('/apply/quick')}
                   />
@@ -1369,11 +1378,11 @@ export function Apply() {
               {stage === 'Existing' && (
                 <Section
                   letter="2"
-                  title="Which business is this for?"
-                  blurb="The businesses DCRA has registered against your e-ID."
+                  title="Registered business"
+                  blurb="DCRA registrations held against your e-ID."
                 >
                   {looking && (
-                    <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>
+                    <p className="text-sm text-slate-500">Retrieving DCRA records…</p>
                   )}
                   {!looking && (myBusinesses?.length ?? 0) > 0 && (
                     <SelectField
@@ -1393,8 +1402,7 @@ export function Apply() {
                   )}
                   {!looking && !(myBusinesses?.length ?? 0) && (
                     <Notice tone="info">
-                      DCRA has no business registered to your e-ID yet. You can enter its
-                      registration number yourself on the next step.
+                      No DCRA registration found. Enter it under Business details.
                     </Notice>
                   )}
                 </Section>
@@ -1412,38 +1420,22 @@ export function Apply() {
               {stage && (
                 <Section
                   letter={stage === 'Existing' ? '3' : '2'}
-                  title="Type of business"
-                  blurb={
-                    registryAnswers
-                      ? 'Taken from the register — you are not asked to repeat it.'
-                      : stage === 'Existing'
-                        ? 'How the business you picked above is owned.'
-                        : 'How the business you intend to trade as will be owned.'
-                  }
+                  title="Legal structure"
+                  blurb={registryAnswers ? 'From the DCRA register.' : undefined}
                 >
                   {registryPending ? (
                     <p className="text-sm text-slate-500">
-                      {looking
-                        ? 'Checking what the register says about this business…'
-                        : 'Pick the business above and the register will answer this.'}
+                      {looking ? 'Retrieving DCRA records…' : 'Select the registered business above.'}
                     </p>
                   ) : registryAnswers ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-                      <p className="text-sm leading-relaxed text-slate-700">
-                        DCRA has{' '}
+                      <p className="text-sm text-slate-700">
                         <span className="font-bold text-slate-900">
                           {dcraRecord?.business_name ?? dcra}
                         </span>{' '}
-                        registered as a{' '}
-                        <span className="font-bold text-slate-900">
-                          {dcraRecord?.business_type}
-                        </span>
-                        , so this application is filed as {STRUCTURE_PROSE[registryStructure]}.
+                        — filed as {STRUCTURE_PROSE[registryStructure]}.
                       </p>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                        If that is wrong, it is the registration that needs correcting at DCRA —
-                        GDB lends against the register, not against what the form was told.
-                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Corrections are made at DCRA.</p>
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -1462,50 +1454,6 @@ export function Apply() {
                         selected={structure === 'Partnership'}
                         onSelect={() => setStructure('Partnership')}
                       />
-                      <ChoiceCard
-                        title="Cluster"
-                        selected={structure === 'Cluster-supported'}
-                        onSelect={() => setStructure('Cluster-supported')}
-                      />
-                    </div>
-                  )}
-
-                  {/* The one thing DCRA has no answer for. A registered
-                      business may still borrow as part of a group, so this is
-                      asked of every existing business whose ownership came off
-                      the register — and answering it is what sets the
-                      structure either way. */}
-                  {registryAnswers && (
-                    <div className="mt-5">
-                      <p className="text-sm font-bold text-slate-800">
-                        Do you want to apply as a cluster?
-                        <span className="ml-1 text-rose-600">*</span>
-                      </p>
-                      <p className="mt-1 mb-3 text-xs leading-relaxed text-slate-500">
-                        A cluster borrows as a group: the head applies for everyone, each member
-                        keeps their own record, and every one of them signs before GDB releases a
-                        dollar. This is about how you want to borrow, not about the business — so
-                        the register cannot answer it for you.
-                      </p>
-                      <div className="flex gap-2">
-                        {[
-                          { label: 'Yes, as a cluster', value: true },
-                          { label: 'No, on my own', value: false },
-                        ].map((opt) => (
-                          <button
-                            key={String(opt.value)}
-                            type="button"
-                            onClick={() => chooseCluster(opt.value)}
-                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                              applyAsCluster === opt.value
-                                ? 'bg-brand text-white'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   )}
 
@@ -1531,33 +1479,6 @@ export function Apply() {
                     />
                   )}
 
-                  {/* The group is named here and nowhere else. Asking for it
-                      on a separate page and sending the applicant back would
-                      lose them the wizard they are halfway through. */}
-                  {forCluster && (
-                    <div className="rounded-lg bg-slate-50/80 p-4">
-                      <ClusterIdentity
-                        clusterName={clusterName}
-                        onName={setClusterName}
-                        wantsFacilitator={wantsFacilitator}
-                        onWantsFacilitator={setWantsFacilitator}
-                        facilitatorEid={facilitatorEid}
-                        onFacilitatorEid={setFacilitatorEid}
-                        existing={myClusters}
-                        chosen={chosenCluster}
-                        onChoose={setChosenCluster}
-                        locked={Boolean(cluster && cluster.name === clusterName.trim())}
-                      />
-                    </div>
-                  )}
-
-                  {forCluster && (
-                    <Notice tone="info">
-                      This is the group&rsquo;s application, not yours. Every active member can see
-                      it, and every one of them signs the Letter of Offer before GDB releases a
-                      dollar.
-                    </Notice>
-                  )}
                 </Section>
               )}
             </>
@@ -1567,8 +1488,7 @@ export function Apply() {
           {step === 'about' && (
             <Section
               letter="A"
-              title="About you"
-              blurb="Confirmed against your e-ID. What it holds cannot be edited here."
+              title="Applicant details"
             >
               {/* The identity directory's own assertion, shown the same grey
                   way as DCRA's. These two are not answers the applicant gave
@@ -1579,7 +1499,7 @@ export function Apply() {
                   distinction first meets the applicant. */}
               <div className="grid gap-3 sm:grid-cols-2">
                 <ReadOnlyField
-                  label="Name"
+                  label="Full name"
                   value={profile?.verified_full_name || user?.full_name}
                   source="From your e-ID"
                   checked={profile?.verified_on ? formatDate(profile.verified_on) : null}
@@ -1599,12 +1519,12 @@ export function Apply() {
                 required
                 hint={
                   profile && !profile.date_of_birth && !profile.verified_birth_date
-                    ? 'Your e-ID did not carry a date of birth — check this before continuing.'
+                    ? 'Not provided by your e-ID.'
                     : undefined
                 }
               />
               <TextField
-                label="Phone"
+                label="Phone number"
                 type="tel"
                 inputMode="tel"
                 value={profilePhone}
@@ -1626,92 +1546,146 @@ export function Apply() {
                 onChange={setProfileAddress}
                 required
                 rows={2}
-                hint="Where you live, not the business."
-              />
-            </Section>
-          )}
-
-          {/* ---------------------------------------------------- STEP: GROUP */}
-          {step === 'group' && (
-            <Section
-              letter="C1"
-              title="About your group"
-              blurb="What the group does, and where it works. The region decides which GDB regional facilitator can be attached to help you."
-            >
-              <GroupDetails
-                purpose={groupPurpose}
-                onPurpose={setGroupPurpose}
-                region={groupRegion}
-                onRegion={setGroupRegion}
-                locality={groupLocality}
-                onLocality={setGroupLocality}
-                registered={groupRegistered}
-                onRegistered={setGroupRegistered}
-              />
-              {cluster?.facilitator_name && (
-                <Notice tone="good">
-                  <strong>{cluster.facilitator_name}</strong> is attached to this group as its
-                  facilitator. They can help you write the shared plan, and they see nothing else.
-                </Notice>
-              )}
-              {cluster?.facilitator_requested && !cluster.facilitator && (
-                <Notice tone="info">
-                  GDB has your request for a facilitator. One will be attached for{' '}
-                  {groupRegion || 'your region'}.
-                </Notice>
-              )}
-            </Section>
-          )}
-
-          {/* -------------------------------------------------- STEP: MEMBERS */}
-          {step === 'members' && (
-            <Section
-              letter="C2"
-              title="Group members"
-              blurb="Add each member by their national e-ID. Everyone you add is invited — they join by accepting, signed in as themselves."
-            >
-              <MembersTable cluster={cluster} onChanged={setCluster} />
-              <Notice tone="info">
-                An e-ID that has never signed in to GDB is still a valid member. The invitation
-                waits for them, and attaches itself the first time they sign in.
-              </Notice>
-            </Section>
-          )}
-
-          {/* ----------------------------------------------------- STEP: PLAN */}
-          {step === 'plan' && (
-            <Section
-              letter="C3"
-              title="The shared plan"
-              blurb="The group's case, in its own words. This is what an underwriter reads before anything else."
-            >
-              <SharedPlan
-                plan={plan}
-                onChange={(key: ClusterPlanSection, value: string) =>
-                  setPlan((p) => ({ ...p, [key]: value }))
-                }
               />
             </Section>
           )}
 
           {/* ------------------------------------------------- STEP: BUSINESS */}
+          {/* Grouped, one open at a time: a long page of text boxes is where a
+              phone applicant gives up. Each group says how far it is answered. */}
           {step === 'business' && (
-            <>
-              <Section
-                letter="B"
-                title="Business identity"
-                blurb={
-                  stage === 'Existing'
-                    ? 'Confirmed against the Deeds and Commercial Registries Authority. What the register holds cannot be edited here.'
-                    : 'What you intend to trade as.'
-                }
+            <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200">
+              <QuestionGroup
+                n={1}
+                title="Your business in brief"
+                hint="What the business is and what the loan will help it achieve."
+                answered={filled(BRIEF_KEYS)}
+                total={BRIEF_KEYS.length}
+                open={openGroup === 1}
+                onToggle={() => toggleGroup(1)}
+              >
+                <TextAreaField
+                  label="Executive summary"
+                  required
+                  max={1000}
+                  value={text('executive_summary')}
+                  onChange={set('executive_summary')}
+                />
+                <TextAreaField
+                  label="Products and services"
+                  required
+                  max={1000}
+                  value={text('products_services')}
+                  onChange={set('products_services')}
+                />
+                <TextAreaField
+                  label="Unique selling proposition"
+                  required
+                  max={1000}
+                  value={text('unique_selling_point')}
+                  onChange={set('unique_selling_point')}
+                />
+                {stage === 'New' && draft && (
+                  <div className="rounded-lg bg-brand-light/40 p-3">
+                    <ApplicationDocuments
+                      application={draft.name}
+                      rows={[{ type: 'Business Plan', title: 'Business plan document', hint: 'Optional' }]}
+                      onChange={setMissing}
+                    />
+                  </div>
+                )}
+              </QuestionGroup>
+
+              <QuestionGroup
+                n={2}
+                title="Market and customers"
+                hint="Who the business serves and the market it operates in."
+                answered={filled(MARKET_KEYS)}
+                total={MARKET_KEYS.length}
+                open={openGroup === 2}
+                onToggle={() => toggleGroup(2)}
+              >
+                <TextAreaField
+                  label="Customer segments"
+                  max={1000}
+                  value={text('customer_segments')}
+                  onChange={set('customer_segments')}
+                />
+                <TextAreaField
+                  label="Target market"
+                  max={1000}
+                  value={text('target_market')}
+                  onChange={set('target_market')}
+                />
+                <TextAreaField
+                  label="Competitors"
+                  max={1000}
+                  value={text('competitors')}
+                  onChange={set('competitors')}
+                />
+              </QuestionGroup>
+
+              <QuestionGroup
+                n={3}
+                title="Jobs"
+                hint="Jobs the business will create in its first year."
+                answered={filled(jobKeys)}
+                total={jobKeys.length}
+                open={openGroup === 3}
+                onToggle={() => toggleGroup(3)}
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <TextField
+                    label="Jobs to be created"
+                    type="number"
+                    inputMode="numeric"
+                    value={text('jobs_created')}
+                    onChange={set('jobs_created')}
+                  />
+                  {stage === 'Existing' && (
+                    <TextField
+                      label="Current staff"
+                      type="number"
+                      inputMode="numeric"
+                      value={text('staff_count')}
+                      onChange={set('staff_count')}
+                    />
+                  )}
+                </div>
+                <TextAreaField
+                  label="Employment impact"
+                  max={1000}
+                  value={text('employment_impact')}
+                  onChange={set('employment_impact')}
+                />
+              </QuestionGroup>
+
+              <QuestionGroup
+                n={4}
+                title="Direction and goals"
+                hint="Vision · Mission · Goals"
+                answered={filled(DIRECTION_KEYS)}
+                total={DIRECTION_KEYS.length}
+                open={openGroup === 4}
+                onToggle={() => toggleGroup(4)}
+              >
+                <TextAreaField label="Vision" max={1000} value={text('vision')} onChange={set('vision')} />
+                <TextAreaField label="Mission" max={1000} value={text('mission')} onChange={set('mission')} />
+                <TextAreaField label="Goals" max={1000} value={text('goals')} onChange={set('goals')} />
+              </QuestionGroup>
+
+              <QuestionGroup
+                n={5}
+                title="Registration and sector"
+                hint={stage === 'Existing' ? 'Verified against the DCRA register.' : 'Trading name and sector.'}
+                answered={identityAnswered}
+                total={identityTotal}
+                open={openGroup === 5}
+                onToggle={() => toggleGroup(5)}
               >
                 {stage === 'Existing' && (
                   <>
-                    {looking && <p className="text-sm text-slate-500">Finding your businesses at DCRA…</p>}
-
-                    {/* Which business this is for was already asked, with a
-                        dropdown, on the previous step. */}
+                    {looking && <p className="text-sm text-slate-500">Retrieving DCRA records…</p>}
 
                     {manualEntry && (
                       <div onBlur={() => void checkTypedDcra()}>
@@ -1730,7 +1704,7 @@ export function Apply() {
                               setDcraNote(null);
                             }
                           }}
-                          placeholder="e.g. BN-2024-004512"
+                          placeholder="BN-2024-004512"
                         />
                       </div>
                     )}
@@ -1755,13 +1729,9 @@ export function Apply() {
                             {dcraRecord.status}
                           </span>
                         </div>
-                        {/* Grey, not white: these are the register's values,
-                            and the portal must not dress them as fields the
-                            applicant may answer. Each one is attributed to
-                            whoever GDB actually heard it from — a confirmed
-                            DCRA hit and a name recalled from an earlier
-                            application are not the same evidence, and the
-                            source line says which this is. */}
+                        {/* Grey, not white: the register's values, never
+                            fields the applicant may answer — each attributed to
+                            whoever GDB heard it from. */}
                         <div className="grid gap-3 sm:grid-cols-2">
                           <ReadOnlyField
                             label="Registered business name"
@@ -1776,12 +1746,9 @@ export function Apply() {
                           {dcraRecord.business_type && (
                             <ReadOnlyField
                               label="Structure on the register"
-                              // DCRA's own vocabulary is not the applicant's:
-                              // "Business Name" is what the register calls a
-                              // sole proprietorship, and nobody reading this
-                              // page is obliged to know that. The raw value
-                              // still shows where the portal has no word for
-                              // it, rather than leaving the field blank.
+                              // DCRA's "Business Name" is a sole proprietorship
+                              // in the applicant's words; the raw value shows
+                              // where the portal has no word for it.
                               value={
                                 STRUCTURE_LABEL[deriveStructure(dcraRecord)] ??
                                 dcraRecord.business_type
@@ -1797,11 +1764,7 @@ export function Apply() {
                             />
                           )}
                           {dcraRecord.region && (
-                            <ReadOnlyField
-                              label="Region"
-                              value={dcraRecord.region}
-                              source={dcraSourceLabel}
-                            />
+                            <ReadOnlyField label="Region" value={dcraRecord.region} source={dcraSourceLabel} />
                           )}
                           {dcraRecord.proprietors?.length ? (
                             <ReadOnlyField
@@ -1811,20 +1774,11 @@ export function Apply() {
                             />
                           ) : null}
                         </div>
-                        {dcraRecord.source === 'dcra' ? (
-                          <p className="mt-2 text-[11px] text-slate-400">
-                            Confirmed by the DCRA register.
-                          </p>
-                        ) : dcraRecord.source === 'gdb_history' ? (
-                          <p className="mt-2 text-[11px] text-slate-400">
-                            From your earlier GDB application — GDB will verify it against DCRA.
-                          </p>
-                        ) : null}
                         {dcraRecord.status && dcraRecord.status !== 'Active' && (
                           <div className="mt-2">
                             <Notice tone="warn">
-                              This registration is not active. GDB may ask you to restore it before
-                              funds are released.
+                              Registration inactive. Reinstatement may be required before
+                              disbursement.
                             </Notice>
                           </div>
                         )}
@@ -1837,7 +1791,7 @@ export function Apply() {
                         required
                         value={businessName}
                         onChange={setBusinessName}
-                        placeholder="As it appears on the certificate"
+                        placeholder="As on the certificate"
                       />
                     )}
                     {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
@@ -1846,17 +1800,8 @@ export function Apply() {
 
                 {stage === 'New' && (
                   <>
-                    <TextField
-                      label="Proposed business name"
-                      required
-                      value={businessName}
-                      onChange={setBusinessName}
-                      placeholder="What you intend to trade as"
-                    />
-                    <Notice tone="info">
-                      No DCRA number is needed to apply. You will need to register the business with
-                      the Deeds and Commercial Registries Authority before funds can be released.
-                    </Notice>
+                    <TextField label="Proposed trading name" required value={businessName} onChange={setBusinessName} />
+                    <Notice tone="info">DCRA registration is required before disbursement.</Notice>
                   </>
                 )}
 
@@ -1864,70 +1809,25 @@ export function Apply() {
                   <SelectField
                     label="Sector"
                     required
-                    value={val('sector')}
+                    value={text('sector')}
                     onChange={set('sector')}
                     options={SECTORS}
-                    placeholder="Choose a sector…"
+                    placeholder="Select sector…"
                   />
                   <TextField
                     label="Sub-sector"
-                    value={val('sub_sector')}
+                    value={text('sub_sector')}
                     onChange={set('sub_sector')}
-                    placeholder="e.g. Poultry, or cassava flour"
+                    placeholder="e.g. Poultry"
                   />
                 </div>
-              </Section>
-
-              <Section
-                letter="C"
-                title="What the business does"
-                blurb="Describe it as you would to somebody who has never seen it."
-              >
-                <TextAreaField
-                  label="Products or services"
-                  required
-                  value={val('products_services')}
-                  onChange={set('products_services')}
-                  placeholder="What you sell, make or provide."
-                />
-                <TextAreaField
-                  label="Employment or development impact"
-                  value={val('employment_impact')}
-                  onChange={set('employment_impact')}
-                  placeholder="Jobs you expect to create or sustain, or other benefit to your community."
-                />
-              </Section>
-
-              <Section
-                letter="D"
-                title="Market and customers"
-                blurb="Who buys from you, and who else they could buy from."
-              >
-                <TextAreaField
-                  label="Customer segments"
-                  value={val('customer_segments')}
-                  onChange={set('customer_segments')}
-                  placeholder="The kinds of customer you sell to."
-                />
-                <TextAreaField
-                  label="Target market"
-                  value={val('target_market')}
-                  onChange={set('target_market')}
-                  placeholder="Where they are — a region, a town, a trade."
-                />
-                <TextAreaField
-                  label="Competitors or alternatives"
-                  value={val('competitors')}
-                  onChange={set('competitors')}
-                  placeholder="Who else does this, or what customers do instead."
-                />
-              </Section>
-            </>
+              </QuestionGroup>
+            </div>
           )}
 
           {/* ----------------------------------------------- STEP: OPERATIONS */}
           {step === 'operations' && (
-            <Section letter="E" title="Operations" blurb="How the work actually gets done.">
+            <Section letter="E" title="Operating information">
               <SelectField
                 label="Operating region"
                 value={val('operating_location')}
@@ -1935,28 +1835,24 @@ export function Apply() {
                 options={REGIONS}
               />
               <TextAreaField
-                label="Production or service process"
+                label="Production process"
                 value={val('production_process')}
                 onChange={set('production_process')}
-                placeholder="From input to finished sale."
               />
               <TextAreaField
-                label="Equipment and assets"
+                label="Equipment and fixed assets"
                 value={val('equipment_required')}
                 onChange={set('equipment_required')}
-                placeholder="What you already have, and what this loan would add."
               />
               <TextAreaField
-                label="Suppliers"
+                label="Key suppliers"
                 value={val('suppliers')}
                 onChange={set('suppliers')}
-                placeholder="Who you buy from, and how reliable they are."
               />
               <TextAreaField
-                label="Permits or operating requirements"
+                label="Licences and permits"
                 value={val('permits_required')}
                 onChange={set('permits_required')}
-                placeholder="Any licence, permit or inspection your trade needs."
               />
             </Section>
           )}
@@ -1965,8 +1861,8 @@ export function Apply() {
           {step === 'finances' && stage === 'Existing' && (
             <Section
               letter="G"
-              title="Your business finances"
-              blurb="What the business has actually earned and spent. Give your best figures — GDB ranks your bank statements and records above anything declared here, so attach them at the evidence step."
+              title="Financial position"
+              blurb="Last financial year. Financial statements take precedence over declared figures."
             >
               <div className="grid gap-4 sm:grid-cols-2">
                 <MoneyField
@@ -1985,35 +1881,29 @@ export function Apply() {
                   onChange={set('operating_expenses')}
                 />
                 <MoneyField
-                  label="Existing loan obligations"
+                  label="Annual debt service"
                   value={val('existing_obligations')}
                   onChange={set('existing_obligations')}
-                  hint="What you already repay each year to any lender."
                 />
                 <MoneyField
-                  label="Current cash position"
+                  label="Cash and bank balances"
                   value={val('cash_position')}
                   onChange={set('cash_position')}
                 />
               </div>
-              <Notice tone="info">
-                These are the figures you are declaring. Where your documents show something
-                different, the documents are what GDB uses.
-              </Notice>
             </Section>
           )}
 
           {step === 'finances' && stage === 'New' && (
             <Section
               letter="H"
-              title="Your projections"
-              blurb="What you expect the venture to do. These are forecasts, and GDB reads them as forecasts — not as filed results."
+              title="Financial projections"
+              blurb="First year of trading."
             >
               <TextAreaField
-                label="Expected sales volume"
+                label="Projected sales volume"
                 value={val('expected_sales_volume')}
                 onChange={set('expected_sales_volume')}
-                placeholder="How much you expect to sell, and over what period."
               />
               <div className="grid gap-4 sm:grid-cols-2">
                 <MoneyField
@@ -2029,48 +1919,46 @@ export function Apply() {
                   onChange={set('projected_costs')}
                 />
                 <MoneyField
-                  label="Initial start-up costs"
+                  label="Start-up costs"
                   tag="Forecast"
                   value={val('initial_costs')}
                   onChange={set('initial_costs')}
                 />
                 <MoneyField
-                  label="Expected monthly cash position"
+                  label="Projected monthly cash flow"
                   tag="Forecast"
                   value={val('expected_cash_position')}
                   onChange={set('expected_cash_position')}
                 />
               </div>
               <TextAreaField
-                label="Assumptions behind these projections"
+                label="Key assumptions"
                 value={val('assumptions')}
                 onChange={set('assumptions')}
-                placeholder="What has to be true for these numbers to hold — prices, harvests, demand, supply."
-                hint="An underwriter assesses the assumptions as much as the figures."
+                placeholder="Prices, volumes, demand, supply"
               />
             </Section>
           )}
 
           {step === 'finances' && !stage && (
             <Notice tone="warn">
-              Go back to the first step and say whether this is an existing business or a new
-              venture — that decides which financial questions apply to you.
+              Select the application type first.
             </Notice>
           )}
 
           {/* -------------------------------------------------- STEP: FUNDING */}
           {step === 'funding' && (
             <>
-              <Section letter="I" title="What you are asking for" blurb="GDB lends at zero interest. You repay only what you borrow.">
+              <Section letter="I" title="Facility request" blurb="Interest-free. Principal repayment only.">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <MoneyField
-                    label="Amount requested"
+                    label="Loan amount"
                     required
                     value={amount}
                     onChange={setAmount}
                   />
                   <TextField
-                    label="Term (months)"
+                    label="Tenor (months)"
                     required
                     type="number"
                     inputMode="numeric"
@@ -2079,19 +1967,19 @@ export function Apply() {
                   />
                 </div>
                 <TextAreaField
-                  label="Purpose of the loan"
+                  label="Purpose of loan"
                   required
                   value={purpose}
                   onChange={setPurpose}
-                  placeholder="e.g. Working capital for my agro-processing business"
+                  placeholder="e.g. Working capital"
                 />
 
                 <div>
                   <span className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Use of funds
+                    Use of proceeds
                   </span>
                   <DataTable
-                    caption="What this loan will be spent on, line by line"
+                    caption="Use of proceeds"
                     columns={[
                       {
                         key: 'item',
@@ -2105,7 +1993,7 @@ export function Apply() {
                               )
                             }
                             aria-label={`Use of funds line ${i + 1}, item`}
-                            placeholder="e.g. New freezer"
+                            placeholder="e.g. Chest freezer"
                             className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-sm focus:border-brand focus:bg-white focus:outline-none"
                           />
                         ),
@@ -2155,23 +2043,10 @@ export function Apply() {
                     dense
                     footnote={false}
                     total={{
-                      // The total is Frappe's SUM of the lines as saved on the
-                      // draft — never added up here. Before the first save
-                      // there is nothing for Frappe to total yet.
-                      item: (
-                        <>
-                          Total{' '}
-                          <span className="font-normal text-slate-400">
-                            {draft?.use_of_funds_total != null
-                              ? '(as saved)'
-                              : '(worked out when you save)'}
-                          </span>
-                        </>
-                      ),
-                      amount:
-                        draft?.use_of_funds_total != null
-                          ? formatGyd(draft.use_of_funds_total)
-                          : '—',
+                      // A running sum as the applicant types. The figure GDB
+                      // records is Frappe's own SUM of the saved lines.
+                      item: 'Total',
+                      amount: formatGyd(useOfFunds.reduce((sum, r) => sum + (r.amount || 0), 0)),
                     }}
                   />
                   <button
@@ -2179,35 +2054,35 @@ export function Apply() {
                     onClick={() => setUseOfFunds((rows) => [...rows, { item: '', amount: 0 }])}
                     className="mt-2 text-xs font-semibold text-brand underline"
                   >
-                    Add a line
+                    Add line
                   </button>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <MoneyField
-                    label="Monthly income"
+                    label="Personal monthly income"
                     value={income}
                     onChange={setIncome}
-                    hint="Your own income, if you want GDB to take it into account."
+                    tag="Optional"
                   />
                 </div>
               </Section>
 
               <Section
                 letter="J"
-                title="Where GDB should pay you"
-                blurb="If your loan is approved, funds go to this account. It must be in your own name."
+                title="Disbursement account"
+                blurb="Must be held in your name."
               >
                 {accountsLoading && (
-                  <p className="text-sm text-slate-500">Finding accounts registered in your name…</p>
+                  <p className="text-sm text-slate-500">Retrieving your accounts…</p>
                 )}
 
                 {!manualAccount && (myAccounts?.length ?? 0) > 0 && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-slate-700">
                       {myAccounts?.length === 1
-                        ? 'This account is registered in your name.'
-                        : `You hold ${myAccounts?.length} accounts. Which should GDB pay into?`}
+                        ? 'Account held in your name.'
+                        : 'Select the disbursement account.'}
                     </p>
                     {myAccounts?.map((a) => {
                       const payable = a.status === 'Active';
@@ -2219,7 +2094,7 @@ export function Apply() {
                           note={
                             payable
                               ? undefined
-                              : `${a.status} — your bank cannot receive a payment into this account.`
+                              : `${a.status} — cannot receive funds.`
                           }
                           disabled={!payable}
                           selected={accountNo === a.account_number}
@@ -2229,8 +2104,8 @@ export function Apply() {
                     })}
                     <p className="text-xs text-slate-500">
                       {myAccounts?.[0]?.source === 'bank_registry'
-                        ? 'From your bank. GDB confirms it again before paying out.'
-                        : 'Test data — GDB confirms the account with your bank before paying out.'}
+                        ? 'From your bank. Re-verified before disbursement.'
+                        : 'Re-verified with your bank before disbursement.'}
                     </p>
                     <button
                       type="button"
@@ -2240,7 +2115,7 @@ export function Apply() {
                       }}
                       className="text-xs font-semibold text-brand underline"
                     >
-                      Pay into a different account
+                      Use another account
                     </button>
                   </div>
                 )}
@@ -2256,7 +2131,7 @@ export function Apply() {
                         setAccountCheck(null);
                       }}
                       options={banks}
-                      placeholder="Select your bank…"
+                      placeholder="Select bank…"
                     />
                     <div onBlur={() => void checkTypedAccount()}>
                       <TextField
@@ -2265,20 +2140,22 @@ export function Apply() {
                         inputMode="numeric"
                         value={accountNo}
                         onChange={(v) => {
-                          setAccountNo(v);
+                          // Digits only, as the server requires — a stray
+                          // full stop or space never reaches the save.
+                          setAccountNo(v.replace(/\D/g, ''));
                           setAccountCheck(null);
                         }}
-                        placeholder="Digits only, as printed on your statement"
+                        placeholder="Digits only"
                       />
                     </div>
                     <TextField
                       label="Branch code"
                       value={branchCode}
                       onChange={setBranchCode}
-                      placeholder="e.g. DEM-GT-04"
+                      placeholder="DEM-GT-04"
                     />
 
-                    {checking && <p className="text-xs text-slate-500">Checking with the bank…</p>}
+                    {checking && <p className="text-xs text-slate-500">Verifying with the bank…</p>}
 
                     {/* Three outcomes, never two. "We could not check" is said
                         out loud rather than shown as a pass — and none of them
@@ -2286,15 +2163,15 @@ export function Apply() {
                     {accountCheck && !checking && (
                       <Notice tone={accountCheck.result === 'Verified' ? 'good' : 'warn'}>
                         {accountCheck.result === 'Verified' &&
-                          `Confirmed — held by ${accountCheck.account_name}.`}
+                          `Verified — ${accountCheck.account_name}.`}
                         {accountCheck.result === 'Name Mismatch' &&
-                          'Your bank holds this account in a different name. You can still apply; GDB will check it before paying out.'}
+                          'Account name does not match. GDB verifies before disbursement.'}
                         {accountCheck.result === 'Inactive Account' &&
-                          `This account is ${accountCheck.status?.toLowerCase()} and cannot receive a payment. Nominate another one.`}
+                          `Account ${accountCheck.status?.toLowerCase()}. Nominate another account.`}
                         {accountCheck.result === 'Not Found' &&
-                          'Your bank has no account with this number. Check the digits against your statement.'}
+                          'Account not found. Check the number.'}
                         {accountCheck.result === 'Unavailable' &&
-                          'We could not reach your bank to check this. You can still apply; GDB will verify it before paying out.'}
+                          'Bank unavailable. GDB verifies before disbursement.'}
                       </Notice>
                     )}
 
@@ -2310,7 +2187,7 @@ export function Apply() {
                         }}
                         className="text-xs font-semibold text-brand underline"
                       >
-                        Back to my registered accounts
+                        Use a registered account
                       </button>
                     )}
                   </>
@@ -2319,80 +2196,53 @@ export function Apply() {
             </>
           )}
 
-          {/* ------------------------------------------------- STEP: EVIDENCE */}
+          {/* --------------------------------------------------- STEP: REVIEW */}
           {step === 'evidence' && (
-            <>
-              <Section
-                letter="K"
-                title="Check your application"
-                blurb="This is what GDB will see. Go back to any step to change it."
-              >
-                <dl className="divide-y divide-slate-100 text-sm">
-                  {[
-                    ['Applying as', structure || '—'],
-                    [
-                      'Filed against',
-                      forCluster && cluster ? cluster.name : 'Your own application',
-                    ],
-                    ...(structure === 'Partnership'
-                      ? [['Partners', validCoApplicants.join(', ') || '—'] as [string, string]]
-                      : []),
-                    ['Business', `${businessName || '—'}${dcra ? ` · ${dcra}` : ''}`],
-                    ['Kind', stage === 'Existing' ? 'Existing business' : stage === 'New' ? 'New venture' : '—'],
-                    ['Sector', val('sector') || '—'],
-                    ['Amount requested', amount ? formatGyd(Number(amount)) : '—'],
-                    ['Term', `${term} months`],
-                    ['Interest', '0% — interest free'],
-                    ['Paid into', bank ? `${bank} ••••${accountNo.slice(-4)}` : '—'],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-4 py-2.5">
-                      <dt className="text-slate-500">{label}</dt>
-                      <dd className="text-right font-semibold text-slate-800">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </Section>
+            <div className="space-y-5">
+              <header>
+                <h2 className="text-xl font-bold text-slate-900">Review your application</h2>
+                <p className="mt-0.5 text-xs text-slate-400">{statusLine}</p>
+                <p className="mt-1 text-sm text-slate-500">Review does not submit your application.</p>
+              </header>
+
+              <AttentionList issues={issues} blocking={fieldIssues.length > 0} />
+              <ReviewSections sections={reviewSections} onEdit={(id) => goTo(id as StepId)} />
 
               {draft && (
-                <Section
-                  letter="L"
-                  title="Your documents"
-                  blurb="Attach what you have. You can also submit now and send the rest when GDB asks."
-                >
-                  <DocumentShelf application={draft.name} onChange={setMissing} />
-                </Section>
+                <div className="rounded-lg bg-brand-light/40 p-4">
+                  <p className="mb-3 text-sm font-semibold text-slate-800">
+                    Anything else to add? <span className="font-normal text-slate-500">(optional)</span>
+                  </p>
+                  <ApplicationDocuments application={draft.name} rows={[OTHER_DOC]} onChange={setMissing} />
+                </div>
               )}
 
-              <div className="rounded-lg bg-slate-50/80 p-5">
-                <p className="text-sm font-bold text-slate-900">Submit to GDB</p>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
-                  {missing.length > 0 ? (
-                    <>
-                      You can submit now. GDB will ask for your <strong>{missing.join(', ')}</strong>{' '}
-                      during review — attaching it first usually means a faster decision.
-                    </>
-                  ) : (
-                    'Everything GDB expects is attached. An underwriter reviews your application next and may come back to you with questions.'
-                  )}
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void onFinalSubmit()}
-                  className="mt-4 w-full rounded-md bg-brand px-5 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                  onClick={goBack}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  {busy ? 'Submitting…' : 'Submit my application'}
+                  Back to {steps[index - 1]?.title.toLowerCase()}
                 </button>
-                <p className="mt-2 text-center text-xs text-slate-400">
-                  By submitting you confirm the information is true to the best of your knowledge.
-                </p>
+                <button
+                  type="button"
+                  disabled={busy || fieldIssues.length > 0}
+                  onClick={() => void onFinalSubmit()}
+                  className="rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                >
+                  {busy ? 'Submitting…' : 'Submit application'}
+                </button>
               </div>
-            </>
+              <p className="text-right text-xs text-slate-400">
+                By submitting you confirm the information is true and complete.
+              </p>
+            </div>
           )}
         </Card>
 
         {/* Sticky actions: one blocker, one primary next action. */}
-        {!isLast && (
+        {!isLast && tab === 'application' && (
           <div className="sticky bottom-0 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
             <button
               type="button"
@@ -2402,16 +2252,13 @@ export function Apply() {
             >
               Back
             </button>
-            <span className="order-last w-full text-xs text-slate-400 sm:order-none sm:w-auto">
-              {draft ? 'Saved to GDB as a draft' : 'Saved on this device — not sent to GDB yet'}
-            </span>
             <button
               type="button"
               onClick={() => void goNext()}
               disabled={busy}
               className="inline-flex items-center gap-1.5 rounded-md bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
             >
-              {busy ? 'Saving…' : step === 'funding' ? 'Save and continue' : 'Continue'}
+              {busy ? 'Saving…' : 'Save and continue'}
               <ArrowRightIcon className="h-4 w-4" />
             </button>
           </div>

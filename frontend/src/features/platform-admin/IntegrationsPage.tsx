@@ -81,7 +81,7 @@ function GroupCard({ group, onSaved }: { group: IntegrationGroup; onSaved: (grou
               : 'Never changed here'}
           </p>
         </div>
-        <Badge tone={group.mode === 'off' ? 'neutral' : group.mode === 'sandbox' ? 'warning' : 'success'}>{group.mode}</Badge>
+        <Badge tone={group.mode === 'off' ? 'neutral' : 'success'}>{group.mode}</Badge>
       </div>
 
       {group.fields.map((f) => (
