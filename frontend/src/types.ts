@@ -1,18 +1,25 @@
 /** `Draft` is the applicant's own workspace — saved, evidence attached, not yet
  *  before the Bank. Staff queues never show it. */
-export type LoanStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
+export type LoanStatus = "Draft" | "Submitted" | "Approved" | "Rejected";
 
 /** Where the case is on the journey the applicant actually walks. Derived
  *  SERVER-SIDE in api._stage_for, because everything past the credit decision
  *  lives in other records — the offer, the conditions, the booked loan — and a
  *  client that reassembled the ladder itself would be a second opinion about
  *  what stage somebody's loan is at. Render it; never compute it. */
-export type LoanStage = 'Draft' | 'Review' | 'Approved' | 'Signing' | 'Disbursed' | 'Rejected';
+export type LoanStage =
+  "Draft" | "Review" | "Approved" | "Signing" | "Disbursed" | "Rejected";
 
 /** The five-step ladder, in order, as the applicant's tracker draws it.
  *  `Rejected` is deliberately absent: a declined case leaves the ladder rather
  *  than sitting at a step on it. */
-export const LOAN_STAGES: LoanStage[] = ['Draft', 'Review', 'Approved', 'Signing', 'Disbursed'];
+export const LOAN_STAGES: LoanStage[] = [
+  "Draft",
+  "Review",
+  "Approved",
+  "Signing",
+  "Disbursed",
+];
 
 /** One line of the funding step's use-of-funds table. Sent JSON-encoded as
  *  `sections.use_of_funds`; the server stores each line as a row of the
@@ -36,9 +43,9 @@ export interface OwnershipRow {
 export interface LoanApplication {
   name: string;
   /** Which product the case is filed on. A Quick Loan is applied for on its own
-   *  form, has no Letter of Offer, and is decided and paid by a Disbursement
-   *  Officer in one act (gdb_bank.api.decide_quick_loan). */
-  product: 'standard' | 'quick';
+   *  short form; from there it goes the road every loan goes — decision, Letter
+   *  of Offer, signing, booking and release. */
+  product: "standard" | "quick";
   /** When a Quick Loan's borrower accepted its terms, at submission. */
   terms_accepted_on: string | null;
   /** The GDB Field Officer who filled it with the applicant, and when they
@@ -79,7 +86,14 @@ export interface LoanApplication {
   stage: LoanStage;
   stage_label: string;
   /** Set once a Letter of Offer exists on this case. */
-  offer_status: 'Draft' | 'Issued' | 'Accepted' | 'Declined' | 'Expired' | 'Withdrawn' | null;
+  offer_status:
+    | "Draft"
+    | "Issued"
+    | "Accepted"
+    | "Declined"
+    | "Expired"
+    | "Withdrawn"
+    | null;
   /** Required conditions precedent still Outstanding. Funds cannot be released
    *  while this is above zero — the server enforces that, this only shows it. */
   conditions_outstanding: number;
@@ -136,7 +150,7 @@ export interface LoanApplication {
 }
 
 /** The disbursement officer's four lists, as `all_loans` names them. */
-export type LoanQueue = 'quick' | 'booking' | 'release' | 'released';
+export type LoanQueue = "quick" | "booking" | "release" | "released";
 
 /** One page of the Bank's queue (`all_loans`). `total` is how many cases match
  *  the filter asked for; `counts`, `queues` and `totals` describe the WHOLE
@@ -164,7 +178,7 @@ export interface ApplicantDocument {
    *  the person rather than against one case. */
   application: string | null;
   document_type: string;
-  status: 'Received' | 'Accepted' | 'Rejected' | 'Replaced';
+  status: "Received" | "Accepted" | "Rejected" | "Replaced";
   request: string | null;
   file_url: string | null;
   file_name: string | null;
@@ -202,7 +216,7 @@ export interface InformationRequest {
   name: string;
   application: string;
   applicant: string;
-  status: 'Open' | 'Satisfied' | 'Withdrawn';
+  status: "Open" | "Satisfied" | "Withdrawn";
   document_type: string | null;
   item: string;
   requested_by: string | null;
@@ -211,7 +225,11 @@ export interface InformationRequest {
   responded_on: string | null;
   /** A file a GDB Field Officer put against this request for the applicant,
    *  waiting for the applicant to send it. */
-  staged?: { name: string; file_name: string; uploaded_by_name: string | null } | null;
+  staged?: {
+    name: string;
+    file_name: string;
+    uploaded_by_name: string | null;
+  } | null;
 }
 
 /** A person's own finances, declared on their profile. Money is G$ per month. */
@@ -243,7 +261,7 @@ export interface ClusterMember {
   member: string | null;
   member_eid: string | null;
   member_name: string;
-  member_status: 'Invited' | 'Active' | 'Declined' | 'Exited';
+  member_status: "Invited" | "Active" | "Declined" | "Exited";
   is_head: boolean;
   is_you: boolean;
   invited_on: string | null;
@@ -281,6 +299,8 @@ export interface CitizenProfile extends DeclaredFinancials {
   region: string | null;
   village_or_town: string | null;
   address: string | null;
+  address_zone?: string | null;
+  address_code?: string | null;
   next_of_kin: string | null;
   next_of_kin_phone: string | null;
   verified_full_name: string | null;
@@ -370,7 +390,7 @@ export interface OfferSignature {
   member_eid: string | null;
   member_name: string;
   is_head: boolean;
-  signature_status: 'Pending' | 'Signed' | 'Declined';
+  signature_status: "Pending" | "Signed" | "Declined";
   signed_name: string | null;
   signed_on: string | null;
 }
@@ -467,6 +487,8 @@ export interface LoanAccount {
   /** The executed offer's terms, and whether lending was booked on them. */
   approved_amount?: number | null;
   approved_term?: number | null;
+  /** The moratorium the accepted Letter of Offer granted, in months. */
+  moratorium_months?: number;
   booked_on_offer?: boolean | null;
   /** Present when loan_account was asked for a period (from_date/to_date). */
   statement?: LoanStatement | null;
@@ -506,6 +528,8 @@ export interface Whoami {
   /** The e-ID this login is bound to, when they signed in that way. Null for
    *  an email/password session — the portal keeps both doors open. */
   eid: string | null;
+  /** The TIN, for a citizen who signed up with one (gdb_bank.tin_auth). */
+  tin?: string | null;
   roles: string[];
   is_underwriter: boolean;
   /** The books: the ledger, portfolio reporting, reconciling receipts, and
@@ -559,16 +583,16 @@ export interface ReceiptCandidate {
 }
 
 export type LendingRuleType =
-  | 'Interest Rate'
-  | 'Maximum Loan Amount'
-  | 'Minimum Loan Amount'
-  | 'Loan Term Limits'
-  | 'Required Documents'
-  | 'Standard Conditions'
-  | 'Capacity Calculation'
-  | 'Charges';
+  | "Interest Rate"
+  | "Maximum Loan Amount"
+  | "Minimum Loan Amount"
+  | "Loan Term Limits"
+  | "Required Documents"
+  | "Standard Conditions"
+  | "Capacity Calculation"
+  | "Charges";
 
-export type RuleProposalState = 'Draft' | 'Pending' | 'Approved' | 'Rejected';
+export type RuleProposalState = "Draft" | "Pending" | "Approved" | "Rejected";
 
 /** A GDB Lending Rule Proposal — Finance proposes, another Finance officer
  *  decides. See gdb_lending_rule_proposal.py: the same person can never do
@@ -597,11 +621,14 @@ export interface LoanOffer {
   application: string;
   applicant_name: string;
   business_name: string | null;
-  status: 'Draft' | 'Issued' | 'Accepted' | 'Declined' | 'Expired' | 'Withdrawn';
+  status:
+    "Draft" | "Issued" | "Accepted" | "Declined" | "Expired" | "Withdrawn";
   valid_until: string;
   loan_product: string;
   offered_amount: number;
   term_months: number;
+  /** Months after disbursement before the first instalment. */
+  moratorium_months?: number;
   rate_of_interest: number;
   /** lending's get_monthly_repayment_amount on the offered terms. */
   monthly_instalment: number;
@@ -632,10 +659,15 @@ export interface BankAccountRecord {
   account_name: string | null;
   branch_code?: string;
   account_type?: string;
-  status?: 'Active' | 'Dormant' | 'Closed' | 'Not Found' | 'Unavailable';
+  status?: "Active" | "Dormant" | "Closed" | "Not Found" | "Unavailable";
   name_match?: boolean | null;
-  result?: 'Verified' | 'Name Mismatch' | 'Inactive Account' | 'Not Found' | 'Unavailable';
-  source: 'bank_registry' | 'unavailable';
+  result?:
+    | "Verified"
+    | "Name Mismatch"
+    | "Inactive Account"
+    | "Not Found"
+    | "Unavailable";
+  source: "bank_registry" | "unavailable";
 }
 
 /** What DCRA said about a registration number. `source` is load-bearing:
@@ -648,7 +680,7 @@ export interface DcraRecord {
   registered_on?: string;
   region?: string;
   proprietors?: string[];
-  source: 'dcra' | 'unavailable';
+  source: "dcra" | "unavailable";
   /** Whether the signed-in citizen's e-ID is among this business's proprietors.
    *  null when GDB has no e-ID on file to check against; absent on results
    *  that came from the citizen's own proprietor list (my_businesses), where

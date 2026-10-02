@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { roleLabel } from '../../shared/personas';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardLabel } from '../../components/ui/Card';
@@ -165,7 +166,7 @@ export function AccountPanel({
                 {account.grantable_roles.map((role) => (
                   <label key={role} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
                     <input type="checkbox" checked={roles.includes(role)} onChange={() => toggle(role)} disabled={busy} />
-                    {role}
+                    {roleLabel(role)}
                   </label>
                 ))}
               </div>

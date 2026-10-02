@@ -50,7 +50,7 @@ def _require_underwriter() -> str:
 	user = _session_user()
 	if not _is_underwriter(user):
 		_logger().warning(f"denied underwriter endpoint to {user}")
-		frappe.throw(_("Only GDB underwriters may do this."), frappe.PermissionError)
+		frappe.throw(_("Only GDB loan officers may do this."), frappe.PermissionError)
 	return user
 
 
@@ -95,7 +95,7 @@ def _require_underwriter_or_disbursement() -> str:
 	if not (_is_underwriter(user) or _is_disbursement(user)):
 		_logger().warning(f"denied underwriter-or-disbursement endpoint to {user}")
 		frappe.throw(
-			_("Only a GDB underwriter or disbursement officer may do this."),
+			_("Only a GDB loan officer or disbursement officer may do this."),
 			frappe.PermissionError,
 		)
 	return user

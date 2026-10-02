@@ -210,6 +210,8 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* The same page with the sign-up card in place of sign-in. */}
+          <Route path="/signup" element={<Login />} />
           <Route element={<ApplicantShell />}>
             <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the

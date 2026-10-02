@@ -10,7 +10,7 @@ computes money: every figure is lending's own.
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, fmt_money, nowdate
+from frappe.utils import add_months, cint, flt, fmt_money, nowdate
 
 
 def create_loan_on_offer(application: str, agreement):
@@ -52,6 +52,24 @@ def book_on_terms(application: str, amount, term_months):
 	return loan
 
 
+def _granted_moratorium(loan) -> int:
+	"""The moratorium on this loan's accepted offer, in months; 0 when it has no
+	accepted offer (a Quick Loan paid before 2026-10-02)."""
+	return cint(
+		frappe.db.get_value(
+			"GDB Loan Offer",
+			# Read from the Loan itself: callers pass anything from the full
+			# document to a few booked-loan fields that leave the application out.
+			{
+				"application": frappe.db.get_value("Loan", loan.name, "loan_application"),
+				"status": "Accepted",
+				"docstatus": 1,
+			},
+			"moratorium_months",
+		)
+	)
+
+
 def release_funds(loan, amount, released_by: str):
 	"""Submit lending's Loan Disbursement for `amount` on a booked loan.
 
@@ -72,6 +90,14 @@ def release_funds(loan, amount, released_by: str):
 			"gdb_disbursed_by": released_by,
 		}
 	)
+	# The FIRST release fixes the schedule's start, and GDB states it: one month
+	# after the funds go out, plus the moratorium the Letter of Offer granted —
+	# exactly what the offer and the agreement tell the borrower. Not lending's
+	# default, which is the last day of the release month (a loan paid on the 2nd
+	# fell due on the 31st, 29 days later), and not lending's moratorium_tenure,
+	# which in this version moves the start AND adds the same months again.
+	if frappe.db.get_value("Loan", loan.name, "status") == "Sanctioned":
+		doc.repayment_start_date = add_months(nowdate(), 1 + _granted_moratorium(loan))
 	doc.insert()
 	doc.submit()
 	return doc

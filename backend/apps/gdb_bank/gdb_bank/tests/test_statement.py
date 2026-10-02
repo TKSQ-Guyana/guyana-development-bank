@@ -55,7 +55,7 @@ class TestStatement(IntegrationTestCase):
 		"""G$120,000 over 12 months, fully released, then G$10,000 paid."""
 		with self.set_user(BORROWER):
 			application = api.save_application(
-				loan_amount=120000, purpose="Statement test", term_months=12
+				loan_amount=120000, purpose="Statement test", term_months=12, sections={"moratorium_months": 1}
 			)["name"]
 			api.submit_application(name=application)
 		with self.set_user(UNDERWRITER):

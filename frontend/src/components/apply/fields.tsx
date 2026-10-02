@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { RequiredMark } from '../ui/RequiredMark';
+import type { ReactNode } from "react";
+import { PhoneInput } from "../PhoneInput";
+import { RequiredMark } from "../ui/RequiredMark";
 
 /** Form primitives for the application wizard.
  *
@@ -9,9 +10,9 @@ import { RequiredMark } from '../ui/RequiredMark';
  *  the server's answer, not the form's. */
 
 const controlClass =
-  'w-full rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 ' +
-  'placeholder:text-slate-300 transition-colors focus:border-brand focus:outline-none ' +
-  'focus:ring-2 focus:ring-brand/20 disabled:bg-slate-50 disabled:text-slate-500';
+  "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 " +
+  "placeholder:text-slate-400 transition-colors hover:border-slate-400 focus:border-brand focus:outline-none " +
+  "focus:ring-4 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-500";
 
 /** A value GDB fetched rather than asked for.
  *
@@ -23,8 +24,8 @@ const controlClass =
  *  wrong reports it rather than overwriting the source.
  */
 const readOnlyClass =
-  'w-full rounded-md border border-transparent bg-slate-100 px-3.5 py-2.5 text-sm ' +
-  'font-medium text-slate-600';
+  "w-full rounded-lg border border-transparent bg-slate-100 px-3.5 py-2.5 text-sm " +
+  "font-medium text-slate-600";
 
 interface FieldProps {
   label: string;
@@ -39,7 +40,7 @@ export function Field({ label, hint, required, tag, children }: FieldProps) {
   return (
     <label className="block">
       <span className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-slate-700">
+        <span className="text-[13px] font-bold text-slate-800">
           {label}
           {required && <RequiredMark />}
         </span>
@@ -50,7 +51,11 @@ export function Field({ label, hint, required, tag, children }: FieldProps) {
         )}
       </span>
       {children}
-      {hint && <span className="mt-1.5 block text-xs leading-relaxed text-slate-500">{hint}</span>}
+      {hint && (
+        <span className="mt-1.5 block text-xs leading-relaxed text-slate-500">
+          {hint}
+        </span>
+      )}
     </label>
   );
 }
@@ -84,12 +89,14 @@ export function ReadOnlyField({
           {source}
         </span>
       </span>
-      <p className={readOnlyClass}>{value || <span className="text-slate-400">Not held</span>}</p>
+      <p className={readOnlyClass}>
+        {value || <span className="text-slate-400">Not held</span>}
+      </p>
       {(hint || checked) && (
         <span className="mt-1.5 block text-xs leading-relaxed text-slate-500">
           {hint}
-          {hint && checked ? ' · ' : ''}
-          {checked ? `Checked ${checked}` : ''}
+          {hint && checked ? " · " : ""}
+          {checked ? `Checked ${checked}` : ""}
         </span>
       )}
     </div>
@@ -106,7 +113,7 @@ interface TextFieldProps {
   tag?: string;
   disabled?: boolean;
   type?: string;
-  inputMode?: 'numeric' | 'text' | 'tel';
+  inputMode?: "numeric" | "text" | "tel";
 }
 
 export function TextField({
@@ -118,7 +125,7 @@ export function TextField({
   required,
   tag,
   disabled,
-  type = 'text',
+  type = "text",
   inputMode,
 }: TextFieldProps) {
   return (
@@ -132,6 +139,27 @@ export function TextField({
         onChange={(e) => onChange(e.target.value)}
         className={controlClass}
       />
+    </Field>
+  );
+}
+
+/** A Guyana phone number in this form's style: "+592" shown, seven digits typed. */
+export function PhoneField({
+  label,
+  value,
+  onChange,
+  hint,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  hint?: ReactNode;
+  required?: boolean;
+}) {
+  return (
+    <Field label={label} hint={hint} required={required}>
+      <PhoneInput value={value} onChange={onChange} className={controlClass} />
     </Field>
   );
 }
@@ -173,7 +201,7 @@ export function TextAreaField({
       />
       {max && (
         <span className="mt-0.5 block text-right text-[11px] tabular-nums text-slate-400">
-          {value.length.toLocaleString('en-GY')} / {max.toLocaleString('en-GY')}
+          {value.length.toLocaleString("en-GY")} / {max.toLocaleString("en-GY")}
         </span>
       )}
     </Field>
@@ -201,7 +229,7 @@ export function MoneyField({
   // arithmetic on it) — only the display gets thousands separators, typed as
   // free text so the browser's number-input spinner never shows on a
   // currency field.
-  const display = value ? Number(value).toLocaleString('en-GY') : '';
+  const display = value ? Number(value).toLocaleString("en-GY") : "";
   return (
     <Field label={label} hint={hint} required={required} tag={tag}>
       <div className="relative">
@@ -212,7 +240,7 @@ export function MoneyField({
           type="text"
           inputMode="numeric"
           value={display}
-          onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+          onChange={(e) => onChange(e.target.value.replace(/\D/g, ""))}
           className={`${controlClass} pl-10 text-right font-semibold tabular-nums`}
         />
       </div>
@@ -227,25 +255,36 @@ export function SelectField({
   options,
   hint,
   required,
-  placeholder = 'Select…',
+  placeholder = "Select…",
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  options: string[];
+  /** Plain values, or [value, label] where what is shown differs. */
+  options: (string | [string, string])[];
   hint?: ReactNode;
   required?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <Field label={label} hint={hint} required={required}>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className={controlClass}>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className={controlClass}
+      >
         <option value="">{placeholder}</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
+        {options.map((o) => {
+          const [v, l] = Array.isArray(o) ? o : [o, o];
+          return (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          );
+        })}
       </select>
     </Field>
   );
@@ -275,25 +314,41 @@ export function ChoiceCard({
       type="button"
       disabled={disabled}
       onClick={onSelect}
-      className={`flex w-full flex-col rounded-lg border-2 p-4 text-left transition-all ${
+      aria-pressed={selected}
+      className={`flex w-full flex-col rounded-xl border-2 px-4 py-3 text-left transition-all ${
         selected
-          ? 'border-brand bg-brand-light/40 shadow-sm shadow-brand/20'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-      } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+          ? "border-brand bg-emerald-50/70 shadow-[0_6px_20px_-12px_rgba(4,120,87,0.6)]"
+          : "border-slate-200 bg-white hover:-translate-y-px hover:border-emerald-300 hover:shadow-sm"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
       <span className="flex items-start justify-between gap-2">
         <span className="text-sm font-bold text-slate-900">{title}</span>
         <span
-          className={`mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 ${
-            selected ? 'border-brand bg-brand' : 'border-slate-300'
+          className={`mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full border-2 transition-colors ${
+            selected ? "border-brand bg-brand" : "border-slate-300 bg-white"
           }`}
         >
-          {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+          {selected && (
+            <svg viewBox="0 0 12 12" className="h-3 w-3 text-white" aria-hidden>
+              <path
+                d="M2.5 6.2 5 8.5l4.5-5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
         </span>
       </span>
-      {body && <span className="mt-1 text-xs leading-relaxed text-slate-500">{body}</span>}
+      {body && (
+        <span className="mt-1 text-xs leading-relaxed text-slate-500">
+          {body}
+        </span>
+      )}
       {note && (
-        <span className="mt-2 rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-600">
+        <span className="mt-2 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-600 ring-1 ring-slate-200/70">
           {note}
         </span>
       )}
@@ -316,14 +371,20 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="border-t border-slate-100 pt-6 first:border-0 first:pt-0">
-      <div className="mb-4 flex items-baseline gap-2.5">
-        <span className="flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-brand-light text-[11px] font-bold text-brand-text">
+    <section className="border-t border-dashed border-slate-200 pt-5 first-of-type:border-0 first-of-type:pt-0">
+      <div className="mb-3.5 flex items-start gap-2.5">
+        <span className="flex h-6 min-w-6 flex-none items-center justify-center rounded-md bg-emerald-100 px-1.5 text-[11px] font-black text-brand-dark">
           {letter}
         </span>
         <div>
-          <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-          {blurb && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{blurb}</p>}
+          <h3 className="text-[15px] font-extrabold leading-6 text-slate-900">
+            {title}
+          </h3>
+          {blurb && (
+            <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+              {blurb}
+            </p>
+          )}
         </div>
       </div>
       <div className="space-y-4">{children}</div>
@@ -333,18 +394,22 @@ export function Section({
 
 /** Advisory, never a blocker: the bank verifies, the form reports. */
 export function Notice({
-  tone = 'info',
+  tone = "info",
   children,
 }: {
-  tone?: 'info' | 'warn' | 'good';
+  tone?: "info" | "warn" | "good";
   children: ReactNode;
 }) {
   const tones = {
-    info: 'bg-sky-50/80 text-sky-800',
-    warn: 'bg-amber-50/80 text-amber-800',
-    good: 'bg-emerald-50/80 text-emerald-800',
+    info: "bg-sky-50/80 text-sky-800",
+    warn: "bg-amber-50/80 text-amber-800",
+    good: "bg-emerald-50/80 text-emerald-800",
   };
   return (
-    <p className={`rounded-xl px-3.5 py-2.5 text-xs leading-relaxed ${tones[tone]}`}>{children}</p>
+    <p
+      className={`rounded-xl px-3.5 py-2.5 text-xs leading-relaxed ${tones[tone]}`}
+    >
+      {children}
+    </p>
   );
 }

@@ -170,7 +170,7 @@ export function AnnouncementIcon({ size = 16 }: { size?: number }) {
 /** The bank's own mark: a colonnade, in white on ink. */
 export function BankMark({ className = 'h-14 w-14 rounded-[18px]' }: { className?: string }) {
   return (
-    <span className={`grid shrink-0 place-items-center bg-gdb-ink ${className}`}>
+    <span className={`grid shrink-0 place-items-center bg-brand-dark ${className}`}>
       <svg
         width="26"
         height="24"

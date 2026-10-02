@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { call } from '../../api';
-import type { BankAccountRecord } from '../../types';
-import { ChoiceCard, Notice, SelectField, TextField } from './fields';
+import { useEffect, useState } from "react";
+import { call } from "../../api";
+import type { BankAccountRecord } from "../../types";
+import { ChoiceCard, Notice, SelectField, TextField } from "./fields";
 
 /** Where GDB pays the applicant — the same flow the SME form's Section J runs:
  *  ask the payment switch which accounts this e-ID holds, let the applicant pick
@@ -10,11 +10,17 @@ import { ChoiceCard, Notice, SelectField, TextField } from './fields';
  *  account when it is saved (gdb_bank.api.save_bank_details), and release is
  *  where an unverified account is refused.
  *
- *  Controlled: the parent holds bank / account / branch and saves them. */
+ *  Controlled: the parent holds bank / account / branch and saves them.
+ *
+ *  A typed account's branch is picked from the bank's own list
+ *  (gdb_bank.api.bank_branches); its routing number is what the server keeps
+ *  as the branch code. A picked account comes with the switch's branch code. */
 export interface PayoutValue {
   bank: string;
   accountNo: string;
   branchCode: string;
+  /** A GDB Bank Branch of `bank`, for a typed account. */
+  branch: string;
   /** Asked only of a typed account — a picked one comes with its holder. */
   holder: string;
   confirmNo: string;
@@ -35,13 +41,37 @@ export function PayoutAccount({
   const [note, setNote] = useState<string | null>(null);
   const [check, setCheck] = useState<BankAccountRecord | null>(null);
   const [checking, setChecking] = useState(false);
+  const [branches, setBranches] = useState<
+    { name: string; branch_name: string; routing_number: string | null }[]
+  >([]);
+
+  // The chosen bank's branches. A branch only ever belongs to one bank, so a
+  // change of bank clears it.
+  useEffect(() => {
+    if (!value.bank) {
+      setBranches([]);
+      return;
+    }
+    call<
+      { name: string; branch_name: string; routing_number: string | null }[]
+    >("gdb_bank.api.bank_branches", {
+      bank: value.bank,
+    })
+      .then((rows) => {
+        setBranches(rows ?? []);
+        // A bank with one branch ("Any") has nothing to choose.
+        if (rows?.length === 1 && value.branch !== rows[0].name)
+          onChange({ ...value, branch: rows[0].name });
+      })
+      .catch(() => setBranches([]));
+  }, [value.bank]);
 
   const pick = (a: BankAccountRecord) => {
     onChange({
       ...value,
       bank: a.bank,
       accountNo: a.account_number,
-      branchCode: a.branch_code ?? '',
+      branchCode: a.branch_code ?? "",
       holder: a.account_name ?? value.holder,
       confirmNo: a.account_number,
       manual: false,
@@ -56,23 +86,31 @@ export function PayoutAccount({
   }, [manual]);
 
   useEffect(() => {
-    call<string[]>('gdb_bank.api.bank_options').then(setBanks).catch(() => setBanks([]));
+    call<string[]>("gdb_bank.api.bank_options")
+      .then(setBanks)
+      .catch(() => setBanks([]));
     (async () => {
       try {
-        const found = await call<BankAccountRecord[]>('gdb_bank.api.my_bank_accounts');
+        const found = await call<BankAccountRecord[]>(
+          "gdb_bank.api.my_bank_accounts",
+        );
         setMine(found ?? []);
         if (found?.length === 1 && !value.accountNo) pick(found[0]);
         if (!found?.length) {
           setManual(true);
-          const saved = await call<{ bank: string; bank_account_no: string; branch_code: string } | null>(
-            'gdb_bank.api.my_bank_details',
-          ).catch(() => null);
+          const saved = await call<{
+            bank: string;
+            bank_account_no: string;
+            branch_code: string;
+            gdb_bank_branch?: string | null;
+          } | null>("gdb_bank.api.my_bank_details").catch(() => null);
           if (saved && !value.accountNo) {
             onChange({
               ...value,
-              bank: saved.bank ?? '',
-              accountNo: saved.bank_account_no ?? '',
-              branchCode: saved.branch_code ?? '',
+              bank: saved.bank ?? "",
+              accountNo: saved.bank_account_no ?? "",
+              branchCode: saved.branch_code ?? "",
+              branch: saved.gdb_bank_branch ?? "",
               manual: true,
             });
           }
@@ -80,7 +118,7 @@ export function PayoutAccount({
       } catch {
         setMine([]);
         setManual(true);
-        setNote('Bank unreachable. Enter your account below.');
+        setNote("Bank unreachable. Enter your account below.");
       } finally {
         setLoading(false);
       }
@@ -93,7 +131,7 @@ export function PayoutAccount({
     setChecking(true);
     try {
       setCheck(
-        await call<BankAccountRecord>('gdb_bank.api.verify_bank_account', {
+        await call<BankAccountRecord>("gdb_bank.api.verify_bank_account", {
           bank: value.bank,
           bank_account_no: value.accountNo,
         }),
@@ -105,29 +143,34 @@ export function PayoutAccount({
     }
   };
 
-  if (loading) return <p className="text-sm text-slate-500">Finding your accounts…</p>;
+  if (loading)
+    return <p className="text-sm text-slate-500">Finding your accounts…</p>;
 
   if (!manual && (mine?.length ?? 0) > 0) {
     return (
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-700">
-          {mine?.length === 1 ? 'Your registered account' : 'Choose an account'}
+          {mine?.length === 1 ? "Your registered account" : "Choose an account"}
         </p>
         {mine?.map((a) => {
-          const payable = a.status === 'Active';
+          const payable = a.status === "Active";
           return (
             <ChoiceCard
               key={`${a.bank}-${a.account_number}`}
               title={a.bank}
-              body={`••••${a.account_number.slice(-4)}${a.account_type ? ` · ${a.account_type}` : ''} · ${a.account_name ?? ''}`}
-              note={payable ? undefined : `${a.status} — cannot receive payments`}
+              body={`••••${a.account_number.slice(-4)}${a.account_type ? ` · ${a.account_type}` : ""} · ${a.account_name ?? ""}`}
+              note={
+                payable ? undefined : `${a.status} — cannot receive payments`
+              }
               disabled={!payable}
               selected={value.accountNo === a.account_number}
               onSelect={() => pick(a)}
             />
           );
         })}
-        {mine?.[0]?.source !== 'bank_registry' && <p className="text-xs text-slate-500">Test data</p>}
+        {mine?.[0]?.source !== "bank_registry" && (
+          <p className="text-xs text-slate-500">Test data</p>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -144,45 +187,61 @@ export function PayoutAccount({
 
   return (
     <div className="space-y-4">
-      <SelectField
-        label="Bank"
-        required
-        value={value.bank}
-        onChange={(bank) => {
-          onChange({ ...value, bank });
-          setCheck(null);
-        }}
-        options={banks}
-        placeholder="Choose an option"
-        hint="Banks that can receive Ministry of Finance payments."
-      />
-      <div onBlur={() => void checkTyped()}>
-        <TextField
-          label="Account number"
+      <div className="grid gap-4 md:grid-cols-2">
+        <SelectField
+          label="Bank"
           required
-          inputMode="numeric"
-          value={value.accountNo}
-          onChange={(accountNo) => {
-            onChange({ ...value, accountNo });
+          value={value.bank}
+          onChange={(bank) => {
+            onChange({ ...value, bank, branch: "" });
             setCheck(null);
           }}
-          placeholder="Enter the account number"
+          options={banks}
+          placeholder="Choose a bank"
+          hint="Banks that can receive Ministry of Finance payments."
+        />
+        <SelectField
+          label="Branch"
+          required
+          value={value.branch}
+          onChange={(branch) => onChange({ ...value, branch })}
+          options={branches.map((b): [string, string] => [
+            b.name,
+            b.branch_name,
+          ])}
+          placeholder={value.bank ? "Choose a branch" : "Choose the bank first"}
+          disabled={!value.bank}
+          hint={(() => {
+            const b = branches.find((x) => x.name === value.branch);
+            return b?.routing_number
+              ? `Routing number ${b.routing_number}`
+              : undefined;
+          })()}
         />
       </div>
-      <TextField
-        label="Confirm account number"
-        required
-        inputMode="numeric"
-        value={value.confirmNo}
-        onChange={(confirmNo) => onChange({ ...value, confirmNo })}
-        placeholder="Enter it again"
-      />
-      <TextField
-        label="Branch / branch code"
-        value={value.branchCode}
-        onChange={(branchCode) => onChange({ ...value, branchCode })}
-        placeholder="For example: Water Street, or 012"
-      />
+      <div className="grid gap-4 md:grid-cols-2">
+        <div onBlur={() => void checkTyped()}>
+          <TextField
+            label="Account number"
+            required
+            inputMode="numeric"
+            value={value.accountNo}
+            onChange={(accountNo) => {
+              onChange({ ...value, accountNo });
+              setCheck(null);
+            }}
+            placeholder="Enter the account number"
+          />
+        </div>
+        <TextField
+          label="Confirm account number"
+          required
+          inputMode="numeric"
+          value={value.confirmNo}
+          onChange={(confirmNo) => onChange({ ...value, confirmNo })}
+          placeholder="Enter it again"
+        />
+      </div>
       <TextField
         label="Account holder name"
         required
@@ -191,12 +250,14 @@ export function PayoutAccount({
         hint="As it appears on your bank records."
       />
       {checking && <p className="text-xs text-slate-500">Checking…</p>}
-      {check && !checking && check.result !== 'Not Found' && (
-        <Notice tone={check.result === 'Verified' ? 'good' : 'warn'}>
-          {check.result === 'Verified' && `Verified — ${check.account_name}`}
-          {check.result === 'Name Mismatch' && 'Name differs from your bank record'}
-          {check.result === 'Inactive Account' && `Account ${check.status?.toLowerCase()} — use another`}
-          {check.result === 'Unavailable' && 'Could not check with your bank'}
+      {check && !checking && check.result !== "Not Found" && (
+        <Notice tone={check.result === "Verified" ? "good" : "warn"}>
+          {check.result === "Verified" && `Verified — ${check.account_name}`}
+          {check.result === "Name Mismatch" &&
+            "Name differs from your bank record"}
+          {check.result === "Inactive Account" &&
+            `Account ${check.status?.toLowerCase()} — use another`}
+          {check.result === "Unavailable" && "Could not check with your bank"}
         </Notice>
       )}
       {note && <Notice tone="warn">{note}</Notice>}

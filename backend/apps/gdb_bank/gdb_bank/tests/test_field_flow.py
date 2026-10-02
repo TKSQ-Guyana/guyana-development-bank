@@ -66,7 +66,9 @@ class TestFieldFlow(IntegrationTestCase):
 
 	def submitted_case(self) -> str:
 		with self.set_user(CITIZEN):
-			name = api.save_application(loan_amount=500000, purpose="New oven", term_months=12)["name"]
+			name = api.save_application(
+				loan_amount=500000, purpose="New oven", term_months=12, sections={"moratorium_months": 1}
+			)["name"]
 			api.submit_application(name=name)
 		return name
 
@@ -141,7 +143,9 @@ class TestFieldFlow(IntegrationTestCase):
 		consent = self.granted()
 		with self.set_user(OFFICER):
 			self.assertEqual(profiles.my_profile(acting=consent)["user"], CITIZEN)
-			draft = api.save_application(loan_amount=400000, purpose="Stock", term_months=12, acting=consent)
+			draft = api.save_application(
+				loan_amount=400000, purpose="Stock", term_months=12, sections={"moratorium_months": 1}, acting=consent
+			)
 			self.assertEqual(draft["applicant"], CITIZEN)
 			self.assertEqual(draft["assisted_by"], OFFICER)
 			# The officer cannot put it before the Bank.
@@ -161,7 +165,9 @@ class TestFieldFlow(IntegrationTestCase):
 	def test_officer_submits_for_the_applicant_and_they_are_told(self):
 		consent = self.granted()
 		with self.set_user(OFFICER):
-			draft = api.save_application(loan_amount=300000, purpose="Oven", term_months=12, acting=consent)["name"]
+			draft = api.save_application(
+				loan_amount=300000, purpose="Oven", term_months=12, sections={"moratorium_months": 1}, acting=consent
+			)["name"]
 			case = field_officer.submit_assisted_application(consent=consent, name=draft)
 			self.assertEqual(case["status"], "Submitted")
 			self.assertEqual(case["submitted_by"], OFFICER)

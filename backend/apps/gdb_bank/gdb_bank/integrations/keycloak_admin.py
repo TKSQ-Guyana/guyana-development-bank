@@ -242,3 +242,82 @@ def probe(cfg: dict | None = None) -> dict:
 		"latency_ms": int((time.monotonic() - started) * 1000),
 		"detail": "Admin client authenticated.",
 	}
+
+
+# --------------------------------------------------------------------------
+# The CITIZEN realm — accounts a TIN sign-up creates (tin_auth.py).
+#
+# A separate confidential client with its own service account, holding
+# manage-users in the citizen realm only: the staff realm's admin client can
+# never create a citizen, and this one can never touch staff.
+# --------------------------------------------------------------------------
+
+
+def citizen_config() -> dict | None:
+	base = settings.get("keycloak_url").rstrip("/")
+	realm = settings.get("keycloak_realm")
+	client_id = settings.get("keycloak_citizen_admin_client_id")
+	secret = settings.get("keycloak_citizen_admin_client_secret")
+	if not (base and realm and client_id and secret):
+		return None
+	return {"base": base, "realm": realm, "client_id": client_id, "client_secret": secret}
+
+
+def _require_citizen() -> dict:
+	cfg = citizen_config()
+	if cfg is None:
+		raise KeycloakAdminError(_("Creating an account with a TIN is not available on this site. Please contact GDB."))
+	return cfg
+
+
+def citizen_username_taken(username: str) -> bool:
+	cfg = _require_citizen()
+	res = _call(cfg, "GET", "/users", params={"username": username, "exact": "true"})
+	if res.status_code == 403:
+		raise KeycloakAdminError(_("The portal's citizen admin client lacks the manage-users role in Keycloak."))
+	if res.status_code != 200:
+		_logger().error(f"keycloak citizen admin user search HTTP {res.status_code}")
+		raise KeycloakAdminError(_("Your TIN could not be checked. Please try again."))
+	return any((row.get("username") or "") == username for row in res.json() or [])
+
+
+def create_citizen_account(username: str, email: str, first: str, last: str, password: str) -> str:
+	"""Create the citizen's Keycloak account with its permanent password, ready
+	for the password grant. Answers the Keycloak user id."""
+	cfg = _require_citizen()
+	res = _call(
+		cfg,
+		"POST",
+		"/users",
+		json={
+			"username": username,
+			"email": email,
+			"firstName": first,
+			"lastName": last,
+			"enabled": True,
+			# Proved by the sign-up code, not by a link Keycloak would send.
+			"emailVerified": True,
+			"requiredActions": [],
+			"credentials": [{"type": "password", "value": password, "temporary": False}],
+		},
+	)
+	if res.status_code == 409:
+		raise KeycloakAdminError(_("This TIN or email already has an account. Sign in instead."))
+	if res.status_code == 400:
+		_logger().info("keycloak citizen create refused (400) — password policy or profile")
+		raise PasswordRejected(_("That password does not meet the Bank's password rules."))
+	if res.status_code != 201:
+		_logger().error(f"keycloak citizen admin create user HTTP {res.status_code}")
+		raise KeycloakAdminError(_("Your account could not be created. Please try again."))
+	user_id = (res.headers.get("Location") or "").rstrip("/").rsplit("/", 1)[-1]
+	if not user_id:
+		raise KeycloakAdminError(_("Your account could not be created. Please try again."))
+	return user_id
+
+
+def delete_citizen_account(user_id: str) -> None:
+	"""Undo create_citizen_account when the portal half fails."""
+	cfg = _require_citizen()
+	res = _call(cfg, "DELETE", f"/users/{user_id}")
+	if res.status_code not in (204, 404):
+		raise KeycloakAdminError(_("Keycloak did not remove the account."))

@@ -1,5 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ApplicationsIcon, CheckIcon, ChevronDownIcon } from '../ui/icons';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ApplicationsIcon, CheckIcon, ChevronDownIcon } from "../ui/icons";
 
 /** The wizard's shared chrome: the step rail, the review's attention list and
  *  its expandable sections. Used by the citizen's application (pages/Apply) and
@@ -21,6 +27,7 @@ export function StepRail({
   attention,
   onJump,
   locked,
+  bare,
 }: {
   steps: RailStep[];
   index: number;
@@ -31,15 +38,24 @@ export function StepRail({
   onJump: (i: number) => void;
   /** Extra lock on top of "not reached yet" — e.g. steps frozen after submission. */
   locked?: (i: number) => boolean;
+  /** No card of its own — the rail sits inside a header that already has one. */
+  bare?: boolean;
 }) {
   const activeRef = useRef<HTMLButtonElement | null>(null);
   // The rail hides its scrollbar; keep the current step in view on a phone.
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+    activeRef.current?.scrollIntoView({
+      behavior: "smooth",
+      inline: "nearest",
+      block: "nearest",
+    });
   }, [index]);
 
   return (
-    <nav className="overflow-x-auto rounded-lg border border-slate-200 bg-white px-3 py-4 scrollbar-none">
+    <nav
+      aria-label="Steps"
+      className={`overflow-x-auto scrollbar-none ${bare ? "py-1" : "rounded-2xl border border-slate-200 bg-white px-3 py-4 shadow-xs"}`}
+    >
       <ol className="flex min-w-max items-start sm:min-w-0">
         {steps.map((s, i) => {
           const current = i === index && active;
@@ -52,31 +68,43 @@ export function StepRail({
                 type="button"
                 onClick={() => onJump(i)}
                 disabled={i > reached || Boolean(locked?.(i))}
-                aria-current={current ? 'step' : undefined}
+                aria-current={current ? "step" : undefined}
                 className="flex w-full flex-col items-center disabled:cursor-default"
               >
                 <span className="flex w-full items-center">
-                  <span className={`h-0.5 flex-1 rounded-full ${i === 0 ? 'bg-transparent' : i <= reached ? 'bg-brand' : 'bg-slate-300'}`} />
                   <span
-                    className={`flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold ${
+                    className={`h-[3px] flex-1 rounded-full ${i === 0 ? "bg-transparent" : i <= reached ? "bg-brand" : "bg-slate-200"}`}
+                  />
+                  <span
+                    className={`flex h-8 w-8 flex-none items-center justify-center rounded-full text-xs font-black transition-all ${
                       flagged
-                        ? 'border-2 border-amber-400 bg-amber-50 text-amber-600'
+                        ? "border-2 border-amber-400 bg-amber-50 text-amber-600"
                         : done
-                          ? 'bg-brand text-white'
+                          ? "bg-brand text-white shadow-sm shadow-brand/30"
                           : current
-                            ? 'border-2 border-brand bg-white text-brand ring-4 ring-brand/10'
-                            : 'border-2 border-slate-200 bg-white text-slate-400'
+                            ? "bg-brand-dark text-amber-300 ring-4 ring-emerald-100"
+                            : "border-2 border-slate-200 bg-white text-slate-400"
                     }`}
                   >
-                    {flagged ? '!' : done ? <CheckIcon className="h-3.5 w-3.5" /> : i + 1}
+                    {flagged ? (
+                      "!"
+                    ) : done ? (
+                      <CheckIcon className="h-3.5 w-3.5" />
+                    ) : (
+                      i + 1
+                    )}
                   </span>
                   <span
-                    className={`h-0.5 flex-1 rounded-full ${i === steps.length - 1 ? 'bg-transparent' : i < reached ? 'bg-brand' : 'bg-slate-300'}`}
+                    className={`h-[3px] flex-1 rounded-full ${i === steps.length - 1 ? "bg-transparent" : i < reached ? "bg-brand" : "bg-slate-200"}`}
                   />
                 </span>
                 <span
                   className={`mt-2 px-1 text-center text-[11px] leading-tight ${
-                    current ? 'font-bold text-slate-900' : done ? 'font-medium text-slate-600' : 'text-slate-400'
+                    current
+                      ? "font-extrabold text-brand-dark"
+                      : done
+                        ? "font-semibold text-slate-600"
+                        : "font-medium text-slate-400"
                   }`}
                 >
                   {s.title}
@@ -91,7 +119,15 @@ export function StepRail({
 }
 
 /** Title, save state and one-line blurb at the top of a step's card. */
-export function StepHeader({ title, status, blurb }: { title: string; status?: string; blurb?: string }) {
+export function StepHeader({
+  title,
+  status,
+  blurb,
+}: {
+  title: string;
+  status?: string;
+  blurb?: string;
+}) {
   return (
     <header>
       <h2 className="text-xl font-bold text-slate-900">{title}</h2>
@@ -111,7 +147,13 @@ export interface Issue {
 }
 
 /** The amber "N items need your attention" panel and one row per item. */
-export function AttentionList({ issues, blocking }: { issues: Issue[]; blocking: boolean }) {
+export function AttentionList({
+  issues,
+  blocking,
+}: {
+  issues: Issue[];
+  blocking: boolean;
+}) {
   if (issues.length === 0) return null;
   // Only documents outstanding: advisory, so blue and worded as expected —
   // never as something blocking the applicant.
@@ -119,28 +161,36 @@ export function AttentionList({ issues, blocking }: { issues: Issue[]; blocking:
   return (
     <div className="space-y-2">
       <div
-        className={`rounded-lg border px-4 py-3 ${advisory ? 'border-sky-200 bg-sky-50' : 'border-amber-200 bg-amber-50'}`}
+        className={`rounded-xl border px-4 py-3 ${advisory ? "border-sky-200 bg-sky-50" : "border-amber-200 bg-amber-50"}`}
       >
-        <p className={`flex items-center gap-2 text-sm font-bold ${advisory ? 'text-sky-900' : 'text-amber-900'}`}>
+        <p
+          className={`flex items-center gap-2 text-sm font-bold ${advisory ? "text-sky-900" : "text-amber-900"}`}
+        >
           <span
             className={`flex h-5 w-5 flex-none items-center justify-center rounded-full border-2 text-[11px] ${
-              advisory ? 'border-sky-500 text-sky-600' : 'border-amber-500 text-amber-600'
+              advisory
+                ? "border-sky-500 text-sky-600"
+                : "border-amber-500 text-amber-600"
             }`}
           >
-            {advisory ? 'i' : '!'}
+            {advisory ? "i" : "!"}
           </span>
           {advisory
-            ? `${issues.length} document${issues.length === 1 ? '' : 's'} expected`
-            : `${issues.length} item${issues.length === 1 ? ' needs' : 's need'} your attention`}
+            ? `${issues.length} document${issues.length === 1 ? "" : "s"} expected`
+            : `${issues.length} item${issues.length === 1 ? " needs" : "s need"} your attention`}
         </p>
-        <p className={`mt-0.5 pl-7 text-xs ${advisory ? 'text-sky-800' : 'text-amber-800'}`}>
-          {advisory ? 'Optional at submission. GDB may request them later.' : 'Resolve the required items before submitting.'}
+        <p
+          className={`mt-0.5 pl-7 text-xs ${advisory ? "text-sky-800" : "text-amber-800"}`}
+        >
+          {advisory
+            ? "Optional at submission. GDB may request them later."
+            : "Resolve the required items before submitting."}
         </p>
       </div>
       {issues.map((it) => (
         <div
           key={`${it.section}-${it.title}`}
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3"
+          className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 transition-colors hover:border-emerald-200"
         >
           <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-slate-100 text-slate-500">
             <ApplicationsIcon className="h-4 w-4" />
@@ -154,7 +204,7 @@ export function AttentionList({ issues, blocking }: { issues: Issue[]; blocking:
           <button
             type="button"
             onClick={it.go}
-            className="rounded-full border border-slate-300 px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-brand-dark hover:bg-emerald-100"
           >
             {it.action}
           </button>
@@ -190,14 +240,16 @@ export function ReviewSections({
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div>
-      <h3 className="mb-2 text-sm font-bold text-slate-900">Your application</h3>
+      <h3 className="mb-2 text-sm font-bold text-slate-900">
+        Your application
+      </h3>
       <div className="space-y-2">
         {sections.map((s) => {
           const isOpen = open === s.id;
           return (
             <div
               key={s.id}
-              className={`rounded-lg border bg-white ${s.issues ? 'border-amber-200' : 'border-slate-200'}`}
+              className={`rounded-lg border bg-white ${s.issues ? "border-amber-200" : "border-slate-200"}`}
             >
               <button
                 type="button"
@@ -206,36 +258,45 @@ export function ReviewSections({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-slate-800">{s.title}</span>
-                  <span className="block truncate text-xs text-slate-500">{s.summary || '—'}</span>
+                  <span className="block text-sm font-semibold text-slate-800">
+                    {s.title}
+                  </span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {s.summary || "—"}
+                  </span>
                 </span>
                 <span
                   className={`flex-none rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
                     s.issues
-                      ? 'bg-amber-50 text-amber-700'
+                      ? "bg-amber-50 text-amber-700"
                       : s.docs
-                        ? 'bg-slate-100 text-slate-600'
-                        : 'bg-emerald-50 text-emerald-700'
+                        ? "bg-slate-100 text-slate-600"
+                        : "bg-emerald-50 text-emerald-700"
                   }`}
                 >
                   {s.issues
-                    ? `${s.issues} item${s.issues === 1 ? '' : 's'} missing`
+                    ? `${s.issues} item${s.issues === 1 ? "" : "s"} missing`
                     : s.docs
-                      ? `${s.docs} document${s.docs === 1 ? '' : 's'} expected`
-                      : 'Complete'}
+                      ? `${s.docs} document${s.docs === 1 ? "" : "s"} expected`
+                      : "Complete"}
                 </span>
                 {/* Right when closed, down when open — as the question groups. */}
                 <ChevronDownIcon
-                  className={`h-4 w-4 flex-none text-brand transition-transform ${isOpen ? '' : '-rotate-90'}`}
+                  className={`h-4 w-4 flex-none text-brand transition-transform ${isOpen ? "" : "-rotate-90"}`}
                 />
               </button>
               {isOpen && (
                 <div className="border-t border-slate-100 px-4 py-3">
                   <dl className="divide-y divide-slate-100 text-sm">
                     {s.answers.map(([label, value], i) => (
-                      <div key={`${label}-${i}`} className="grid gap-1 py-2 sm:grid-cols-[14rem_1fr] sm:gap-4">
+                      <div
+                        key={`${label}-${i}`}
+                        className="grid gap-1 py-2 sm:grid-cols-[14rem_1fr] sm:gap-4"
+                      >
                         <dt className="text-slate-500">{label}</dt>
-                        <dd className="whitespace-pre-line break-words font-medium text-slate-800">{value}</dd>
+                        <dd className="whitespace-pre-line break-words font-medium text-slate-800">
+                          {value}
+                        </dd>
                       </div>
                     ))}
                   </dl>
@@ -254,16 +315,26 @@ export function ReviewSections({
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-slate-400">Open a section to view or edit your answers.</p>
+      <p className="mt-2 text-xs text-slate-400">
+        Open a section to view or edit your answers.
+      </p>
     </div>
   );
 }
 
 /** How far a group has been answered: all of it, none of it, or a count. */
-export function groupStatus(answered: number, total: number): { label: string; tone: string } {
-  if (answered >= total) return { label: 'Complete', tone: 'bg-emerald-50 text-emerald-700' };
-  if (answered === 0) return { label: 'Not started', tone: 'bg-slate-100 text-slate-500' };
-  return { label: `${answered} of ${total} answered`, tone: 'bg-amber-50 text-amber-700' };
+export function groupStatus(
+  answered: number,
+  total: number,
+): { label: string; tone: string } {
+  if (answered >= total)
+    return { label: "Complete", tone: "bg-emerald-50 text-emerald-700" };
+  if (answered === 0)
+    return { label: "Not started", tone: "bg-slate-100 text-slate-500" };
+  return {
+    label: `${answered} of ${total} answered`,
+    tone: "bg-amber-50 text-amber-700",
+  };
 }
 
 /** One collapsible group of questions within a step. Open one at a time. */
@@ -315,12 +386,14 @@ export function QuestionGroup({
           </span>
           <span className="mt-0.5 block text-xs text-slate-500">{hint}</span>
         </span>
-        <span className={`mt-0.5 flex-none rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${status.tone}`}>
+        <span
+          className={`mt-0.5 flex-none rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${status.tone}`}
+        >
           {status.label}
         </span>
         {/* Right when closed, down when open. */}
         <ChevronDownIcon
-          className={`mt-0.5 h-4 w-4 flex-none text-slate-500 transition-transform ${open ? '' : '-rotate-90'}`}
+          className={`mt-0.5 h-4 w-4 flex-none text-slate-500 transition-transform ${open ? "" : "-rotate-90"}`}
         />
       </button>
       {open && <div className="space-y-3 px-4 pb-4">{children}</div>}
@@ -330,6 +403,6 @@ export function QuestionGroup({
 
 /** The primary and secondary buttons used across the wizard. */
 export const primaryButton =
-  'inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50';
+  "inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50";
 export const secondaryButton =
-  'rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40';
+  "rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";

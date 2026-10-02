@@ -1,12 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { blockerFor, EMPTY_ANSWERS, fromDraft, termOptions, toSavePayload, type QuickAnswers } from './quickLoan';
+import { blockerFor, EMPTY_ANSWERS, fromDraft, termList, toSavePayload, type QuickAnswers } from './quickLoan';
 import type { QuickLoanTerms } from './quickLoan';
 import type { LoanApplication } from '../../../types';
 
 /** What the server says a Quick Loan is — the ceiling and term are its own. */
 const TERMS: QuickLoanTerms = {
   ceiling: 300_000,
-  max_term: 12,
+  max_term: 24,
+  term_options: [6, 12, 18, 24],
+  moratorium_options: [1, 2, 3],
   rate_of_interest: 0,
   trade_locations: ['From home', 'Fixed location', 'Mobile'],
   trading_since: ['Less than 6 months', '6 months to 1 year', '1 to 3 years', 'More than 3 years'],
@@ -17,29 +19,39 @@ const VENDOR: QuickAnswers = {
   ...EMPTY_ANSWERS,
   how: 'self',
   dob: '1988-04-09',
-  nationalId: '778850',
   phone: '600 1234',
   businessName: 'Singh Fresh Greens',
   tradeActivity: 'Sell vegetables',
   region: 'Region 3 — Essequibo Islands-West Demerara',
   tradingSince: '1 to 3 years',
   tradeLocation: 'Fixed location',
+  lat: 6.8013,
+  lng: -58.1551,
+  place: 'Stabroek Market, Georgetown',
+  photos: 2,
+  contacts: [
+    { name: 'Asha Persaud', relationship: 'Neighbour', phone: '+592 600 1111' },
+    { name: 'Devon Baksh', relationship: 'Supplier', phone: '600 2222' },
+  ],
   amount: '150000',
   purpose: 'Buy more stock',
   term: '6',
-  bank: 'Citizens Bank Guyana',
+  moratorium: '2',
+  residesInGuyana: true,
+  accountType: 'Savings',
+  bank: 'Citizen Bank',
+  branch: 'Citizen Bank - Main branch',
   accountNo: '0009111122223333',
   manualAccount: true,
   holder: 'Ravi Singh',
   confirmNo: '0009 1111 2222 3333',
-  accurate: true,
-  noGuarantee: true,
-  creditConsent: true,
+  consentGiven: true,
+  warningAcknowledged: true,
 };
 
 describe('what stops each step', () => {
   test('a vendor who has answered everything is never stopped', () => {
-    for (const step of ['eligibility', 'about', 'business', 'loan', 'proof', 'bank', 'review', 'confirm'] as const) {
+    for (const step of ['eligibility', 'business', 'loan', 'bank', 'review', 'confirm'] as const) {
       expect(blockerFor(step, VENDOR, TERMS)).toBeNull();
     }
   });
@@ -49,9 +61,13 @@ describe('what stops each step', () => {
     expect(blockerFor('eligibility', { ...VENDOR, how: 'help' }, TERMS)).toBeNull();
   });
 
-  test('date of birth and national ID are required', () => {
-    expect(blockerFor('about', { ...VENDOR, dob: '' }, TERMS)).toMatch(/date of birth/i);
-    expect(blockerFor('about', { ...VENDOR, nationalId: ' ' }, TERMS)).toMatch(/national ID/i);
+  test('a date of birth must be on file — the business step asks only when it is missing', () => {
+    expect(blockerFor('business', { ...VENDOR, dob: '' }, TERMS)).toMatch(/date of birth/i);
+  });
+
+  test('the business must be pinned on the map and photographed', () => {
+    expect(blockerFor('business', { ...VENDOR, lat: null }, TERMS)).toBe('Pin your business on the map.');
+    expect(blockerFor('business', { ...VENDOR, photos: 0 }, TERMS)).toBe('Add at least one photo of your business.');
   });
 
   test('what, region, how long and where are required; the business name is not', () => {
@@ -75,13 +91,48 @@ describe('what stops each step', () => {
     );
   });
 
-  test('the loan needs a purpose and a term within the longest allowed', () => {
+  test('the loan needs a purpose and one of the allowed terms', () => {
     expect(blockerFor('loan', { ...VENDOR, purpose: ' ' }, TERMS)).toMatch(/what the loan is for/i);
-    expect(blockerFor('loan', { ...VENDOR, term: '13' }, TERMS)).toMatch(/months/i);
+    expect(blockerFor('loan', { ...VENDOR, term: '10' }, TERMS)).toBe('Choose a term of 6, 12, 18 or 24 months.');
+    expect(blockerFor('loan', { ...VENDOR, term: '30' }, TERMS)).toMatch(/months/i);
+    for (const term of ['6', '12', '18', '24']) expect(blockerFor('loan', { ...VENDOR, term }, TERMS)).toBeNull();
   });
 
-  test('photos never stop an application — the underwriter asks for what is missing', () => {
-    expect(blockerFor('proof', EMPTY_ANSWERS, TERMS)).toBeNull();
+  test('the business step needs both supporting contacts, each reachable', () => {
+    const [first, second] = VENDOR.contacts;
+    expect(blockerFor('business', { ...VENDOR, contacts: [{ ...first, name: '' }, second] }, TERMS)).toBe(
+      'Enter the name of your first supporting contact.',
+    );
+    expect(blockerFor('business', { ...VENDOR, contacts: [first, { ...second, relationship: ' ' }] }, TERMS)).toBe(
+      'Enter how your second supporting contact knows you.',
+    );
+    expect(blockerFor('business', { ...VENDOR, contacts: [first, { ...second, phone: '12' }] }, TERMS)).toMatch(
+      /7-digit phone number for your second/,
+    );
+    expect(blockerFor('business', { ...VENDOR, contacts: [first, { ...second, phone: '9876543210' }] }, TERMS)).toMatch(
+      /7-digit phone number for your second/,
+    );
+    expect(blockerFor('business', { ...VENDOR, contacts: [{ ...first, phone: '123 4567' }, second] }, TERMS)).toBeNull();
+    expect(blockerFor('business', VENDOR, TERMS)).toBeNull();
+  });
+
+  test('the loan step needs one of the moratoria', () => {
+    for (const moratorium of ['', '0', '4'])
+      expect(blockerFor('loan', { ...VENDOR, moratorium }, TERMS)).toMatch(/moratorium/i);
+    expect(blockerFor('loan', VENDOR, TERMS)).toBeNull();
+  });
+
+  test('the loan step needs the applicant to confirm they live in Guyana', () => {
+    expect(blockerFor('loan', { ...VENDOR, residesInGuyana: false }, TERMS)).toBe('Confirm you have been residing in Guyana for the last 12 months or more.');
+  });
+
+  test('the bank step needs the type of account', () => {
+    expect(blockerFor('bank', { ...VENDOR, accountType: '' }, TERMS)).toMatch(/Checking or Savings/);
+  });
+
+  test('a typed account needs a branch of its bank', () => {
+    expect(blockerFor('bank', { ...VENDOR, branch: '' }, TERMS)).toBe('Choose your branch.');
+    expect(blockerFor('bank', { ...VENDOR, manualAccount: false, branch: '' }, TERMS)).toBeNull();
   });
 
   test('a typed account needs its holder and the same number twice', () => {
@@ -92,16 +143,15 @@ describe('what stops each step', () => {
   });
 
   test('the submit page needs all three confirmations', () => {
-    expect(blockerFor('confirm', { ...VENDOR, accurate: false }, TERMS)).toMatch(/accurate/i);
-    expect(blockerFor('confirm', { ...VENDOR, noGuarantee: false }, TERMS)).toMatch(/guarantee/i);
-    expect(blockerFor('confirm', { ...VENDOR, creditConsent: false }, TERMS)).toMatch(/credit check/i);
+    expect(blockerFor('confirm', { ...VENDOR, consentGiven: false }, TERMS)).toMatch(/consent/i);
+    expect(blockerFor('confirm', { ...VENDOR, warningAcknowledged: false }, TERMS)).toMatch(/read this statement/i);
   });
 });
 
 describe('the term choices', () => {
-  test('one to the longest term the server allows', () => {
-    expect(termOptions(12)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    expect(termOptions(3)).toEqual([1, 2, 3]);
+  test('are named the way a person says them', () => {
+    expect(termList([6, 12, 18, 24])).toBe('6, 12, 18 or 24');
+    expect(termList([12])).toBe('12');
   });
 });
 
@@ -120,6 +170,17 @@ describe('what is sent and read back', () => {
         trade_region: 'Region 3 — Essequibo Islands-West Demerara',
         trading_since: '1 to 3 years',
         trade_location: 'Fixed location',
+        support_1_name: 'Asha Persaud',
+        support_1_relationship: 'Neighbour',
+        support_1_phone: '+592 600 1111',
+        support_2_name: 'Devon Baksh',
+        support_2_relationship: 'Supplier',
+        support_2_phone: '600 2222',
+        resides_in_guyana: 1,
+        moratorium_months: 2,
+        trade_latitude: 6.8013,
+        trade_longitude: -58.1551,
+        trade_address: 'Stabroek Market, Georgetown',
       },
     });
   });
@@ -143,6 +204,11 @@ describe('what is sent and read back', () => {
         trading_since: null,
         youth_entrepreneur: 1,
         woman_entrepreneur: 0,
+        support_1_name: 'Asha Persaud',
+        support_1_relationship: 'Neighbour',
+        support_1_phone: '+5926001111',
+        moratorium_months: 2,
+        resides_in_guyana: 1,
       },
     } as unknown as LoanApplication;
     expect(fromDraft(draft)).toMatchObject({
@@ -153,6 +219,12 @@ describe('what is sent and read back', () => {
       tradingSince: '',
       amount: '150000',
       term: '6',
+      moratorium: '2',
+      residesInGuyana: true,
+      contacts: [
+        { name: 'Asha Persaud', relationship: 'Neighbour', phone: '+5926001111' },
+        { name: '', relationship: '', phone: '' },
+      ],
     });
   });
 });

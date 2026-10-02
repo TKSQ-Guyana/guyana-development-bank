@@ -298,7 +298,7 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		# `standard` or `quick`. The two are applied for on different forms, and
 		# the review queue and case view show which one a case is.
 		"product": _portal_product(get("loan_product")),
-		# When a Quick Loan's borrower accepted its terms (it has no offer to sign).
+		# When a Quick Loan's borrower accepted its terms at submission (before the offer).
 		"terms_accepted_on": get("gdb_terms_accepted_on"),
 		"credit_consent_on": get("gdb_credit_consent_on"),
 		# Filled with a GDB Field Officer (services/field_operations) and when

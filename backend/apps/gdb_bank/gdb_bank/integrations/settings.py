@@ -37,6 +37,10 @@ KEYS = {
 	"keycloak_staff_client_secret": ("KEYCLOAK_STAFF_CLIENT_SECRET", True),
 	"keycloak_admin_client_id": ("KEYCLOAK_ADMIN_CLIENT_ID", False),
 	"keycloak_admin_client_secret": ("KEYCLOAK_ADMIN_CLIENT_SECRET", True),
+	# The citizen realm's own admin client: creates the Keycloak account behind
+	# a TIN sign-up (tin_auth.py), and nothing in the staff realm.
+	"keycloak_citizen_admin_client_id": ("KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID", False),
+	"keycloak_citizen_admin_client_secret": ("KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET", True),
 	"dcra_base_url": ("DCRA_BASE_URL", False),
 	"dcra_api_key": ("DCRA_API_KEY", True),
 	"bank_registry_base_url": ("BANK_REGISTRY_BASE_URL", False),

@@ -19,6 +19,11 @@ DOCUMENT_TYPES = (
 	"Proof of Address",
 	"Personal Financials",
 	"Financials",
+	# The three financial statements an SME files, each on its own row so an
+	# underwriter can see which one is missing rather than "some financials".
+	"Cash Flow Projection",
+	"Income Statement",
+	"Balance Sheet",
 	"Business Plan",
 	"Bank Statement",
 	"Quotation",
@@ -27,6 +32,9 @@ DOCUMENT_TYPES = (
 	# — never with registration, accounts or a plan.
 	"Trading Photo",
 	"Receipts or Records",
+	# Pictures of the business itself — the stall, the shop, the goods — taken
+	# while describing it. Advisory, like every Quick Loan photo.
+	"Business Photo",
 	"Other",
 )
 
@@ -48,6 +56,7 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png")
 ACCEPTED_BY_TYPE = {
 	"Trading Photo": PHOTO_EXTENSIONS,
+	"Business Photo": PHOTO_EXTENSIONS,
 	"Receipts or Records": PHOTO_EXTENSIONS + ALLOWED_EXTENSIONS,
 }
 
@@ -92,18 +101,19 @@ def required_types(business_stage: str | None, cluster: bool = False, quick: boo
 	"""What the Bank expects from the applicant of an application.
 
 	Identity always — plus, on a group's case, the head's own personal
-	financials. Beyond that an existing business owes its financials and a
-	start-up its business plan. A Quick Loan owes a photograph of the trade and
+	financials. Beyond that an existing business owes its three statements (a
+	12-month cash-flow projection, its income and expenditure, its balance
+	sheet) and a start-up its business plan and cash-flow projection. A Quick Loan owes a photograph of the trade and
 	nothing else: receipts are welcome and never expected.
 	"""
 	if quick:
-		return ("Identity", "Trading Photo")
+		return ("Identity", "Business Photo")
 	base = PERSONAL_EVIDENCE if cluster else ("Identity",)
 	stage = (business_stage or "").strip().title()
 	if stage == "Existing":
-		return base + ("Financials",)
+		return base + ("Cash Flow Projection", "Income Statement", "Balance Sheet")
 	if stage == "New":
-		return base + ("Business Plan",)
+		return base + ("Business Plan", "Cash Flow Projection")
 	return base
 
 

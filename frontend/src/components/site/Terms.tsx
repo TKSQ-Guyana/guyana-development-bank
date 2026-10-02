@@ -45,7 +45,7 @@ const SAFEGUARDS: { icon: ReactNode; body: string }[] = [
   },
   {
     icon: <PersonCheckIcon />,
-    body: 'A person decides. You can be guided through the preparation and your answers can be organised for you. Submitting, approving, declining and disbursing stay with a human underwriter at every step.',
+    body: 'A person decides. You can be guided through the preparation and your answers can be organised for you. Submitting, approving, declining and disbursing stay with a human loan officer at every step.',
   },
 ];
 

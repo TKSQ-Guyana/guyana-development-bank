@@ -47,7 +47,7 @@ export function FieldCaseView() {
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
         <div className="space-y-4 lg:sticky lg:top-24">
           <Card>
-            <RailTitle>Case facts</RailTitle>
+            <RailTitle>Loan facts</RailTitle>
             <Row label="Requested" value={`${formatGyd(loan.loan_amount)} · ${loan.term_months} months`} />
             <Row label="Status" value={loan.status === 'Draft' && loan.handed_off_on ? 'Waiting for applicant' : loan.status} />
             {loan.assisted_by_name && <Row label="Assisted by" value={loan.assisted_by_name} />}

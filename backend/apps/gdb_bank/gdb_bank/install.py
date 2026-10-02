@@ -36,16 +36,80 @@ ROLES = (
 	("Field Officer", 1),
 )
 
-# The banks a citizen may nominate for a payout. Seeded, because the portal's
-# payout destination is a Link to Bank and an empty list is an approved loan
-# nobody can disburse. Bank of Guyana is here for GDB's own operating and
-# collections accounts, not as a citizen destination.
+# The banks a citizen may nominate for a payout — (name, enabled). Seeded,
+# because the portal's payout destination is a Link to Bank and an empty list is
+# an approved loan nobody can disburse. Bank of Guyana is held for GDB's own
+# operating and collections accounts, disabled as a citizen destination.
 BANKS = (
-	"Bank of Guyana",
-	"Citizens Bank Guyana",
-	"Demerara Bank",
-	"Guyana Bank for Trade and Industry",
-	"Republic Bank (Guyana)",
+	("New Building Society", 1),
+	("Bank of Guyana", 0),
+	("Bank of Baroda", 1),
+	("Citizen Bank", 1),
+	("Demerara Bank", 1),
+	("GBTI", 1),
+	("Nova Scotia", 1),
+	("Republic Bank", 1),
+)
+
+# Names an earlier seed used. Kept — an account saved against one still links
+# to it — but switched off, so nobody new is offered them.
+RETIRED_BANKS = ("Citizens Bank Guyana", "Guyana Bank for Trade and Industry", "Republic Bank (Guyana)")
+
+# Each bank's branches: (id, bank, branch, routing transit number, sort order).
+# A payout's Bank Account carries the routing number as its branch code.
+BANK_BRANCHES = (
+	('New Building Society - Any', 'New Building Society', 'Any', '', 0),
+	('Citizen Bank - Main branch', 'Citizen Bank', 'Main branch', '10001007', 0),
+	('Demerara Bank - Main branch', 'Demerara Bank', 'Main branch (South Road)', '1008', 0),
+	('Bank of Baroda - Main branch', 'Bank of Baroda', 'Main branch', '60001002', 0),
+	('Bank of Guyana - Main branch', 'Bank of Guyana', 'Main branch', '70001001', 0),
+	('Bank of Baroda - Mon Repos', 'Bank of Baroda', 'Mon Repos', '40002002', 0),
+	('Nova Scotia - Bartica', 'Nova Scotia', 'Bartica', '94805003', 0),
+	('Nova Scotia - New Amsterdam', 'Nova Scotia', 'New Amsterdam', '14845003', 0),
+	('Nova Scotia - Parika Branch', 'Nova Scotia', 'Parika Branch', '73155003', 0),
+	('Nova Scotia - Carmichael Street', 'Nova Scotia', 'Carmichael Street', '30775003', 0),
+	('Nova Scotia - Robb Street', 'Nova Scotia', 'Robb Street', '73015003', 0),
+	('Demerara Bank - Mahaica', 'Demerara Bank', 'Mahaica', '50008008', 0),
+	('Demerara Bank - Anna Regina', 'Demerara Bank', 'Anna Regina', '400', 0),
+	('Demerara Bank - Rose Hall', 'Demerara Bank', 'Rose Hall', '80002008', 0),
+	('Demerara Bank - Le Resouvenir', 'Demerara Bank', 'Le Resouvenir/Beterverwagting', '90006008', 0),
+	('Demerara Bank - Diamond', 'Demerara Bank', 'Diamond', '10005008', 0),
+	('Demerara Bank - Corriverton', 'Demerara Bank', 'Corriverton', '60003008', 0),
+	('Demerara Bank - Leonora', 'Demerara Bank', 'Leonora', '30009008', 0),
+	('Demerara Bank - Corporate Office', 'Demerara Bank', 'Corporate Office', '70007008', 10),
+	('Citizen Bank - Essequibo Branch', 'Citizen Bank', 'Essequibo Branch', '6007', 0),
+	('Citizen Bank - Thirst Park', 'Citizen Bank', 'Thirst Park', '50004007', 0),
+	('Citizen Bank - Parika Branch', 'Citizen Bank', 'Parika Branch', '90002007', 0),
+	('Citizen Bank - Bartica', 'Citizen Bank', 'Bartica', '70003007', 0),
+	('Citizen Bank - New Amsterdam', 'Citizen Bank', 'New Amsterdam', '80007007', 0),
+	('Citizen Bank - Linden', 'Citizen Bank', 'Linden', '20005007', 0),
+	('GBTI - Water Street', 'GBTI', 'Water Street', '20001006', 0),
+	('GBTI - Regent Street', 'GBTI', 'Regent Street', '80003006', 0),
+	('GBTI - Vreed-en-Hoop Branch', 'GBTI', 'Vreed-en-Hoop Branch', '90007006', 0),
+	('GBTI - Parika', 'GBTI', 'Parika', '10006006', 0),
+	('GBTI - Lethem Branch', 'GBTI', 'Lethem Branch', '70008006', 0),
+	('GBTI - Anna Regina', 'GBTI', 'Anna Regina', '30005006', 0),
+	('GBTI - Diamond E.B.D', 'GBTI', 'Diamond E.B.D', '20015006', 0),
+	('GBTI - Port Mourant, Corentyne', 'GBTI', 'Port Mourant, Corentyne', '70013006', 0),
+	('GBTI - Bartica Branch', 'GBTI', 'Bartica Branch', '50014006', 0),
+	('GBTI - Port Kaituman', 'GBTI', 'Port Kaituma', '90012006', 0),
+	('GBTI - Corriverton Branch', 'GBTI', 'Corriverton Branch', '60004006', 0),
+	('GBTI - Providence E.B.D', 'GBTI', 'Providence E.B.D', '50009006', 0),
+	('GBTI - Mon Repos', 'GBTI', 'Mon Repos', '16006', 0),
+	('GBTI - Kingston', 'GBTI', 'Kingston', '10011006', 0),
+	('Republic Bank - New Market Street', 'Republic Bank', 'New Market Street', '80008005', 0),
+	('Republic Bank - Corriverton Branch', 'Republic Bank', 'Corriverton Branch', '70004005', 0),
+	('Republic Bank - Triumph Bank', 'Republic Bank', 'Triumph Bank', '60014005', 0),
+	('Republic Bank - Diamond Branch', 'Republic Bank', 'Diamond Branch', '12005', 0),
+	('Republic Bank - Lethem Branch', 'Republic Bank', 'Lethem Branch', '80013005', 0),
+	('Republic Bank - Rose Hall', 'Republic Bank', 'Rose Hall / Williamsburg', '20006005', 0),
+	('Republic Bank - New Amsterdam', 'Republic Bank', 'New Amsterdam', '40010005', 0),
+	('Republic Bank - Vreed-en-Hoop Branch', 'Republic Bank', 'Vreed-en-Hoop Branch', '20011005', 0),
+	('Republic Bank - Rosignol', 'Republic Bank', 'Rosignol', '7005', 0),
+	('Republic Bank - Linden', 'Republic Bank', 'Linden', '40005005', 0),
+	('Republic Bank - Anna Regina Branch', 'Republic Bank', 'Anna Regina Branch', '90003005', 0),
+	('Republic Bank - Camp & Regent Streets', 'Republic Bank', 'Camp & Regent Streets', '10002005', 0),
+	('Republic Bank - Water Street', 'Republic Bank', 'Water Street', '30001005', 0),
 )
 
 LOAN_PRODUCT_NAME = "GDB Standard Loan"
@@ -137,8 +201,11 @@ APPLICATION_SECTIONS = (
 		"gdb_legal_structure",
 		"Legal Structure",
 		"Select",
-		"\nSole Trader\nPartnership\nCluster-supported\nIncorporated (Inc.)",
+		"\nSole Trader\nPartnership\nCluster-supported\nIncorporated (Inc.)\nOther",
 	),
+	# What "Other" means, in the applicant's words — a co-operative, a trust,
+	# a society. Asked only when Other is the structure chosen.
+	("gdb_legal_structure_other", "Legal Structure (Other, Declared)", "Data"),
 	# The partners' e-IDs, when the structure is a partnership. Recorded as
 	# declared: naming somebody is not the same as that person agreeing, and a
 	# co-applicant who must consent does so through their own sign-in, never
@@ -157,10 +224,14 @@ APPLICATION_SECTIONS = (
 	# C — business or venture description
 	("gdb_executive_summary", "Executive Summary", "Small Text"),
 	("gdb_products_services", "Products / Services", "Small Text"),
-	("gdb_unique_selling_point", "Unique Selling Proposition", "Small Text"),
+	("gdb_unique_selling_point", "Marketing Strategy", "Small Text"),
 	("gdb_use_of_funds", "Expected Use of Funds", "Small Text"),
+	# When the borrower wants repayments to begin: this many months after the
+	# funds are released, no instalment is due. 0 = the month after release.
+	# A request — the Letter of Offer carries the moratorium GDB grants.
+	("gdb_moratorium_months", "Moratorium Requested (Months)", "Int"),
 	("gdb_challenges", "Current Challenges", "Small Text"),
-	("gdb_employment_impact", "Employment / Development Impact", "Small Text"),
+	("gdb_employment_impact", "Economic Impact", "Small Text"),
 	# Jobs the loan creates — a count an underwriter can compare across cases,
 	# beside the free-text impact above.
 	("gdb_jobs_created", "Jobs to be Created (First Year)", "Int"),
@@ -171,6 +242,10 @@ APPLICATION_SECTIONS = (
 	# D — market and customers
 	("gdb_customer_segments", "Customer Segments", "Small Text"),
 	("gdb_target_market", "Target Market", "Small Text"),
+	# Where most of the sales come from, and where the rest do — the market a
+	# business lives on and the one it could grow into.
+	("gdb_primary_market", "Primary Market", "Small Text"),
+	("gdb_secondary_market", "Secondary Market", "Small Text"),
 	("gdb_customer_need", "Customer Need / Problem", "Small Text"),
 	("gdb_competitors", "Competitors / Alternatives", "Small Text"),
 	("gdb_pricing_approach", "Pricing Approach", "Small Text"),
@@ -208,6 +283,23 @@ APPLICATION_SECTIONS = (
 	("gdb_trade_location", "Business Location (Quick Loan)", "Select", "\n" + "\n".join(QUICK_TRADE_LOCATIONS)),
 	("gdb_trading_since", "Time in Business (Quick Loan)", "Select", "\n" + "\n".join(QUICK_TRADING_SINCE)),
 	("gdb_trade_region", "Business Region (Quick Loan)", "Data"),
+	# Where the business is, pinned on a map — required, because an informal
+	# trader often has no street address an officer could find.
+	("gdb_trade_latitude", "Business Latitude (Quick Loan)", "Float"),
+	("gdb_trade_longitude", "Business Longitude (Quick Loan)", "Float"),
+	("gdb_trade_address", "Business Location Description (Quick Loan)", "Small Text"),
+	# Two people who know the trader and can speak for them — an informal
+	# business has no accounts or registration, so the people around it are part
+	# of how GDB comes to know it. Declared, and never contacted without cause.
+	("gdb_support_1_name", "Supporting Contact 1 — Name (Quick Loan)", "Data"),
+	("gdb_support_1_relationship", "Supporting Contact 1 — Relationship (Quick Loan)", "Data"),
+	("gdb_support_1_phone", "Supporting Contact 1 — Phone (Quick Loan)", "Data"),
+	("gdb_support_2_name", "Supporting Contact 2 — Name (Quick Loan)", "Data"),
+	("gdb_support_2_relationship", "Supporting Contact 2 — Relationship (Quick Loan)", "Data"),
+	("gdb_support_2_phone", "Supporting Contact 2 — Phone (Quick Loan)", "Data"),
+	# The applicant's own declaration that they live in Guyana — the programme
+	# is for Guyanese enterprise, and a Quick Loan asks for no address proof.
+	("gdb_resides_in_guyana", "Resides in Guyana (Declared, Quick Loan)", "Check"),
 	# Priority groups, as the applicant declares them — a declaration, kept apart
 	# from the sector, never a decision.
 	("gdb_youth_entrepreneur", "Youth Entrepreneur (Declared)", "Check"),
@@ -437,7 +529,26 @@ CUSTOM_FIELDS = {
 # unknown is not a check. All read-only: this is what the registry said, not
 # something staff may edit into a pass.
 ERPNEXT_CUSTOM_FIELDS = {
+	# Whether citizens may be paid through this bank (BANKS). A disabled bank is
+	# not offered and is refused on save.
+	"Bank": [
+		{
+			"fieldname": "gdb_enabled",
+			"label": "Offered to Citizens",
+			"fieldtype": "Check",
+			"default": "1",
+			"insert_after": "bank_name",
+		},
+	],
 	"Bank Account": [
+		# The branch picked from the bank's list; branch_code holds its routing number.
+		{
+			"fieldname": "gdb_bank_branch",
+			"label": "Branch",
+			"fieldtype": "Link",
+			"options": "GDB Bank Branch",
+			"insert_after": "branch_code",
+		},
 		{
 			"fieldname": "gdb_verification_status",
 			"label": "GDB Account Check",
@@ -507,6 +618,18 @@ USER_CUSTOM_FIELDS = {
 			"description": "National e-ID (123-4567-8901) — also the Keycloak username.",
 			"insert_after": "username",
 		},
+		# A citizen who signed up with their TIN (tin_auth.py): their GRA
+		# Taxpayer Identification Number, which is also their Keycloak username.
+		{
+			"fieldname": "gdb_tin",
+			"label": "TIN",
+			"fieldtype": "Data",
+			"unique": 1,
+			"read_only": 1,
+			"no_copy": 1,
+			"description": "GRA Taxpayer Identification Number (9 digits) — the Keycloak username of a TIN sign-up.",
+			"insert_after": "gdb_eid",
+		},
 		# A staff member signs in with a work email, so their national e-ID is
 		# not their username — but it is still who they are. The platform
 		# administrator records it here so security/conflict.py can recognise an
@@ -557,6 +680,19 @@ def after_install():
 	make_user_custom_fields()
 
 
+# The kinds of account a citizen may be paid into — ERPNext's own Bank Account
+# Type records, linked from Bank Account.account_type.
+BANK_ACCOUNT_TYPES = ("Checking", "Savings")
+
+
+def ensure_bank_account_types():
+	"""Seed the payout account types. Idempotent."""
+	for name in BANK_ACCOUNT_TYPES:
+		if not frappe.db.exists("Bank Account Type", name):
+			frappe.get_doc({"doctype": "Bank Account Type", "account_type": name}).insert(ignore_permissions=True)
+	frappe.db.commit()
+
+
 def after_migrate():
 	ensure_roles()
 	make_user_custom_fields()
@@ -564,6 +700,7 @@ def after_migrate():
 	if "erpnext" in frappe.get_installed_apps():
 		make_erpnext_custom_fields()
 		ensure_banks()
+		ensure_bank_account_types()
 		ensure_accounts_read()
 		ensure_reconciliation_read()
 	if "lending" in frappe.get_installed_apps():
@@ -598,12 +735,29 @@ def ensure_banks():
 	the portal's payout destination links to, and without it an approved loan
 	has nowhere to go.
 	"""
-	for bank_name in BANKS:
+	for bank_name, enabled in BANKS:
 		if not frappe.db.exists("Bank", bank_name):
 			frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(
 				ignore_permissions=True
 			)
+		frappe.db.set_value("Bank", bank_name, "gdb_enabled", enabled, update_modified=False)
+	for bank_name in RETIRED_BANKS:
+		if frappe.db.exists("Bank", bank_name):
+			frappe.db.set_value("Bank", bank_name, "gdb_enabled", 0, update_modified=False)
+	ensure_bank_branches()
 	frappe.db.commit()
+
+
+def ensure_bank_branches():
+	"""Seed BANK_BRANCHES, keeping each row's figures as the list states them."""
+	for name, bank, branch, routing, order in BANK_BRANCHES:
+		values = {"bank": bank, "branch_name": branch, "routing_number": routing, "sort_order": order}
+		if frappe.db.exists("GDB Bank Branch", name):
+			frappe.db.set_value("GDB Bank Branch", name, values, update_modified=False)
+		else:
+			doc = frappe.get_doc({"doctype": "GDB Bank Branch", **values})
+			doc.name = name
+			doc.insert(ignore_permissions=True, set_name=name)
 
 
 # Reading the books, and nothing more. Deliberately NOT ERPNext's stock
@@ -1039,7 +1193,7 @@ def ensure_lending_defaults():
 				# by ensure_product_terms: a site whose after_migrate never ran
 				# would otherwise lend at whatever was hard-coded here.
 				"rate_of_interest": policy.rate_of_interest(),
-				"maximum_loan_amount": 0,
+				"maximum_loan_amount": policy.sme_loan_ceiling(),
 				"collection_offset_sequence_for_standard_asset": OFFSET_ORDER_TITLE,
 				"collection_offset_sequence_for_sub_standard_asset": OFFSET_ORDER_TITLE,
 			}
@@ -1085,6 +1239,8 @@ def _product_terms(product_name: str, rate: float) -> dict:
 	terms = {"rate_of_interest": rate, "validate_normal_repayment": 1}
 	if product_name == QUICK_LOAN_PRODUCT_NAME:
 		terms["maximum_loan_amount"] = policy.quick_loan_ceiling()
+	elif product_name == LOAN_PRODUCT_NAME:
+		terms["maximum_loan_amount"] = policy.sme_loan_ceiling()
 	return terms
 
 
@@ -1095,8 +1251,9 @@ def ensure_product_terms():
 	promised they would never be charged. `validate_normal_repayment` puts a
 	ceiling on a Normal Repayment so a payment cannot exceed what is due;
 	api.make_repayment picks Advance Payment when a citizen pays ahead, which
-	is the type that ceiling does not apply to. The Quick Loan's ceiling is held
-	the same way, so changing it is a configuration change, never a release.
+	is the type that ceiling does not apply to. Each product's loan ceiling (SME
+	and Quick) is held the same way, so changing one is a configuration change,
+	never a release.
 	Idempotent."""
 	rate, rate_source = policy.resolve()
 	for product_name in GDB_PRODUCT_NAMES:

@@ -70,7 +70,38 @@ _QUICK_REQUIRED = {
 	"gdb_trade_region": "Choose the region you do business in.",
 	"gdb_trading_since": "Tell us how long you have been in business.",
 	"gdb_trade_location": "Choose your business location.",
+	"gdb_trade_latitude": "Pin your business on the map.",
+	"gdb_trade_longitude": "Pin your business on the map.",
+	"gdb_support_1_name": "Enter the name of your first supporting contact.",
+	"gdb_support_1_relationship": "Enter how your first supporting contact knows you.",
+	"gdb_support_1_phone": "Enter a phone number for your first supporting contact.",
+	"gdb_support_2_name": "Enter the name of your second supporting contact.",
+	"gdb_support_2_relationship": "Enter how your second supporting contact knows you.",
+	"gdb_support_2_phone": "Enter a phone number for your second supporting contact.",
+	"gdb_resides_in_guyana": "Confirm that you live in Guyana.",
 }
+
+# Supporting contacts' numbers, held in the same shape as the applicant's own.
+_QUICK_PHONES = ("gdb_support_1_phone", "gdb_support_2_phone")
+
+# Guyana's extent, generously: a pin outside it is a slip of the map, not a
+# business GDB lends to.
+_GUYANA_LAT = (1.0, 8.7)
+_GUYANA_LNG = (-61.5, -56.3)
+
+
+def _guyana_local_phone(raw) -> str:
+	digits = "".join(c for c in str(raw or "") if c.isdigit())
+	if len(digits) == 10 and digits.startswith("592"):
+		digits = digits[3:]
+	return f"+592{digits}" if len(digits) == 7 else ""
+
+
+def _check_in_guyana(lat, lng) -> None:
+	if not lat and not lng:
+		return  # the required-field check names what is missing
+	if not (_GUYANA_LAT[0] <= flt(lat) <= _GUYANA_LAT[1] and _GUYANA_LNG[0] <= flt(lng) <= _GUYANA_LNG[1]):
+		frappe.throw(_("Pin a location in Guyana."))
 
 
 def _use_of_funds_lines(raw) -> list[dict]:
@@ -138,7 +169,7 @@ def _section_values(sections) -> dict:
 			# amount is then a Currency column Frappe can SUM.
 			values["gdb_use_of_funds_lines"] = _use_of_funds_lines(raw)
 			continue
-		if fieldtype in ("Currency", "Percent"):
+		if fieldtype in ("Currency", "Percent", "Float"):
 			values[fieldname] = flt(raw)
 		elif fieldtype in ("Int", "Check"):
 			values[fieldname] = cint(raw)
@@ -246,10 +277,29 @@ def _validated(
 	longest = policy.quick_loan_max_term() if quick else policy.MAX_TERM
 	if loan_amount <= 0:
 		frappe.throw(_("Loan amount must be greater than zero."))
-	if not (1 <= term_months <= longest):
+	if quick:
+		allowed = policy.quick_loan_terms()
+		if term_months not in allowed:
+			frappe.throw(
+				_("Choose a term of {0} months.").format(
+					", ".join(str(t) for t in allowed[:-1]) + " or " + str(allowed[-1]) if len(allowed) > 1 else allowed[0]
+				)
+			)
+	elif not cluster and not group:
+		# An SME Direct Loan is repaid over one of the programme's terms.
+		allowed = policy.sme_loan_terms()
+		if term_months not in allowed:
+			frappe.throw(_("Choose a term of {0} months.").format(policy.months_phrase(allowed)))
+	elif not (1 <= term_months <= longest):
 		frappe.throw(_("Term must be between 1 and {0} months.").format(longest))
 	if not purpose:
 		frappe.throw(_("Purpose is required."))
+	# When repayments start, on either form: one of the programme's moratoria,
+	# or not chosen yet (0) on a draft — submit_application then asks for it.
+	if not cluster and not group:
+		moratorium = cint(_section_values(sections).get("gdb_moratorium_months"))
+		if moratorium and moratorium not in policy.moratorium_options():
+			frappe.throw(_(MORATORIUM_MESSAGE).format(policy.months_phrase(policy.moratorium_options())))
 
 	# A Quick Loan is one trader's own. Refused rather than ignored, because a
 	# head who names their group is asking for something this product is not.
@@ -313,6 +363,13 @@ def _validated(
 		values.update(_blanked(SME_ONLY))
 		values["gdb_use_of_funds_lines"] = []
 		values["gdb_ownership_lines"] = []
+		# A supporting contact's number is a GUYANA number: seven digits, with or
+		# without the 592 the portal shows as a fixed prefix. Held as +592 and the
+		# seven digits; anything else is dropped, so the check below asks for one.
+		# The portal applies the same rule (components/PhoneInput.tsx).
+		for fieldname in _QUICK_PHONES:
+			values[fieldname] = _guyana_local_phone(values.get(fieldname))
+		_check_in_guyana(values.get("gdb_trade_latitude"), values.get("gdb_trade_longitude"))
 		for fieldname, message in _QUICK_REQUIRED.items():
 			if not values.get(fieldname):
 				frappe.throw(_(message))
@@ -328,6 +385,9 @@ def _validated(
 		values.update(_blanked(EXISTING_ONLY))
 	_check_shares(values)
 	return values
+
+
+MORATORIUM_MESSAGE = "Choose when you want to start repaying: after {0} months."
 
 
 def _own_draft(name: str, user: str):
@@ -454,6 +514,8 @@ def submit_application(
 	outstanding = missing_evidence(name)
 
 	doc = frappe.get_doc("Loan Application", name)
+	if not doc.gdb_cluster and cint(doc.gdb_moratorium_months) not in policy.moratorium_options():
+		frappe.throw(_(MORATORIUM_MESSAGE).format(policy.months_phrase(policy.moratorium_options())))
 	if _portal_product(doc.loan_product) == QUICK_PRODUCT:
 		if not cint(accept_terms):
 			frappe.throw(_("Accept the terms to submit."))
@@ -889,6 +951,14 @@ def loan_account(user: str, application: str, from_date=None, to_date=None):
 	)
 	case = _stage_context([application]).get(application) or {}
 	approved_amount, approved_term = case.get("approved_amount"), case.get("approved_term")
+	# The moratorium the Letter of Offer granted — what booking and release apply.
+	moratorium_months = cint(
+		frappe.db.get_value(
+			"GDB Loan Offer",
+			{"application": application, "status": "Accepted", "docstatus": 1},
+			"moratorium_months",
+		)
+	)
 	if not loan:
 		# Before booking, the terms booking will put into lending: the offer's.
 		return {
@@ -898,6 +968,7 @@ def loan_account(user: str, application: str, from_date=None, to_date=None):
 			"next_due": None,
 			"approved_amount": approved_amount,
 			"approved_term": approved_term,
+			"moratorium_months": moratorium_months,
 		}
 
 	# Whether this facility belongs to a group, said plainly rather than
@@ -923,7 +994,13 @@ def loan_account(user: str, application: str, from_date=None, to_date=None):
 	# underneath it and relay lending's own keys unchanged.
 	from lending.loan_management.doctype.loan_repayment.loan_repayment import calculate_amounts
 
-	amounts = calculate_amounts(loan.name, nowdate())
+	# calculate_amounts also asks frappe whether the caller may read the Loan by
+	# ROLE. Who may read this loan was settled above (_readable_application) —
+	# and an underwriter, whose Loan permissions were revoked with the money
+	# roles, still reads back the Quick Loan they decide and pay. Elevated for
+	# the arithmetic only; nothing here writes.
+	with _as_system():
+		amounts = calculate_amounts(loan.name, nowdate())
 	dues = {
 		"overdue_penalty_amount": amounts.get("penalty_amount"),
 		"overdue_interest_amount": amounts.get("interest_amount"),
@@ -972,6 +1049,7 @@ def loan_account(user: str, application: str, from_date=None, to_date=None):
 		# drawable ceiling is the requested amount, and release refuses it.
 		"approved_amount": approved_amount,
 		"approved_term": approved_term,
+		"moratorium_months": moratorium_months,
 		"booked_on_offer": None
 		if approved_amount is None
 		else (

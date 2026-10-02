@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
-import { call } from '../api';
-import { useAuth } from '../auth';
-import { RequiredMark } from './ui/RequiredMark';
-import type { LoanAccount as LoanAccountType } from '../types';
-import { formatGyd } from '../utils';
+import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { call } from "../api";
+import { useAuth } from "../auth";
+import { RequiredMark } from "./ui/RequiredMark";
+import type { LoanAccount as LoanAccountType } from "../types";
+import { formatGyd } from "../utils";
 
 /** Booking and disbursement — the bank's side of an approved application.
  *
@@ -27,7 +27,7 @@ export function Disbursement({
 }) {
   const { user } = useAuth();
   const [account, setAccount] = useState<LoanAccountType | null>(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -41,12 +41,16 @@ export function Disbursement({
   }, []);
 
   useEffect(() => {
-    call<LoanAccountType>('gdb_bank.api.loan_account', { application })
+    call<LoanAccountType>("gdb_bank.api.loan_account", { application })
       .then(apply)
       .catch((err: Error) => setError(err.message));
   }, [application, apply]);
 
-  const run = async (method: string, args: Record<string, unknown>, done: string) => {
+  const run = async (
+    method: string,
+    args: Record<string, unknown>,
+    done: string,
+  ) => {
     setBusy(true);
     setError(null);
     setNote(null);
@@ -55,7 +59,7 @@ export function Disbursement({
       setNote(done);
       onChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(err instanceof Error ? err.message : "Action failed");
     } finally {
       setBusy(false);
     }
@@ -66,7 +70,9 @@ export function Disbursement({
   const loan = account.loan;
   const drawable = account.disbursable ?? 0;
   const awaitingRelease =
-    !!loan && drawable > 0 && (loan.status === 'Sanctioned' || loan.status === 'Partially Disbursed');
+    !!loan &&
+    drawable > 0 &&
+    (loan.status === "Sanctioned" || loan.status === "Partially Disbursed");
   // Booked on the requested amount rather than the executed offer: lending's
   // drawable is then too high, and the server refuses release until rebooked.
   const mustRebook = awaitingRelease && account.booked_on_offer === false;
@@ -79,7 +85,11 @@ export function Disbursement({
 
   const disburse = (e: FormEvent) => {
     e.preventDefault();
-    void run('gdb_bank.api.disburse_loan', { amount: Number(amount) }, 'Disbursement recorded.');
+    void run(
+      "gdb_bank.api.disburse_loan",
+      { amount: Number(amount) },
+      "Disbursement recorded.",
+    );
   };
 
   return (
@@ -94,35 +104,87 @@ export function Disbursement({
       </div>
 
       {error && (
-        <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p
+          className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
           {error}
         </p>
       )}
 
       {account.approved_amount != null && (
         <p className="mb-3 text-sm text-slate-600">
-          Executed Letter of Offer: <strong>{formatGyd(account.approved_amount)}</strong> over{' '}
+          Executed Letter of Offer:{" "}
+          <strong>{formatGyd(account.approved_amount)}</strong> over{" "}
           {account.approved_term} months.
         </p>
       )}
 
       {mustRebook && loan && (
-        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
-          This loan was booked at {formatGyd(loan.loan_amount)} over {loan.repayment_periods}{' '}
-          months, which is not what the borrower signed. It must be rebooked on the offer&rsquo;s
-          terms before any funds are released.
+        <p
+          className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          role="alert"
+        >
+          This loan was booked at {formatGyd(loan.loan_amount)} over{" "}
+          {loan.repayment_periods} months, which is not what the borrower
+          signed. It must be rebooked on the offer&rsquo;s terms before any
+          funds are released.
         </p>
       )}
-      {note && <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{note}</p>}
+      {note && (
+        <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+          {note}
+        </p>
+      )}
 
       {!loan && mayBook && (
         <>
           <p className="mb-3 text-sm text-slate-600">
-            Approved, but no loan account exists yet. Booking creates the loan and its terms.
+            Approved, but no loan account exists yet. Booking creates the loan
+            on the terms the borrower accepted:
           </p>
+          <dl className="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-sm sm:grid-cols-4">
+            {(
+              [
+                [
+                  "Amount",
+                  account?.approved_amount != null
+                    ? formatGyd(account.approved_amount)
+                    : "—",
+                ],
+                [
+                  "Tenure",
+                  account?.approved_term
+                    ? `${account.approved_term} months`
+                    : "—",
+                ],
+                [
+                  "Moratorium",
+                  account?.moratorium_months
+                    ? `${account.moratorium_months} months`
+                    : "None",
+                ],
+                [
+                  "First instalment",
+                  account?.approved_term
+                    ? `${(account?.moratorium_months ?? 0) + 1} month${(account?.moratorium_months ?? 0) ? "s" : ""} after release`
+                    : "—",
+                ],
+              ] as [string, string][]
+            ).map(([k, v]) => (
+              <div key={k}>
+                <dt className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  {k}
+                </dt>
+                <dd className="mt-0.5 font-bold text-slate-900">{v}</dd>
+              </div>
+            ))}
+          </dl>
           <button
             disabled={busy}
-            onClick={() => void run('gdb_bank.api.book_loan', {}, 'Loan booked.')}
+            onClick={() =>
+              void run("gdb_bank.api.book_loan", {}, "Loan booked.")
+            }
             className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
           >
             Book loan
@@ -132,23 +194,24 @@ export function Disbursement({
 
       {!loan && !mayBook && (
         <p className="text-sm text-slate-600">
-          Approved, but no loan account exists yet. The disbursement officer books the loan
-          before funds can be released.
+          Approved, but no loan account exists yet. The disbursement officer
+          books the loan before funds can be released.
         </p>
       )}
 
       {awaitingRelease && !mayRelease && (
         <p className="text-sm text-slate-600">
-          {formatGyd(drawable)} is awaiting release. Funds are released by the disbursement officer,
-          who must be someone other than the officer who approved this application.
+          {formatGyd(drawable)} is awaiting release. Funds are released by the
+          disbursement officer, who must be someone other than the officer who
+          approved this application.
         </p>
       )}
 
       {awaitingRelease && mayRelease && !mustRebook && (
         <form onSubmit={disburse}>
           <p className="mb-3 text-sm text-slate-600">
-            {formatGyd(drawable)} of {formatGyd(loan.loan_amount)} is available to disburse.
-            Disbursing generates the repayment schedule.
+            {formatGyd(drawable)} of {formatGyd(loan.loan_amount)} is available
+            to disburse. Disbursing generates the repayment schedule.
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-sm">
@@ -178,7 +241,8 @@ export function Disbursement({
 
       {loan && !awaitingRelease && (
         <p className="text-sm text-slate-600">
-          {formatGyd(loan.disbursed_amount)} disbursed. Nothing further is awaiting release.
+          {formatGyd(loan.disbursed_amount)} disbursed. Nothing further is
+          awaiting release.
         </p>
       )}
     </div>

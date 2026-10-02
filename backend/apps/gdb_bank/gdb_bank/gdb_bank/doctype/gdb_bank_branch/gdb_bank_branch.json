@@ -1,0 +1,34 @@
+{
+ "actions": [],
+ "autoname": "prompt",
+ "creation": "2026-10-02 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["bank", "branch_name", "column_break_main", "routing_number", "sort_order", "section_break_address", "address"],
+ "fields": [
+  {"fieldname": "bank", "fieldtype": "Link", "options": "Bank", "label": "Bank", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
+  {"fieldname": "branch_name", "fieldtype": "Data", "label": "Branch", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "column_break_main", "fieldtype": "Column Break"},
+  {"fieldname": "routing_number", "fieldtype": "Data", "label": "Routing Transit Number", "in_list_view": 1, "description": "Held on a payout's Bank Account as its branch code."},
+  {"fieldname": "sort_order", "fieldtype": "Int", "label": "Sort Order", "default": "0", "description": "Lower first; ties in branch-name order."},
+  {"fieldname": "section_break_address", "fieldtype": "Section Break"},
+  {"fieldname": "address", "fieldtype": "Small Text", "label": "Address"}
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Bank Branch",
+ "naming_rule": "Set by user",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "read": 1, "write": 1, "export": 1, "report": 1, "role": "System Manager"}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "branch_name",
+ "track_changes": 1
+}

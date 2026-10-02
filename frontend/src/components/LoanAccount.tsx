@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
-import { call } from '../api';
-import { Card, CardLabel } from './ui/Card';
-import { RequiredMark } from './ui/RequiredMark';
-import type { LoanAccount as LoanAccountType } from '../types';
-import { DataTable } from './ui/DataTable';
-import { formatGyd, formatDate } from '../utils';
+import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { call } from "../api";
+import { Card, CardLabel } from "./ui/Card";
+import { RequiredMark } from "./ui/RequiredMark";
+import type { LoanAccount as LoanAccountType } from "../types";
+import { DataTable } from "./ui/DataTable";
+import { formatGyd, formatDate } from "../utils";
 
 /** Repayment schedule and payments for a booked loan. Shown to the borrower
  *  and, for a cluster facility, to every member of the cluster.
@@ -13,22 +13,21 @@ import { formatGyd, formatDate } from '../utils';
  *  Every figure here comes from frappe/lending — the schedule rows it
  *  generated and the dues it reports. The portal computes nothing.
  *
- *  `canPay` is false for GDB staff. They may read the account — an underwriter
- *  reviewing a case needs to — but the payment box is the borrower's, and a
- *  bank officer recording money that arrived uses Collections, which starts
- *  from a Bank Transaction rather than from a form. The server refuses either
- *  way (api._may_repay); this keeps the button from being there to press. */
+ *  `canPay` is off for everyone (GDB, 2026-10-02): a borrower repays at the
+ *  bank, and money that arrives is applied from Collections, which starts from
+ *  a Bank Transaction rather than from a form. The payment box stays behind
+ *  the prop only so turning it back on is a one-word change. */
 export function LoanAccount({
   application,
-  canPay = true,
-  className = 'mt-4',
+  canPay = false,
+  className = "mt-4",
 }: {
   application: string;
   canPay?: boolean;
   className?: string;
 }) {
   const [account, setAccount] = useState<LoanAccountType | null>(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paid, setPaid] = useState<string | null>(null);
@@ -47,7 +46,7 @@ export function LoanAccount({
   }, []);
 
   const load = useCallback(() => {
-    call<LoanAccountType>('gdb_bank.api.loan_account', { application })
+    call<LoanAccountType>("gdb_bank.api.loan_account", { application })
       .then(apply)
       .catch((err: Error) => setError(err.message));
   }, [application, apply]);
@@ -59,14 +58,21 @@ export function LoanAccount({
 
   const loan = account.loan;
   const dues = account.dues ?? {};
-  const rows = showAll ? account.schedule : account.schedule.slice(0, 6);
+  // Only instalments: lending may hold an empty row for the gap before the
+  // first one (a moratorium, or a broken first period). It has nothing due,
+  // so it is said in words above the table rather than listed as a payment.
+  const due = account.schedule.filter((r) => Number(r.total_payment) > 0);
+  const firstDue = due[0]?.payment_date ?? null;
+  const held = account.schedule.length > due.length;
+  const rows = showAll ? due : due.slice(0, 6);
   const payments = account.payments ?? [];
   // A group's facility, which is the case this panel exists for: one loan
   // carries the whole cluster, so who paid is part of the record from the
   // first payment. On a sole borrower's loan every row would repeat the same
   // name, so the payer is named only once a second person has actually paid.
   const forCluster = Boolean(account.cluster);
-  const showPayer = forCluster || new Set(payments.map((p) => p.paid_by_name)).size > 1;
+  const showPayer =
+    forCluster || new Set(payments.map((p) => p.paid_by_name)).size > 1;
   const overdue = dues.overdue_total_amount ?? 0;
 
   const pay = async (e: FormEvent) => {
@@ -75,14 +81,19 @@ export function LoanAccount({
     setError(null);
     setPaid(null);
     try {
-      const updated = await call<LoanAccountType>('gdb_bank.api.make_repayment', {
-        application,
-        amount: Number(amount),
-      });
+      const updated = await call<LoanAccountType>(
+        "gdb_bank.api.make_repayment",
+        {
+          application,
+          amount: Number(amount),
+        },
+      );
       apply(updated);
       setPaid(`Payment of ${formatGyd(Number(amount))} recorded.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Payment could not be recorded');
+      setError(
+        err instanceof Error ? err.message : "Payment could not be recorded",
+      );
     } finally {
       setBusy(false);
     }
@@ -104,87 +115,108 @@ export function LoanAccount({
 
       <dl className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
-          { label: 'Disbursed', value: formatGyd(loan.disbursed_amount) },
-          { label: 'Instalment', value: account.instalment ? formatGyd(account.instalment) : '—' },
-          { label: 'Paid so far', value: formatGyd(loan.total_amount_paid) },
+          { label: "Disbursed", value: formatGyd(loan.disbursed_amount) },
           {
-            label: 'Principal outstanding',
+            label: "Instalment",
+            value: account.instalment ? formatGyd(account.instalment) : "—",
+          },
+          { label: "Paid so far", value: formatGyd(loan.total_amount_paid) },
+          {
+            label: "Principal outstanding",
             value:
-              dues.principal_outstanding !== undefined ? formatGyd(dues.principal_outstanding) : '—',
+              dues.principal_outstanding !== undefined
+                ? formatGyd(dues.principal_outstanding)
+                : "—",
           },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl bg-slate-50/80 px-3 py-2.5">
+          <div
+            key={stat.label}
+            className="rounded-xl bg-slate-50/80 px-3 py-2.5"
+          >
             <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
               {stat.label}
             </dt>
-            <dd className="mt-0.5 font-bold tabular-nums text-slate-800">{stat.value}</dd>
+            <dd className="mt-0.5 font-bold tabular-nums text-slate-800">
+              {stat.value}
+            </dd>
           </div>
         ))}
       </dl>
 
       <div
         className={`mb-5 rounded-xl px-4 py-3 text-sm ${
-          overdue ? 'bg-rose-50/70' : 'bg-slate-50/80'
+          overdue ? "bg-rose-50/70" : "bg-slate-50/80"
         }`}
       >
         <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
           Due now — reported by the lending ledger
         </p>
-        <p className={overdue ? 'text-rose-700' : 'text-slate-800'}>
-          <span className="text-lg font-bold tabular-nums">{formatGyd(overdue)}</span>
+        <p className={overdue ? "text-rose-700" : "text-slate-800"}>
+          <span className="text-lg font-bold tabular-nums">
+            {formatGyd(overdue)}
+          </span>
           {dues.oldest_due_date ? (
-            <span className="ml-2 text-slate-600">oldest due {formatDate(dues.oldest_due_date)}</span>
+            <span className="ml-2 text-slate-600">
+              oldest due {formatDate(dues.oldest_due_date)}
+            </span>
           ) : (
             <span className="ml-2 text-slate-600">nothing overdue</span>
           )}
         </p>
         {Boolean(
-          dues.overdue_principal_amount || dues.overdue_interest_amount || dues.overdue_charges,
+          dues.overdue_principal_amount ||
+          dues.overdue_interest_amount ||
+          dues.overdue_charges,
         ) && (
           <p className="mt-1 text-xs text-slate-500">
-            principal {formatGyd(dues.overdue_principal_amount ?? 0)} · interest{' '}
-            {formatGyd(dues.overdue_interest_amount ?? 0)} · charges{' '}
+            principal {formatGyd(dues.overdue_principal_amount ?? 0)} · interest{" "}
+            {formatGyd(dues.overdue_interest_amount ?? 0)} · charges{" "}
             {formatGyd(dues.overdue_charges ?? 0)}
           </p>
         )}
       </div>
 
+      {held && firstDue && (
+        <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+          Nothing is due until {formatDate(firstDue)} — your first instalment.
+        </p>
+      )}
       <DataTable
         caption="The repayment schedule lending issued at disbursement"
         columns={[
           {
-            key: 'due',
-            header: 'Due',
+            key: "due",
+            header: "Due",
             nowrap: true,
-            className: 'text-slate-600',
+            className: "text-slate-600",
             cell: (r) => formatDate(r.payment_date),
           },
           {
-            key: 'instalment',
-            header: 'Instalment',
-            align: 'right',
-            className: 'font-semibold text-slate-900',
+            key: "instalment",
+            header: "Instalment",
+            align: "right",
+            className: "font-semibold text-slate-900",
             cell: (r) => formatGyd(r.total_payment),
           },
           {
-            key: 'principal',
-            header: 'Principal',
-            align: 'right',
-            className: 'text-slate-500',
+            key: "principal",
+            header: "Principal",
+            align: "right",
+            className: "text-slate-500",
             cell: (r) => formatGyd(r.principal_amount),
           },
           {
-            key: 'interest',
-            header: 'Interest',
-            align: 'right',
-            className: 'text-slate-500',
+            key: "interest",
+            header: "Interest",
+            align: "right",
+            className: "text-slate-500",
             cell: (r) => formatGyd(r.interest_amount),
           },
           {
-            key: 'balance',
-            header: 'Balance',
-            align: 'right',
-            className: 'text-slate-500',
+            key: "balance",
+            header: "Balance",
+            align: "right",
+            className: "text-slate-500",
             cell: (r) => formatGyd(r.balance_loan_amount),
           },
         ]}
@@ -196,12 +228,14 @@ export function LoanAccount({
         empty="No schedule yet — one is issued when funds are released."
       />
 
-      {account.schedule.length > 6 && (
+      {due.length > 6 && (
         <button
           onClick={() => setShowAll((v) => !v)}
           className="mt-3 text-sm font-semibold text-brand hover:underline"
         >
-          {showAll ? 'Show fewer instalments' : `Show all ${account.schedule.length} instalments`}
+          {showAll
+            ? "Show fewer instalments"
+            : `Show all ${due.length} instalments`}
         </button>
       )}
 
@@ -212,8 +246,8 @@ export function LoanAccount({
       <div
         className={
           forCluster
-            ? 'mt-5 rounded-xl border border-gdb-gold/60 bg-gdb-gold/[0.07] p-4 shadow-sm'
-            : 'mt-5 border-t border-slate-100 pt-5'
+            ? "mt-5 rounded-xl border border-gdb-gold/60 bg-gdb-gold/[0.07] p-4 shadow-sm"
+            : "mt-5 border-t border-slate-100 pt-5"
         }
       >
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -227,13 +261,13 @@ export function LoanAccount({
         {payments.length === 0 ? (
           <p className="text-sm text-slate-500">
             {forCluster
-              ? 'No payment has been received yet. This is one facility for the whole group — every payment appears here with the member who made it.'
-              : 'No payment has been received yet. Anything paid against this facility appears here, with the date it was received.'}
+              ? "No payment has been received yet. This is one facility for the whole group — every payment appears here with the member who made it."
+              : "No payment has been received yet. Anything paid against this facility appears here, with the date it was received."}
           </p>
         ) : (
           <div
             className={`overflow-hidden rounded-xl border ${
-              forCluster ? 'border-gdb-gold/50 bg-white' : 'border-slate-200'
+              forCluster ? "border-gdb-gold/50 bg-white" : "border-slate-200"
             }`}
           >
             <DataTable
@@ -241,21 +275,21 @@ export function LoanAccount({
               caption="Payments received against this facility"
               columns={[
                 {
-                  key: 'date',
-                  header: 'Date',
+                  key: "date",
+                  header: "Date",
                   nowrap: true,
-                  className: 'text-slate-600',
+                  className: "text-slate-600",
                   cell: (p) => formatDate(p.posting_date),
                 },
                 ...(showPayer
                   ? [
                       {
-                        key: 'payer',
-                        header: 'Paid by',
-                        className: 'font-medium text-slate-800',
+                        key: "payer",
+                        header: "Paid by",
+                        className: "font-medium text-slate-800",
                         cell: (p: (typeof payments)[number]) => (
                           <>
-                            {p.paid_by_name ?? 'Received by GDB'}
+                            {p.paid_by_name ?? "Received by GDB"}
                             {p.paid_by_eid && (
                               <span className="block font-mono text-xs font-normal text-slate-400">
                                 {p.paid_by_eid}
@@ -267,16 +301,16 @@ export function LoanAccount({
                     ]
                   : []),
                 {
-                  key: 'type',
-                  header: 'Type',
-                  className: 'text-xs text-slate-500',
+                  key: "type",
+                  header: "Type",
+                  className: "text-xs text-slate-500",
                   cell: (p) => p.repayment_type,
                 },
                 {
-                  key: 'amount',
-                  header: 'Amount',
-                  align: 'right',
-                  className: 'font-semibold text-slate-900',
+                  key: "amount",
+                  header: "Amount",
+                  align: "right",
+                  className: "font-semibold text-slate-900",
                   cell: (p) => formatGyd(p.amount_paid),
                 },
               ]}
@@ -284,8 +318,10 @@ export function LoanAccount({
               rowKey={(p) => p.name}
               dense
               total={{
-                type: 'Total received',
-                amount: formatGyd(payments.reduce((sum, p) => sum + (p.amount_paid ?? 0), 0)),
+                type: "Total received",
+                amount: formatGyd(
+                  payments.reduce((sum, p) => sum + (p.amount_paid ?? 0), 0),
+                ),
               }}
               footnote={false}
             />
@@ -295,19 +331,28 @@ export function LoanAccount({
 
       {!canPay && (
         <p className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-500">
-          Payments are recorded by the borrower. Money received at the Bank is applied from
-          Collections, against the bank statement it arrived on.
+          Payments received by the Bank are applied from Collections, against
+          the bank statement they arrived on.
         </p>
       )}
 
       {canPay && (
-        <form onSubmit={(e) => void pay(e)} className="mt-5 border-t border-slate-100 pt-5">
-          <p className="mb-3 text-sm font-bold text-slate-800">Make a payment</p>
+        <form
+          onSubmit={(e) => void pay(e)}
+          className="mt-5 border-t border-slate-100 pt-5"
+        >
+          <p className="mb-3 text-sm font-bold text-slate-800">
+            Make a payment
+          </p>
           {error && (
-            <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+            <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </p>
           )}
           {paid && (
-            <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{paid}</p>
+            <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {paid}
+            </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-slate-600">
@@ -330,7 +375,7 @@ export function LoanAccount({
               disabled={busy}
               className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-60"
             >
-              {busy ? 'Recording…' : 'Pay'}
+              {busy ? "Recording…" : "Pay"}
             </button>
           </div>
         </form>

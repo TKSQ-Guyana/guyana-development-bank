@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { call } from '../api';
-import type { LoanOffer } from '../types';
+import { useCallback, useEffect, useState } from "react";
+import { call } from "../api";
+import type { LoanOffer } from "../types";
 
 /** Underwriter-side: issue the Letter of Offer on an approved application.
  *
@@ -11,20 +11,40 @@ import type { LoanOffer } from '../types';
 export function IssueOffer({
   application,
   onIssued,
+  defaultAmount,
+  defaultTerm,
 }: {
   application: string;
   onIssued?: () => void;
+  /** What the applicant asked for — the form starts there. */
+  defaultAmount?: number;
+  defaultTerm?: number;
 }) {
-  const [existing, setExisting] = useState<LoanOffer | null | undefined>(undefined);
-  const [amount, setAmount] = useState('');
-  const [term, setTerm] = useState('');
-  const [validDays, setValidDays] = useState('14');
-  const [conditions, setConditions] = useState('');
+  const [existing, setExisting] = useState<LoanOffer | null | undefined>(
+    undefined,
+  );
+  const [amount, setAmount] = useState(
+    defaultAmount ? String(defaultAmount) : "",
+  );
+  const [term, setTerm] = useState(defaultTerm ? String(defaultTerm) : "");
+  const [validDays, setValidDays] = useState("14");
+  // '' = as the applicant asked.
+  const [moratorium, setMoratorium] = useState("");
+  const [options, setOptions] = useState<number[]>([1, 2, 3]);
+
+  useEffect(() => {
+    call<{ moratorium_options?: number[] }>("gdb_bank.api.sme_loan_terms")
+      .then(
+        (t) => t.moratorium_options?.length && setOptions(t.moratorium_options),
+      )
+      .catch(() => undefined);
+  }, []);
+  const [conditions, setConditions] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    call<LoanOffer | null>('gdb_bank.offers.my_offer', { application })
+    call<LoanOffer | null>("gdb_bank.offers.my_offer", { application })
       .then(setExisting)
       .catch(() => setExisting(null));
   }, [application]);
@@ -33,23 +53,26 @@ export function IssueOffer({
 
   if (existing === undefined) return null;
   // An offer that is live or already executed is not reissuable.
-  if (existing && ['Issued', 'Accepted'].includes(existing.status)) return null;
+  if (existing && ["Issued", "Accepted"].includes(existing.status)) return null;
 
   const issue = async () => {
     setBusy(true);
     setError(null);
     try {
-      await call<LoanOffer>('gdb_bank.offers.issue_offer', {
+      await call<LoanOffer>("gdb_bank.offers.issue_offer", {
         application,
         offered_amount: amount ? Number(amount) : undefined,
         term_months: term ? Number(term) : undefined,
+        moratorium_months: moratorium === "" ? undefined : Number(moratorium),
         valid_days: validDays ? Number(validDays) : undefined,
         conditions,
       });
       onIssued?.();
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not issue the offer');
+      setError(
+        err instanceof Error ? err.message : "Could not issue the offer",
+      );
     } finally {
       setBusy(false);
     }
@@ -57,16 +80,22 @@ export function IssueOffer({
 
   return (
     <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 shadow">
-      <h2 className="mb-1 font-semibold text-slate-800">Issue Letter of Offer</h2>
+      <h2 className="mb-1 font-semibold text-slate-800">
+        Issue Letter of Offer
+      </h2>
       <p className="mb-4 text-sm text-slate-500">
         {existing
           ? `The previous offer was ${existing.status.toLowerCase()}. Issuing a new one replaces it.`
-          : 'The applicant cannot be booked or funded until they accept an offer.'}
+          : "The applicant cannot be booked or funded until they accept an offer."}
       </p>
 
-      {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && (
+        <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
 
-      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-sm">
           <span className="mb-1 block text-slate-600">Amount</span>
           <input
@@ -90,6 +119,23 @@ export function IssueOffer({
           />
         </label>
         <label className="text-sm">
+          <span className="mb-1 block text-slate-600">Moratorium</span>
+          <select
+            value={moratorium}
+            onChange={(e) => setMoratorium(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+          >
+            <option value="">As the applicant asked</option>
+            {options.map((m) => (
+              <option key={m} value={m}>
+                {m
+                  ? `${m} month${m === 1 ? "" : "s"} — first instalment ${m + 1} months after release`
+                  : "None — repay from month 1"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
           <span className="mb-1 block text-slate-600">Valid for (days)</span>
           <input
             type="number"
@@ -103,7 +149,8 @@ export function IssueOffer({
 
       <label className="mb-3 block text-sm">
         <span className="mb-1 block text-slate-600">
-          Additional conditions precedent (one per line — the standard three are always included)
+          Additional conditions precedent (one per line — the standard three are
+          always included)
         </span>
         <textarea
           rows={3}
@@ -120,7 +167,7 @@ export function IssueOffer({
         onClick={() => void issue()}
         className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
       >
-        {busy ? 'Issuing…' : 'Issue offer'}
+        {busy ? "Issuing…" : "Issue offer"}
       </button>
     </div>
   );

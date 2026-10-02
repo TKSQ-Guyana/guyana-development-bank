@@ -1,8 +1,8 @@
-import { Card, CardLabel } from './ui/Card';
-import { DataTable } from './ui/DataTable';
-import { Badge } from './ui/Badge';
-import type { UseOfFundsRow } from '../types';
-import { formatGyd } from '../utils';
+import { Card, CardLabel } from "./ui/Card";
+import { DataTable } from "./ui/DataTable";
+import { Badge } from "./ui/Badge";
+import type { UseOfFundsRow } from "../types";
+import { formatGyd } from "../utils";
 
 /** Sections B–H of the application — the business narrative an underwriter
  *  actually decides a development loan on.
@@ -20,7 +20,7 @@ import { formatGyd } from '../utils';
  *  never allowed to read like a filed result.
  */
 
-type FieldType = 'currency' | 'int' | 'text' | 'table';
+type FieldType = "currency" | "int" | "text" | "table";
 
 interface FieldSpec {
   key: string;
@@ -31,131 +31,167 @@ interface FieldSpec {
 interface SectionSpec {
   letter: string;
   title: string;
-  source: 'Declared' | 'Forecast';
+  source: "Declared" | "Forecast";
   note?: string;
   fields: FieldSpec[];
   /** Only rendered when the case's business stage matches — an existing
    *  trading business and a start-up never both carry a section. */
-  onlyFor?: 'Existing' | 'New';
+  onlyFor?: "Existing" | "New";
 }
 
 const SECTIONS: SectionSpec[] = [
   {
-    letter: 'B',
-    title: 'Legal structure & business identity',
-    source: 'Declared',
+    letter: "B",
+    title: "Legal structure & business identity",
+    source: "Declared",
     fields: [
-      { key: 'legal_structure', label: 'Legal structure' },
-      { key: 'co_applicants', label: 'Co-applicant e-IDs' },
-      { key: 'sector', label: 'Sector' },
-      { key: 'sub_sector', label: 'Sub-sector' },
+      { key: "legal_structure", label: "Legal structure" },
+      { key: "co_applicants", label: "Co-applicant e-IDs" },
+      { key: "sector", label: "Sector" },
+      { key: "sub_sector", label: "Sub-sector" },
     ],
   },
   {
-    letter: 'C',
-    title: 'What the business does',
-    source: 'Declared',
+    letter: "C",
+    title: "What the business does",
+    source: "Declared",
     fields: [
-      { key: 'executive_summary', label: 'Executive summary' },
-      { key: 'products_services', label: 'Products / services' },
-      { key: 'unique_selling_point', label: 'Unique selling proposition' },
+      { key: "executive_summary", label: "Executive summary" },
+      { key: "products_services", label: "Products / services" },
+      { key: "unique_selling_point", label: "Marketing strategy" },
     ],
   },
   {
-    letter: 'C2',
-    title: 'Jobs',
-    source: 'Declared',
+    letter: "C2",
+    title: "Jobs",
+    source: "Declared",
     fields: [
-      { key: 'jobs_created', label: 'Jobs to be created (first year)' },
-      { key: 'staff_count', label: 'Current staff' },
-      { key: 'employment_impact', label: 'Employment / development impact' },
+      { key: "jobs_created", label: "Jobs to be created (first year)" },
+      { key: "staff_count", label: "Current staff" },
+      { key: "employment_impact", label: "Economic impact" },
     ],
   },
   {
-    letter: 'C3',
-    title: 'Direction and goals',
-    source: 'Declared',
+    letter: "C3",
+    title: "Direction and goals",
+    source: "Declared",
     fields: [
-      { key: 'vision', label: 'Vision' },
-      { key: 'mission', label: 'Mission' },
-      { key: 'goals', label: 'Goals' },
+      { key: "vision", label: "Vision" },
+      { key: "mission", label: "Mission" },
+      { key: "goals", label: "Goals" },
     ],
   },
   {
-    letter: 'D',
-    title: 'Market and customers',
-    source: 'Declared',
+    letter: "D",
+    title: "Market and customers",
+    source: "Declared",
     fields: [
-      { key: 'customer_segments', label: 'Customer segments' },
-      { key: 'target_market', label: 'Target market' },
-      { key: 'competitors', label: 'Competitors / alternatives' },
+      { key: "customer_segments", label: "Customer segments" },
+      { key: "target_market", label: "Target market" },
+      { key: "primary_market", label: "Primary market" },
+      { key: "secondary_market", label: "Secondary market" },
+      { key: "competitors", label: "Competitors / alternatives" },
     ],
   },
   {
-    letter: 'E',
-    title: 'Operations',
-    source: 'Declared',
+    letter: "E",
+    title: "Operations",
+    source: "Declared",
     fields: [
-      { key: 'operating_location', label: 'Operating location' },
-      { key: 'production_process', label: 'Production / service process' },
-      { key: 'equipment_required', label: 'Equipment and assets' },
-      { key: 'suppliers', label: 'Suppliers' },
-      { key: 'permits_required', label: 'Permits / operating requirements' },
+      { key: "operating_location", label: "Operating location" },
+      { key: "production_process", label: "Production / service process" },
+      { key: "equipment_required", label: "Equipment and assets" },
+      { key: "suppliers", label: "Suppliers" },
+      { key: "permits_required", label: "Permits / operating requirements" },
     ],
   },
   {
-    letter: 'G',
-    title: 'Existing-business financials',
-    source: 'Declared',
-    onlyFor: 'Existing',
-    note: 'Declared by the applicant. Evidence on the shelf — bank statements, filed accounts — outranks these figures wherever the two disagree.',
+    letter: "G",
+    title: "Existing-business financials",
+    source: "Declared",
+    onlyFor: "Existing",
+    note: "Declared by the applicant. Evidence on the shelf — bank statements, filed accounts — outranks these figures wherever the two disagree.",
     fields: [
-      { key: 'annual_revenue', label: 'Annual revenue', type: 'currency' },
-      { key: 'cost_of_sales', label: 'Cost of sales', type: 'currency' },
-      { key: 'operating_expenses', label: 'Operating expenses', type: 'currency' },
-      { key: 'existing_obligations', label: 'Existing loan obligations', type: 'currency' },
-      { key: 'cash_position', label: 'Current cash position', type: 'currency' },
+      { key: "annual_revenue", label: "Annual revenue", type: "currency" },
+      { key: "cost_of_sales", label: "Cost of sales", type: "currency" },
+      {
+        key: "operating_expenses",
+        label: "Operating expenses",
+        type: "currency",
+      },
+      {
+        key: "existing_obligations",
+        label: "Existing loan obligations",
+        type: "currency",
+      },
+      {
+        key: "cash_position",
+        label: "Current cash position",
+        type: "currency",
+      },
     ],
   },
   {
-    letter: 'H',
-    title: 'New-venture projections',
-    source: 'Forecast',
-    onlyFor: 'New',
-    note: 'Projections, not historical filed results — read them as the applicant’s plan, not as an account of what has already happened.',
+    letter: "H",
+    title: "New-venture projections",
+    source: "Forecast",
+    onlyFor: "New",
+    note: "Projections, not historical filed results — read them as the applicant’s plan, not as an account of what has already happened.",
     fields: [
-      { key: 'expected_sales_volume', label: 'Expected sales volume' },
-      { key: 'projected_revenue', label: 'Projected annual revenue', type: 'currency' },
-      { key: 'projected_costs', label: 'Projected annual costs', type: 'currency' },
-      { key: 'initial_costs', label: 'Initial start-up costs', type: 'currency' },
-      { key: 'expected_cash_position', label: 'Expected monthly cash position', type: 'currency' },
-      { key: 'assumptions', label: 'Assumptions behind projections' },
+      { key: "expected_sales_volume", label: "Expected sales volume" },
+      {
+        key: "projected_revenue",
+        label: "Projected annual revenue",
+        type: "currency",
+      },
+      {
+        key: "projected_costs",
+        label: "Projected annual costs",
+        type: "currency",
+      },
+      {
+        key: "initial_costs",
+        label: "Initial start-up costs",
+        type: "currency",
+      },
+      {
+        key: "expected_cash_position",
+        label: "Expected monthly cash position",
+        type: "currency",
+      },
+      { key: "assumptions", label: "Assumptions behind projections" },
     ],
   },
   {
-    letter: 'I',
-    title: 'Use of funds',
-    source: 'Declared',
-    fields: [{ key: 'use_of_funds', label: 'Use of funds', type: 'table' }],
+    letter: "I",
+    title: "Use of funds",
+    source: "Declared",
+    fields: [{ key: "use_of_funds", label: "Use of funds", type: "table" }],
   },
 ];
 
-function formatValue(value: string | number | null | undefined, type?: FieldType): string {
-  if (value === null || value === undefined || value === '') return '';
-  if (type === 'currency') return formatGyd(Number(value));
-  if (type === 'int') return String(value);
+function formatValue(
+  value: string | number | null | undefined,
+  type?: FieldType,
+): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (type === "currency") return formatGyd(Number(value));
+  if (type === "int") return String(value);
   return String(value);
 }
 
 /** A money field left empty is stored as 0, so 0 there means "not given". */
-function isBlank(value: string | number | null | undefined, type?: FieldType): boolean {
-  if (type === 'currency' && Number(value) === 0) return true;
-  return value === null || value === undefined || value === '';
+function isBlank(
+  value: string | number | null | undefined,
+  type?: FieldType,
+): boolean {
+  if (type === "currency" && Number(value) === 0) return true;
+  return value === null || value === undefined || value === "";
 }
 
-const SOURCE_TONE: Record<SectionSpec['source'], 'neutral' | 'warning'> = {
-  Declared: 'neutral',
-  Forecast: 'warning',
+const SOURCE_TONE: Record<SectionSpec["source"], "neutral" | "warning"> = {
+  Declared: "neutral",
+  Forecast: "warning",
 };
 
 export function ApplicationSections({
@@ -171,11 +207,15 @@ export function ApplicationSections({
   /** Frappe's SUM of those lines. Shown, never recomputed here. */
   useOfFundsTotal: number | null;
 }) {
-  const visible = SECTIONS.filter((s) => !s.onlyFor || s.onlyFor === businessStage);
+  const visible = SECTIONS.filter(
+    (s) => !s.onlyFor || s.onlyFor === businessStage,
+  );
   // The table field is filled when Frappe holds lines for it, or — on an
   // application from before the lines existed — when its legacy text is set.
   const blank = (f: FieldSpec) =>
-    f.type === 'table' ? useOfFunds.length === 0 && isBlank(sections[f.key]) : isBlank(sections[f.key], f.type);
+    f.type === "table"
+      ? useOfFunds.length === 0 && isBlank(sections[f.key])
+      : isBlank(sections[f.key], f.type);
   const hasAny = visible.some((s) => s.fields.some((f) => !blank(f)));
 
   return (
@@ -183,9 +223,13 @@ export function ApplicationSections({
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <CardLabel>Sections B–H</CardLabel>
-          <h2 className="mt-0.5 font-semibold text-slate-800">Business narrative</h2>
+          <h2 className="mt-0.5 font-semibold text-slate-800">
+            Business narrative
+          </h2>
         </div>
-        <span className="text-xs text-slate-500">As the applicant wrote it — not verified unless noted</span>
+        <span className="text-xs text-slate-500">
+          As the applicant wrote it — not verified unless noted
+        </span>
       </div>
 
       {!hasAny && (
@@ -199,15 +243,24 @@ export function ApplicationSections({
           {visible.map((section) => {
             const filled = section.fields.filter((f) => !blank(f));
             return (
-              <section key={section.letter} className="border-t border-slate-100 pt-4 first:border-0 first:pt-0">
+              <section
+                key={section.letter}
+                className="border-t border-slate-100 pt-4 first:border-0 first:pt-0"
+              >
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="flex h-5 w-5 flex-none items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
                     {section.letter}
                   </span>
-                  <h3 className="text-sm font-semibold text-slate-800">{section.title}</h3>
-                  <Badge tone={SOURCE_TONE[section.source]}>{section.source}</Badge>
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    {section.title}
+                  </h3>
+                  <Badge tone={SOURCE_TONE[section.source]}>
+                    {section.source}
+                  </Badge>
                 </div>
-                {section.note && <p className="mb-2 text-xs text-slate-500">{section.note}</p>}
+                {section.note && (
+                  <p className="mb-2 text-xs text-slate-500">{section.note}</p>
+                )}
 
                 {filled.length === 0 ? (
                   <p className="text-sm text-slate-400">Not provided.</p>
@@ -216,25 +269,27 @@ export function ApplicationSections({
                     {section.fields.map((f) => {
                       const raw = sections[f.key];
                       if (blank(f)) return null;
-                      if (f.type === 'table') {
+                      if (f.type === "table") {
                         return (
                           <div key={f.key} className="sm:col-span-2">
-                            <dt className="mb-1 text-xs text-slate-500">{f.label}</dt>
+                            <dt className="mb-1 text-xs text-slate-500">
+                              {f.label}
+                            </dt>
                             {useOfFunds.length > 0 ? (
                               <DataTable
                                 caption="What the applicant declared this loan will be spent on"
                                 columns={[
                                   {
-                                    key: 'item',
-                                    header: 'Item',
-                                    className: 'text-slate-700',
+                                    key: "item",
+                                    header: "Item",
+                                    className: "text-slate-700",
                                     cell: (r) => r.item,
                                   },
                                   {
-                                    key: 'amount',
-                                    header: 'Amount',
-                                    align: 'right',
-                                    className: 'font-medium text-slate-900',
+                                    key: "amount",
+                                    header: "Amount",
+                                    align: "right",
+                                    className: "font-medium text-slate-900",
                                     cell: (r) => formatGyd(r.amount),
                                   },
                                 ]}
@@ -243,10 +298,12 @@ export function ApplicationSections({
                                 dense
                                 footnote={false}
                                 total={{
-                                  item: 'Total',
+                                  item: "Total",
                                   // Frappe's SUM of the lines. Never added up here.
                                   amount:
-                                    useOfFundsTotal != null ? formatGyd(useOfFundsTotal) : '—',
+                                    useOfFundsTotal != null
+                                      ? formatGyd(useOfFundsTotal)
+                                      : "—",
                                 }}
                               />
                             ) : (

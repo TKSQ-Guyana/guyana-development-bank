@@ -22,6 +22,8 @@ class GDBLoanOffer(Document):
 			frappe.throw(_("Offered amount must be greater than zero."))
 		if self.term_months is not None and not (1 <= int(self.term_months) <= 360):
 			frappe.throw(_("Term must be between 1 and 360 months."))
+		if self.moratorium_months and not (0 <= int(self.moratorium_months) <= 24):
+			frappe.throw(_("A moratorium is between 0 and 24 months."))
 		if self.valid_until and getdate(self.valid_until) < getdate(nowdate()):
 			# Only on the way in — an offer that expired while outstanding is
 			# handled by is_open(), not by refusing to save the record.

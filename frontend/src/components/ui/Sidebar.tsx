@@ -33,8 +33,9 @@ interface SidebarProps {
    *  the way. A seam is worth having when something varies across it; this one
    *  did not. */
   variant?: 'wide';
-  /** The wordmark above the navigation. */
-  brand?: { title: string; subtitle?: string };
+  /** The wordmark above the navigation. `eyebrow` is the small gold line
+   *  above the title. */
+  brand?: { title: string; subtitle?: string; eyebrow?: string; crest?: string };
   /** Role-gated sections — staff destinations appear under their own heading
    *  rather than mixed into the citizen's six. */
   groups?: SidebarGroup[];
@@ -43,16 +44,16 @@ interface SidebarProps {
 }
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+  `group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm transition-all ${
     isActive
-      ? 'bg-gradient-to-r from-brand to-brand-dark text-white shadow-sm shadow-brand/30'
-      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+      ? 'border-l-4 border-amber-400 bg-brand-dark font-bold text-white shadow-sm shadow-emerald-950/20'
+      : 'font-medium text-slate-700 hover:bg-slate-100 hover:text-brand-dark'
   }`;
 
 function Item({ item }: { item: SidebarItem }) {
   if (item.disabled) {
     return (
-      <div className="flex cursor-default items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300">
+      <div className="flex cursor-default items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-300">
         <span className="flex h-5 w-5 flex-none items-center justify-center">{item.icon}</span>
         <span className="flex-1">{item.label}</span>
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
@@ -65,7 +66,13 @@ function Item({ item }: { item: SidebarItem }) {
     <NavLink to={item.to} end={item.end} className={linkClass}>
       {({ isActive }) => (
         <>
-          <span className="flex h-5 w-5 flex-none items-center justify-center">{item.icon}</span>
+          <span
+            className={`flex h-5 w-5 flex-none items-center justify-center ${
+              isActive ? 'text-amber-300' : 'text-slate-400 group-hover:text-brand-dark'
+            }`}
+          >
+            {item.icon}
+          </span>
           <span className="flex-1 leading-tight">
             {item.label}
             {item.hint && (
@@ -86,19 +93,38 @@ function Item({ item }: { item: SidebarItem }) {
 
 export function Sidebar({ items, footer, brand, groups, account }: SidebarProps) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-[232px] flex-none flex-col border-r border-slate-200/70 bg-white/80 backdrop-blur md:flex">
-      <div className="flex items-center gap-2.5 px-4 py-4">
-        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-gradient-to-br from-brand to-brand-dark text-white">
-          <BankIcon />
+    <aside className="sticky top-0 hidden h-screen w-[256px] flex-none flex-col border-r border-slate-200 bg-white shadow-[1px_0_12px_rgba(0,0,0,0.02)] md:flex">
+      <div
+        className={`border-b border-slate-100 bg-slate-50/50 px-5 py-5 ${
+          brand?.crest ? 'flex flex-col gap-3' : 'flex items-center gap-3.5'
+        }`}
+      >
+        <span className="flex items-center gap-3">
+          <span className="flex h-12 w-12 flex-none items-center justify-center rounded-xl bg-brand-dark text-amber-300 shadow-sm ring-1 ring-amber-400/40">
+            <BankIcon className="h-6 w-6" />
+          </span>
+          {/* The national coat of arms beside the Bank's mark: a government
+              programme, and it should look like one. */}
+          {brand?.crest && (
+            <>
+              <span className="h-8 w-px bg-slate-200" aria-hidden />
+              <img src={brand.crest} alt="Coat of arms of Guyana" className="h-12 w-auto object-contain" />
+            </>
+          )}
         </span>
         {brand && (
           <span className="min-w-0 leading-tight">
+            {brand.eyebrow && (
+              <span className="block text-[10px] font-bold uppercase tracking-widest text-gdb-goldleaf">
+                {brand.eyebrow}
+              </span>
+            )}
             {/* Wraps rather than truncates: "Guyana Developmen…" is not the
                 Bank's name, and a wordmark is the one label in here that must
                 never be abbreviated. */}
-            <span className="block text-sm font-bold text-slate-900">{brand.title}</span>
+            <span className="block text-sm font-extrabold tracking-tight text-brand-dark">{brand.title}</span>
             {brand.subtitle && (
-              <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-tight text-slate-500">
                 {brand.subtitle}
               </span>
             )}
@@ -106,8 +132,8 @@ export function Sidebar({ items, footer, brand, groups, account }: SidebarProps)
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2.5 pb-3">
-        <div className="space-y-0.5">
+      <nav className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="space-y-1.5">
           {items.map((item) => (
             <Item key={item.to} item={item} />
           ))}
@@ -117,7 +143,7 @@ export function Sidebar({ items, footer, brand, groups, account }: SidebarProps)
             <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               {group.label}
             </p>
-            <div className="space-y-0.5">
+            <div className="space-y-1.5">
               {group.items.map((item) => (
                 <Item key={item.to} item={item} />
               ))}
@@ -126,12 +152,12 @@ export function Sidebar({ items, footer, brand, groups, account }: SidebarProps)
         ))}
       </nav>
 
-      <div className="border-t border-slate-200/70 p-2.5">
+      <div className="border-t border-slate-200 bg-slate-50 p-4">
         {account}
         {footer && (
           <button
             onClick={footer.onClick}
-            className="mt-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-transparent px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
           >
             <span className="flex h-5 w-5 flex-none items-center justify-center">{footer.icon}</span>
             {footer.label}

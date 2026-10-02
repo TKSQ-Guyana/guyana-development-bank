@@ -38,7 +38,33 @@
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:3000/*##http://localhost:5173/*"
       }
+    },
+    {
+      "clientId": "gdb-citizen-admin",
+      "name": "GDB Portal — citizen account creation (TIN sign-up)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "gdb-citizen-admin-dev-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false
     }
   ],
-  "users": []
+  "users": [
+    {
+      "username": "service-account-gdb-citizen-admin",
+      "enabled": true,
+      "serviceAccountClientId": "gdb-citizen-admin",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users"
+        ]
+      }
+    }
+  ]
 }

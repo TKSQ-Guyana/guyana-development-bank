@@ -114,7 +114,7 @@ const FOOTER_NAV: { heading: string; links: { label: string; to?: string }[] }[]
 
 export function SiteFooter() {
   return (
-    <footer className={`bg-gdb-ink pt-[88px] pb-11 text-white ${SITE_GUTTER}`}>
+    <footer className={`bg-[#022c19] pt-[88px] pb-11 text-white ${SITE_GUTTER}`}>
       <div className="flex flex-col gap-12 lg:flex-row lg:gap-20">
         <div className="flex w-full flex-none flex-col gap-5 lg:w-[380px]">
           <h3 className="font-display text-[22px] leading-[1.3] font-extrabold tracking-[-0.01em]">

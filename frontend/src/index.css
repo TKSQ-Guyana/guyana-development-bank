@@ -5,13 +5,16 @@
   --color-gdb-green-dark: #00592d;
   --color-gdb-gold: #fcd116;
 
+  /* Guyana sovereign theme: forest green (#004225 / #0a5c36) with gold
+   * accents (#d97706 / #f59e0b) on slate neutrals. */
+
   /* New enterprise theme (finance persona + design-system migration). Lives
    * alongside the flag colors above rather than replacing them — pages move
    * over one at a time, so both palettes are live during the migration. */
-  --color-brand: #2563eb;
-  --color-brand-dark: #1e3a8a;
-  --color-brand-light: #dbeafe;
-  --color-brand-text: #1e40af;
+  --color-brand: #0a5c36;
+  --color-brand-dark: #004225;
+  --color-brand-light: #d1fae5;
+  --color-brand-text: #0a5c36;
 
   /* ------------------------------------------------------------------ *
    * PUBLIC SITE PALETTE — the landing page and sign-in.
@@ -24,21 +27,21 @@
    * ceremonial gold the public pages rule and underline with, and the two
    * are not interchangeable.
    * ------------------------------------------------------------------ */
-  /* Same blue as the staff portal: ink = slate-900, indigo = --color-brand. */
+  /* Same green as the staff portal: ink = slate-900, indigo = --color-brand. */
   --color-gdb-ink: #0f172a;
-  --color-gdb-indigo: #2563eb;
-  --color-gdb-goldleaf: #d4af37;
+  --color-gdb-indigo: #0a5c36;
+  --color-gdb-goldleaf: #d97706;
 
   --color-gdb-page: #f3f3ef;
   --color-gdb-paper: #fafaf7;
   --color-gdb-mist: #f9f9f7;
   --color-gdb-cream: #fbf4dd;
   --color-gdb-pill: #f6ecc9;
-  --color-gdb-lav: #eff6ff;
+  --color-gdb-lav: #ecfdf5;
   --color-gdb-rail: #f2f1ed;
   --color-gdb-line: #e6e2da;
   --color-gdb-border: #dedcd6;
-  --color-gdb-lavline: #dbeafe;
+  --color-gdb-lavline: #d1fae5;
 
   /* The Golden Arrowhead's own five bands, for the ribbon across the top. */
   --color-flag-green: #009e49;
@@ -55,21 +58,21 @@
 
   /* QUICK LOAN PALETTE — the Quick Loan flow's own look, from the approved
    * prototype (gdb-quick-loan-flow). Used only inside `.theme-citizen`. */
-  --color-ql-bg: #eef2f8;
-  --color-ql-ink: #131c2e;
-  --color-ql-ink2: #38455a;
-  --color-ql-muted: #6b7a93;
-  --color-ql-line: rgb(19 28 46 / 0.1);
-  --color-ql-line2: #dee3eb;
-  --color-ql-input: #c9d1dd;
-  --color-ql-step: #9aa6ba;
-  --color-ql-soft: #f6f8fb;
-  --color-ql-tint: #eff4fd;
-  --color-ql-tintline: #d6e2f7;
-  --color-ql-navy: #193251;
-  --color-ql-navy-dark: #0f2440;
-  --color-ql-brand: #1b4a9c;
-  --color-ql-blue: #2563c9;
+  --color-ql-bg: #f8fafc;
+  --color-ql-ink: #0f172a;
+  --color-ql-ink2: #334155;
+  --color-ql-muted: #64748b;
+  --color-ql-line: rgb(15 23 42 / 0.1);
+  --color-ql-line2: #e2e8f0;
+  --color-ql-input: #cbd5e1;
+  --color-ql-step: #94a3b8;
+  --color-ql-soft: #f8fafc;
+  --color-ql-tint: #ecfdf5;
+  --color-ql-tintline: #a7f3d0;
+  --color-ql-navy: #004225;
+  --color-ql-navy-dark: #022c19;
+  --color-ql-brand: #0a5c36;
+  --color-ql-blue: #0d7647;
   --color-ql-green: #1f8a5b;
   --color-ql-green-bg: #eaf6f0;
   --color-ql-green-line: #bfe3cf;
@@ -81,7 +84,7 @@
   --color-ql-red: #c5392f;
   --color-ql-red-bg: #fdeeec;
   --color-ql-red-line: #f2c4bf;
-  --color-ql-grey-pill: #e8ecf2;
+  --color-ql-grey-pill: #f1f5f9;
   --font-inter: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -100,8 +103,7 @@
 
 body {
   @apply text-slate-900 antialiased;
-  background: linear-gradient(180deg, #f3f5fc 0%, #eaf0fb 100%);
-  background-attachment: fixed;
+  background: #f8fafc;
 }
 
 /* The public pages paint their own background over the app's gradient, and
@@ -123,4 +125,14 @@ body:has(.gdb-public) {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none; /* Chrome, Safari */
+}
+
+/* The dashboard hero's texture: gold glow top-right, green bottom-left, and a
+ * faint arrowhead lattice — after the Golden Arrowhead. */
+.gdb-arrowhead {
+  background-image: radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.18) 0, transparent 45%),
+    radial-gradient(circle at 0% 100%, rgba(13, 118, 71, 0.5) 0, transparent 55%),
+    linear-gradient(135deg, rgba(217, 119, 6, 0.08) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(217, 119, 6, 0.08) 25%, transparent 25%);
+  background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
 }

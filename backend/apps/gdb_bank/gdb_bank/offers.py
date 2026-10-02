@@ -38,6 +38,7 @@ OFFER_FIELDS = [
 	"loan_product",
 	"offered_amount",
 	"term_months",
+	"moratorium_months",
 	"rate_of_interest",
 	"monthly_instalment",
 	"total_repayable",
@@ -59,6 +60,13 @@ STANDARD_CONDITIONS = (
 	"Bank account in the borrower's own name verified by GDB.",
 	"Business registration with the Deeds and Commercial Registries Authority "
 	"in good standing, or evidence that registration has been applied for.",
+	"Proof of identity supplied and accepted.",
+)
+
+# A Quick Loan's floor: an informal trader has no registration to be in good
+# standing, so that condition is not theirs.
+QUICK_CONDITIONS = (
+	"Bank account in the borrower's own name verified by GDB.",
 	"Proof of identity supplied and accepted.",
 )
 
@@ -167,6 +175,7 @@ def _offer_dict(row, user: str | None = None) -> dict:
 		"loan_product": get("loan_product"),
 		"offered_amount": get("offered_amount"),
 		"term_months": get("term_months"),
+		"moratorium_months": cint(get("moratorium_months")),
 		"rate_of_interest": get("rate_of_interest"),
 		"monthly_instalment": get("monthly_instalment"),
 		"total_repayable": get("total_repayable"),
@@ -193,6 +202,25 @@ def _offer_dict(row, user: str | None = None) -> dict:
 			)
 		),
 	}
+
+
+def moratorium_line(months) -> str:
+	"""The moratorium as the Letter of Offer states it."""
+	months = cint(months)
+	if not months:
+		return "none — repayments start the month after disbursement."
+	return f"{months} month{'s' if months != 1 else ''} after disbursement, with no instalment due."
+
+
+def repayment_start(months) -> str:
+	"""When the first instalment falls, in the borrower's words."""
+	months = cint(months)
+	if not months:
+		return "The first instalment is due one month after the funds are released."
+	return (
+		f"No instalment is due for the first {months} month{'s' if months != 1 else ''} after the funds "
+		f"are released; the first falls due in month {months + 1}."
+	)
 
 
 def _agreement_text(offer) -> str:
@@ -226,12 +254,14 @@ def _agreement_text(offer) -> str:
 		f"   under the {offer.loan_product} product.",
 		f"   Interest rate : {flt(offer.rate_of_interest)}% per annum.",
 		f"   Term          : {cint(offer.term_months)} months.",
+		f"   Moratorium    : {moratorium_line(offer.moratorium_months)}",
 		f"   Instalment    : {money(offer.monthly_instalment)} per month (indicative).",
 		f"   Total repayable: {money(offer.total_repayable)}."
 		if offer.total_repayable
 		else "   Total repayable: as the repayment schedule issued at disbursement states.",
 		"",
 		"2. REPAYMENT",
+		f"   {repayment_start(offer.moratorium_months)}",
 		"   You agree to repay this loan by monthly instalments. The binding",
 		"   schedule is the one issued when the loan is disbursed, and it is",
 		"   available to you at any time in the GDB portal.",
@@ -263,6 +293,7 @@ def issue_offer(
 	offered_amount=None,
 	term_months=None,
 	conditions: str | None = None,
+	moratorium_months=None,
 	valid_days=None,
 ):
 	"""Issue a Letter of Offer on an approved application. Underwriter only."""
@@ -271,12 +302,11 @@ def issue_offer(
 	row = frappe.db.get_value("Loan Application", application, LOAN_FIELDS, as_dict=True)
 	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(application))
-	# A Quick Loan has no Letter of Offer: its borrower accepted the terms on
-	# submission, and it is decided and paid in one act (services/quick_loan).
+	# A Quick Loan has its Letter of Offer like every GDB loan (2026-10-02) —
+	# only its conditions differ (QUICK_CONDITIONS).
 	from gdb_bank.services.quick_loan import is_quick
 
-	if is_quick(row.loan_product):
-		frappe.throw(_("A Quick Loan has no Letter of Offer."))
+	quick = is_quick(row.loan_product)
 	if row.status != "Approved":
 		frappe.throw(
 			_("Only an approved application can be offered ({0} is {1}).").format(
@@ -321,6 +351,19 @@ def issue_offer(
 	product = row.loan_product
 	amount = flt(offered_amount) or flt(row.loan_amount)
 	term = cint(term_months) or cint(row.repayment_periods)
+	# What the applicant asked for, unless the underwriter grants otherwise.
+	if moratorium_months in (None, ""):
+		moratorium = cint(frappe.db.get_value("Loan Application", application, "gdb_moratorium_months"))
+	else:
+		moratorium = cint(moratorium_months)
+	from gdb_bank.utils import policy
+
+	if moratorium and moratorium not in policy.moratorium_options():
+		frappe.throw(
+			_("A moratorium of {0} months is not offered. Choose {1}.").format(
+				moratorium, policy.months_phrase(policy.moratorium_options())
+			)
+		)
 
 	# The product ceiling belongs to the bank, not to whoever is issuing.
 	ceiling = flt(frappe.db.get_value("Loan Product", product, "maximum_loan_amount"))
@@ -331,7 +374,7 @@ def issue_offer(
 			)
 		)
 
-	body = "\n".join(STANDARD_CONDITIONS)
+	body = "\n".join(QUICK_CONDITIONS if quick else STANDARD_CONDITIONS)
 	if conditions and conditions.strip():
 		body = body + "\n" + conditions.strip()
 
@@ -346,6 +389,7 @@ def issue_offer(
 				"loan_product": product,
 				"offered_amount": amount,
 				"term_months": term,
+				"moratorium_months": moratorium,
 				"rate_of_interest": flt(
 					frappe.db.get_value("Loan Product", product, "rate_of_interest")
 				),
@@ -376,6 +420,22 @@ def issue_offer(
 
 	_logger().info(f"offer {offer.name} issued on {application} by {staff} for {amount}")
 	return _offer_dict(frappe.db.get_value("GDB Loan Offer", offer.name, OFFER_FIELDS, as_dict=True))
+
+
+@frappe.whitelist()
+def agreement_docx(name: str):
+	"""The GDB Inc loan agreement for this offer, as a Word document to print
+	and sign (loan_agreement.py). For anyone who may read the case."""
+	from gdb_bank import loan_agreement
+
+	user = _session_user()
+	offer = frappe.get_doc("GDB Loan Offer", name)
+	_readable_application(offer.application, user)
+	if offer.docstatus == 2:
+		frappe.throw(_("This offer was cancelled."))
+	frappe.local.response.filename = f"GDB Loan Agreement {offer.name}.docx"
+	frappe.local.response.filecontent = loan_agreement.render(loan_agreement.values_for(offer))
+	frappe.local.response.type = "download"
 
 
 @frappe.whitelist()
@@ -566,7 +626,7 @@ def accepted_offer(application: str):
 	return frappe.db.get_value(
 		"GDB Loan Offer",
 		{"application": application, "status": "Accepted", "docstatus": 1},
-		["name", "offered_amount", "term_months"],
+		["name", "offered_amount", "term_months", "moratorium_months"],
 		as_dict=True,
 	)
 

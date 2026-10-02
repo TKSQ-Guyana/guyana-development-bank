@@ -1,15 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { getList } from '../api';
-import { PaymentFile } from '../components/PaymentFile';
-import { Badge } from '../components/ui/Badge';
-import { Card, CardLabel } from '../components/ui/Card';
-import { DataTable, TableSection, type Column } from '../components/ui/DataTable';
-import { Pager } from '../components/ui/Pager';
-import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { PAGE_LENGTH, useLoanQueue } from '../shared/useLoanQueue';
-import type { LoanApplication } from '../types';
-import { formatGyd, formatDate } from '../utils';
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { getList } from "../api";
+import { PaymentFile } from "../components/PaymentFile";
+import { Badge } from "../components/ui/Badge";
+import { Card, CardLabel } from "../components/ui/Card";
+import {
+  DataTable,
+  TableSection,
+  type Column,
+} from "../components/ui/DataTable";
+import { Pager } from "../components/ui/Pager";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
+import { PAGE_LENGTH, useLoanQueue } from "../shared/useLoanQueue";
+import type { LoanApplication } from "../types";
+import { formatGyd, formatDate } from "../utils";
 
 /** The disbursement officer's worklist.
  *
@@ -42,51 +46,57 @@ import { formatGyd, formatDate } from '../utils';
 function reference(a: LoanApplication) {
   return (
     <>
-      <Link to={`/loans/${a.name}`} className="font-medium text-brand hover:underline">
+      <Link
+        to={`/loans/${a.name}`}
+        className="font-medium text-brand hover:underline"
+      >
         {a.name}
       </Link>
-      {a.loan && <span className="block font-mono text-xs text-slate-400">{a.loan}</span>}
+      {a.loan && (
+        <span className="block font-mono text-xs text-slate-400">{a.loan}</span>
+      )}
     </>
   );
 }
 
 const APPLICATION: Column<LoanApplication> = {
-  key: 'application',
-  header: 'Application',
+  key: "application",
+  header: "Application",
   nowrap: true,
   cell: reference,
 };
 
 const APPLICANT: Column<LoanApplication> = {
-  key: 'applicant',
-  header: 'Applicant',
+  key: "applicant",
+  header: "Applicant",
   cell: (a) => (
     <>
       <span className="block text-slate-700">{a.applicant_name}</span>
-      <span className="block font-mono text-xs text-slate-400">{a.applicant_eid ?? 'no e-ID'}</span>
+      <span className="block font-mono text-xs text-slate-400">
+        {a.applicant_eid ?? "no e-ID"}
+      </span>
     </>
   ),
 };
 
 export function Disbursements() {
-  const [view, setView] = useState<'queue' | 'file'>('queue');
+  const [view, setView] = useState<"queue" | "file">("queue");
   const [company, setCompany] = useState<string | null>(null);
 
   useEffect(() => {
-    getList<{ name: string }>('Company', { fields: ['name'], limit: 1 })
+    getList<{ name: string }>("Company", { fields: ["name"], limit: 1 })
       .then((rows) => setCompany(rows[0]?.name ?? null))
       .catch(() => setCompany(null));
   }, []);
 
-  // Four lists, four pages. "Released" is everything with a loan that is no
+  // Three lists, three pages. "Released" is everything with a loan that is no
   // longer awaiting a draw — closed and written-off facilities land there
   // too, which is correct: it is "money already out", not "still running".
-  const quick = useLoanQueue({ queue: 'quick' });
-  const release = useLoanQueue({ queue: 'release' });
-  const booking = useLoanQueue({ queue: 'booking' });
-  const released = useLoanQueue({ queue: 'released' });
+  const release = useLoanQueue({ queue: "release" });
+  const booking = useLoanQueue({ queue: "booking" });
+  const released = useLoanQueue({ queue: "released" });
 
-  const lists = [quick, release, booking, released];
+  const lists = [release, booking, released];
   const error = lists.find((l) => l.error)?.error ?? null;
   // Every response carries the counts and totals for the whole queue, so the
   // cards read them from whichever arrived.
@@ -96,119 +106,64 @@ export function Disbursements() {
   return (
     <div>
       {/* The layout header already says SME LOAN PROGRAMME / Disbursements. */}
-      <p className="text-sm text-slate-500">Money going out to borrowers, booked and released.</p>
+      <p className="text-sm text-slate-500">
+        Money going out to borrowers, booked and released.
+      </p>
       <p className="mt-0.5 text-xs text-slate-400">
-        Four-eyes rule: the officer who approved a case, and the officer who releases its funds, are
-        never the same login — enforced server-side even when one account holds both roles. Quick Loans
-        excepted.
+        Four-eyes rule: the officer who approved a case, and the officer who
+        releases its funds, are never the same login — enforced server-side even
+        when one account holds both roles. Quick Loans included.
       </p>
 
       <div className="mb-4 mt-3">
         <SegmentedControl
           options={[
-            { id: 'queue', label: 'Queue' },
-            { id: 'file', label: 'Payment file' },
+            { id: "queue", label: "Queue" },
+            { id: "file", label: "Payment file" },
           ]}
           value={view}
           onChange={setView}
         />
       </div>
 
-      {view === 'file' && <PaymentFile company={company} />}
+      {view === "file" && <PaymentFile company={company} />}
 
-      {view === 'queue' && error && (
-        <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>
+      {view === "queue" && error && (
+        <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">
+          {error}
+        </p>
       )}
-      {view === 'queue' && !error && !loaded && <p className="text-slate-500">Loading queue…</p>}
+      {view === "queue" && !error && !loaded && (
+        <p className="text-slate-500">Loading queue…</p>
+      )}
 
-      {view === 'queue' && loaded && summary && (
+      {view === "queue" && loaded && summary && (
         <>
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="p-3">
-              <CardLabel>Quick Loans to decide</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.quick}</p>
-              <p className="text-xs text-slate-500">{formatGyd(summary.totals.quick_requested)} requested</p>
-            </Card>
+          <div className="mb-5 grid gap-3 sm:grid-cols-3">
             <Card className="p-3">
               <CardLabel>Awaiting release</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.release}</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">
+                {summary.queues.release}
+              </p>
               <p className="text-xs text-slate-500">Booked, not fully drawn</p>
             </Card>
             <Card className="p-3">
               <CardLabel>Awaiting booking</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.booking}</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">
+                {summary.queues.booking}
+              </p>
               <p className="text-xs text-slate-500">No loan on the books yet</p>
             </Card>
             <Card className="p-3">
               <CardLabel>Released</CardLabel>
-              <p className="mt-0.5 text-xl font-bold text-slate-900">{summary.queues.released}</p>
-              <p className="text-xs text-slate-500">{formatGyd(summary.totals.released_paid)} paid out</p>
+              <p className="mt-0.5 text-xl font-bold text-slate-900">
+                {summary.queues.released}
+              </p>
+              <p className="text-xs text-slate-500">
+                {formatGyd(summary.totals.released_paid)} paid out
+              </p>
             </Card>
           </div>
-
-          <TableSection
-            title="Quick Loans to decide"
-            caption="Open to approve and pay, or decline."
-          >
-            <DataTable
-              caption="Submitted Quick Loans awaiting a decision"
-              columns={[
-                APPLICATION,
-                APPLICANT,
-                {
-                  key: 'trade',
-                  header: 'Trade',
-                  cell: (a) => (
-                    <>
-                      <span className="block text-slate-700">{String(a.sections?.trade_activity ?? '—')}</span>
-                      <span className="block text-xs text-slate-400">{String(a.sections?.trade_location ?? '')}</span>
-                    </>
-                  ),
-                },
-                {
-                  key: 'requested',
-                  header: 'Requested',
-                  align: 'right',
-                  className: 'font-semibold text-slate-900',
-                  cell: (a) => formatGyd(a.loan_amount),
-                },
-                {
-                  key: 'term',
-                  header: 'Term',
-                  align: 'right',
-                  cell: (a) => `${a.term_months} months`,
-                },
-                {
-                  key: 'evidence',
-                  header: 'Evidence',
-                  cell: (a) =>
-                    a.evidence_missing?.length ? (
-                      <Badge tone="warning">Missing {a.evidence_missing.join(', ')}</Badge>
-                    ) : (
-                      <Badge tone="success">Complete</Badge>
-                    ),
-                },
-                {
-                  key: 'submitted',
-                  header: 'Submitted',
-                  nowrap: true,
-                  className: 'text-slate-500',
-                  cell: (a) => formatDate(a.modified ?? a.creation),
-                },
-              ]}
-              rows={quick.page?.rows ?? []}
-              rowKey={(a) => a.name}
-              minWidth="62rem"
-              footnote={false}
-              empty="No Quick Loan is waiting for a decision."
-            />
-            <Pager
-              start={quick.start}
-              pageLength={PAGE_LENGTH}
-              total={quick.page?.total ?? 0}
-              onChange={quick.setStart}
-            />
-          </TableSection>
 
           <TableSection
             title="Awaiting release"
@@ -220,33 +175,40 @@ export function Disbursements() {
                 APPLICATION,
                 APPLICANT,
                 {
-                  key: 'approved',
-                  header: 'Approved',
-                  align: 'right',
-                  cell: (a) => (a.approved_amount != null ? formatGyd(a.approved_amount) : '—'),
+                  key: "approved",
+                  header: "Approved",
+                  align: "right",
+                  cell: (a) =>
+                    a.approved_amount != null
+                      ? formatGyd(a.approved_amount)
+                      : "—",
                 },
                 {
-                  key: 'sanctioned',
-                  header: 'Sanctioned',
-                  align: 'right',
-                  cell: (a) => (a.sanctioned_amount != null ? formatGyd(a.sanctioned_amount) : '—'),
+                  key: "sanctioned",
+                  header: "Sanctioned",
+                  align: "right",
+                  cell: (a) =>
+                    a.sanctioned_amount != null
+                      ? formatGyd(a.sanctioned_amount)
+                      : "—",
                 },
                 {
-                  key: 'disbursed',
-                  header: 'Disbursed',
-                  align: 'right',
+                  key: "disbursed",
+                  header: "Disbursed",
+                  align: "right",
                   cell: (a) => formatGyd(a.disbursed_amount),
                 },
                 {
-                  key: 'undrawn',
-                  header: 'Undrawn',
-                  align: 'right',
-                  className: 'font-semibold text-slate-900',
-                  cell: (a) => (a.drawable != null ? formatGyd(a.drawable) : '—'),
+                  key: "undrawn",
+                  header: "Undrawn",
+                  align: "right",
+                  className: "font-semibold text-slate-900",
+                  cell: (a) =>
+                    a.drawable != null ? formatGyd(a.drawable) : "—",
                 },
                 {
-                  key: 'status',
-                  header: 'Status',
+                  key: "status",
+                  header: "Status",
                   cell: (a) =>
                     a.booked_on_offer === false ? (
                       <Badge tone="danger">Rebook — not on offer terms</Badge>
@@ -279,36 +241,38 @@ export function Disbursements() {
                 APPLICATION,
                 APPLICANT,
                 {
-                  key: 'requested',
-                  header: 'Requested',
-                  align: 'right',
+                  key: "requested",
+                  header: "Requested",
+                  align: "right",
                   cell: (a) => formatGyd(a.loan_amount),
                 },
                 {
-                  key: 'approved',
-                  header: 'Approved',
-                  align: 'right',
-                  className: 'font-semibold text-slate-900',
+                  key: "approved",
+                  header: "Approved",
+                  align: "right",
+                  className: "font-semibold text-slate-900",
                   cell: (a) =>
                     a.approved_amount != null ? (
                       formatGyd(a.approved_amount)
                     ) : (
                       // Not a figure, so it does not get a figure's weight:
                       // this case has no executed offer to book against.
-                      <span className="font-normal text-amber-700">No live offer</span>
+                      <span className="font-normal text-amber-700">
+                        No live offer
+                      </span>
                     ),
                 },
                 {
-                  key: 'term',
-                  header: 'Term',
-                  align: 'right',
+                  key: "term",
+                  header: "Term",
+                  align: "right",
                   cell: (a) => `${a.facility_term} months`,
                 },
                 {
-                  key: 'approved_on',
-                  header: 'Approved on',
+                  key: "approved_on",
+                  header: "Approved on",
                   nowrap: true,
-                  className: 'text-slate-500',
+                  className: "text-slate-500",
                   cell: (a) => formatDate(a.reviewed_on ?? a.creation),
                 },
               ]}
@@ -336,42 +300,50 @@ export function Disbursements() {
                 APPLICATION,
                 APPLICANT,
                 {
-                  key: 'sanctioned',
-                  header: 'Sanctioned',
-                  align: 'right',
-                  cell: (a) => (a.sanctioned_amount != null ? formatGyd(a.sanctioned_amount) : '—'),
+                  key: "sanctioned",
+                  header: "Sanctioned",
+                  align: "right",
+                  cell: (a) =>
+                    a.sanctioned_amount != null
+                      ? formatGyd(a.sanctioned_amount)
+                      : "—",
                 },
                 {
-                  key: 'disbursed',
-                  header: 'Disbursed',
-                  align: 'right',
-                  className: 'font-semibold text-slate-900',
+                  key: "disbursed",
+                  header: "Disbursed",
+                  align: "right",
+                  className: "font-semibold text-slate-900",
                   cell: (a) => formatGyd(a.disbursed_amount),
                 },
                 {
-                  key: 'instalment',
-                  header: 'Instalment',
-                  align: 'right',
+                  key: "instalment",
+                  header: "Instalment",
+                  align: "right",
                   cell: (a) =>
-                    a.monthly_repayment != null ? formatGyd(a.monthly_repayment) : '—',
+                    a.monthly_repayment != null
+                      ? formatGyd(a.monthly_repayment)
+                      : "—",
                 },
                 {
-                  key: 'approved_on',
-                  header: 'Decided',
+                  key: "approved_on",
+                  header: "Decided",
                   nowrap: true,
-                  className: 'text-slate-500',
+                  className: "text-slate-500",
                   cell: (a) => formatDate(a.reviewed_on ?? a.creation),
                 },
                 {
-                  key: 'status',
-                  header: 'Status',
+                  key: "status",
+                  header: "Status",
                   cell: (a) => <Badge tone="success">{a.loan_status}</Badge>,
                 },
               ]}
               rows={released.page?.rows ?? []}
               rowKey={(a) => a.name}
               // The server's total for every released loan, not this page's.
-              total={{ applicant: 'Total released', disbursed: formatGyd(summary.totals.released_paid) }}
+              total={{
+                applicant: "Total released",
+                disbursed: formatGyd(summary.totals.released_paid),
+              }}
               minWidth="66rem"
               footnote={false}
               empty="Nothing has been released yet."

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { call, uploadFile } from '../api';
-import { useAuth } from '../auth';
-import type { ApplicantDocument, DocumentShelf as Shelf } from '../types';
-import { formatDate } from '../utils';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { call, uploadFile } from "../api";
+import { useAuth } from "../auth";
+import type { ApplicantDocument, DocumentShelf as Shelf } from "../types";
+import { formatDate } from "../utils";
 
 /** The evidence shelf: what the applicant has given GDB, and what is missing.
  *
@@ -19,38 +19,42 @@ import { formatDate } from '../utils';
  *  only. What is missing is the server's answer too, and it is ADVISORY.
  */
 
-const DOCTYPE = 'GDB Applicant Document';
+const DOCTYPE = "GDB Applicant Document";
 
 // `Financials` is the business's accounts; the stored value predates the split.
-const LABELS: Record<string, string> = { Financials: 'Business Financials' };
+const LABELS: Record<string, string> = { Financials: "Business Financials" };
 export const docLabel = (type: string) => LABELS[type] ?? type;
 
 const STATUS_STYLE: Record<string, string> = {
-  Received: 'bg-slate-100 text-slate-700',
-  Accepted: 'bg-green-100 text-green-800',
-  Rejected: 'bg-red-100 text-red-700',
-  Replaced: 'bg-amber-100 text-amber-800',
+  Received: "bg-slate-100 text-slate-700",
+  Accepted: "bg-green-100 text-green-800",
+  Rejected: "bg-red-100 text-red-700",
+  Replaced: "bg-amber-100 text-amber-800",
 };
 
 /** The formats the server accepts for one type — photos for a Trading Photo,
  *  PDF for everything the shelf held before it. */
-export function acceptsFor(settings: Shelf['settings'], type: string): string {
+export function acceptsFor(settings: Shelf["settings"], type: string): string {
   return settings.accepts_by_type?.[type] ?? settings.accepts;
 }
 
 /** ".jpg,.jpeg,.png" → "JPG, JPEG or PNG" */
 export function formatsLabel(accepts: string): string {
   const names = accepts
-    .split(',')
-    .map((e) => e.trim().replace(/^\./, '').toUpperCase())
+    .split(",")
+    .map((e) => e.trim().replace(/^\./, "").toUpperCase())
     .filter(Boolean);
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : names[0] ?? '';
+  return names.length > 1
+    ? `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`
+    : (names[0] ?? "");
 }
 
 export function sizeLabel(bytes: number | null): string {
-  if (!bytes) return '';
+  if (!bytes) return "";
   const mb = bytes / 1024 / 1024;
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return mb >= 1
+    ? `${mb.toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 /** Check the file against the shelf's own published rules, then the three
@@ -63,15 +67,15 @@ export function sizeLabel(bytes: number | null): string {
 export async function addDocument(
   file: File,
   type: string,
-  settings: Shelf['settings'],
+  settings: Shelf["settings"],
   application?: string,
 ): Promise<void> {
   const accepts = acceptsFor(settings, type);
   const accepted = accepts
-    .split(',')
+    .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+  const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
   if (accepted.length && !accepted.includes(extension)) {
     throw new Error(`${file.name}: use ${formatsLabel(accepts)}.`);
   }
@@ -82,17 +86,19 @@ export async function addDocument(
       )} MB.`,
     );
   }
-  const row = await call<ApplicantDocument>('gdb_bank.documents.new_document', {
+  const row = await call<ApplicantDocument>("gdb_bank.documents.new_document", {
     document_type: type,
     application,
   });
   try {
     await uploadFile(file, { doctype: DOCTYPE, docname: row.name });
-    await call('gdb_bank.documents.confirm_document', { name: row.name });
+    await call("gdb_bank.documents.confirm_document", { name: row.name });
   } catch (err) {
     // The row was opened for a file that never arrived. Clear it up rather
     // than leaving an empty shelf entry the applicant cannot explain.
-    await call('gdb_bank.documents.delete_document', { name: row.name }).catch(() => {});
+    await call("gdb_bank.documents.delete_document", { name: row.name }).catch(
+      () => {},
+    );
     throw err;
   }
 }
@@ -102,7 +108,8 @@ export function DocumentShelf({
   applicant,
   only,
   onChange,
-  title = 'Documents',
+  title = "Documents",
+  compact = false,
 }: {
   /** Omit for a personal shelf (identity, proof of address). */
   application?: string;
@@ -115,17 +122,19 @@ export function DocumentShelf({
   /** Called with the server's list of still-missing required types. */
   onChange?: (missing: string[]) => void;
   title?: string;
+  /** Narrow column (a sidebar): the type and the drop area stack, and no top margin. */
+  compact?: boolean;
 }) {
   const { user } = useAuth();
   const [shelf, setShelf] = useState<Shelf | null>(null);
-  const [type, setType] = useState('');
+  const [type, setType] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const data = await call<Shelf>('gdb_bank.documents.list_documents', {
+      const data = await call<Shelf>("gdb_bank.documents.list_documents", {
         application,
         applicant,
       });
@@ -137,11 +146,11 @@ export function DocumentShelf({
           (types.includes(current) && current) ||
           data.missing.find((t) => types.includes(t)) ||
           types[0] ||
-          '',
+          "",
       );
       onChange?.(data.missing);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load documents');
+      setError(err instanceof Error ? err.message : "Could not load documents");
     }
   }, [application, applicant, only, onChange]);
 
@@ -157,10 +166,10 @@ export function DocumentShelf({
       await addDocument(file, type, shelf.settings, application);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
-      if (fileInput.current) fileInput.current.value = '';
+      if (fileInput.current) fileInput.current.value = "";
     }
   };
 
@@ -168,31 +177,37 @@ export function DocumentShelf({
     setBusy(true);
     setError(null);
     try {
-      await call('gdb_bank.documents.delete_document', { name });
+      await call("gdb_bank.documents.delete_document", { name });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove the document');
+      setError(
+        err instanceof Error ? err.message : "Could not remove the document",
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const review = async (name: string, status: 'Accepted' | 'Rejected') => {
+  const review = async (name: string, status: "Accepted" | "Rejected") => {
     setBusy(true);
     setError(null);
     try {
       const note =
-        status === 'Rejected'
-          ? window.prompt('Why is this document not acceptable? The applicant will see this.') ?? ''
-          : '';
-      if (status === 'Rejected' && !note.trim()) {
+        status === "Rejected"
+          ? (window.prompt(
+              "Why is this document not acceptable? The applicant will see this.",
+            ) ?? "")
+          : "";
+      if (status === "Rejected" && !note.trim()) {
         setBusy(false);
         return;
       }
-      await call('gdb_bank.documents.review_document', { name, status, note });
+      await call("gdb_bank.documents.review_document", { name, status, note });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not record the review');
+      setError(
+        err instanceof Error ? err.message : "Could not record the review",
+      );
     } finally {
       setBusy(false);
     }
@@ -202,21 +217,40 @@ export function DocumentShelf({
 
   const canUpload = shelf.can_upload;
   const maxMb = Math.round(shelf.settings.max_bytes / 1024 / 1024);
-  const documents = only ? shelf.documents.filter((d) => d.document_type === only) : shelf.documents;
-  const live = documents.filter((d) => d.status !== 'Replaced');
-  const replaced = documents.filter((d) => d.status === 'Replaced');
+  const documents = only
+    ? shelf.documents.filter((d) => d.document_type === only)
+    : shelf.documents;
+  const live = documents.filter((d) => d.status !== "Replaced");
+  const replaced = documents.filter((d) => d.status === "Replaced");
+  const accepts = acceptsFor(shelf.settings, type);
 
   return (
-    <div className="mt-4 rounded-xl bg-white p-6 shadow">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-semibold">{title}</h2>
-        <span className="text-xs text-slate-500">
-          {formatsLabel(acceptsFor(shelf.settings, type))} · up to {maxMb} MB each
+    <section
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-xs ${only || compact ? "" : "mt-4"}`}
+      aria-label={title}
+    >
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-emerald-200 bg-emerald-50 text-brand-dark">
+            <FileGlyph />
+          </span>
+          <h2 className="text-sm font-extrabold text-slate-900">{title}</h2>
+          {live.length > 0 && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+              {live.length}
+            </span>
+          )}
+        </div>
+        <span className="text-[11px] text-slate-500">
+          {formatsLabel(accepts)} · up to {maxMb} MB each
         </span>
       </div>
 
       {error && (
-        <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p
+          className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -225,60 +259,89 @@ export function DocumentShelf({
           this. Staff still see what is outstanding; the applicant-facing
           banner was dropped per product ask. */}
       {!canUpload && shelf.missing.length > 0 && (
-        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          Not on file: <strong>{shelf.missing.map(docLabel).join(', ')}</strong>
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Not on file: <strong>{shelf.missing.map(docLabel).join(", ")}</strong>
         </p>
       )}
 
-      {live.length === 0 && (
-        <p className="mb-3 text-sm text-slate-500">Nothing uploaded yet.</p>
-      )}
-
-      {live.length > 0 && (
-        <ul className="mb-4 divide-y divide-slate-100">
+      {live.length === 0 ? (
+        !canUpload && (
+          <p className="mb-1 text-sm text-slate-500">Nothing uploaded yet.</p>
+        )
+      ) : (
+        <ul className="mb-4 space-y-2">
           {live.map((d) => (
-            <li key={d.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-800">
-                  {docLabel(d.document_type)}
-                  <span
-                    className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      STATUS_STYLE[d.status] ?? 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    {d.status}
-                  </span>
-                  {!d.application && (
-                    <span className="ml-2 text-xs text-slate-400">held on the profile</span>
-                  )}
-                </p>
-                <p className="truncate text-xs text-slate-500">
-                  {d.file_url ? (
-                    <a
-                      href={d.file_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-brand hover:underline"
+            <li
+              key={d.name}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span
+                  className={`grid h-9 w-9 flex-none place-items-center rounded-lg text-[10px] font-black ${
+                    /\.pdf$/i.test(d.file_name ?? "")
+                      ? "bg-rose-50 text-rose-600 ring-1 ring-rose-200"
+                      : "bg-sky-50 text-sky-700 ring-1 ring-sky-200"
+                  }`}
+                  aria-hidden
+                >
+                  {/\.pdf$/i.test(d.file_name ?? "") ? "PDF" : "IMG"}
+                </span>
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-900">
+                    {docLabel(d.document_type)}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                        STATUS_STYLE[d.status] ?? "bg-slate-100 text-slate-700"
+                      }`}
                     >
-                      {d.file_name}
-                    </a>
-                  ) : (
-                    'no file'
+                      {d.status}
+                    </span>
+                    {!d.application && (
+                      <span className="text-[11px] font-medium text-slate-400">
+                        on your profile
+                      </span>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {d.file_url ? (
+                      <a
+                        href={d.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-brand hover:underline"
+                      >
+                        {d.file_name}
+                      </a>
+                    ) : (
+                      "no file"
+                    )}
+                    {d.file_size ? ` · ${sizeLabel(d.file_size)}` : ""}
+                    {d.uploaded_on ? ` · ${formatDate(d.uploaded_on)}` : ""}
+                  </p>
+                  {d.review_note && (
+                    <p className="mt-1 text-xs font-medium text-rose-700">
+                      {d.review_note}
+                    </p>
                   )}
-                  {d.file_size ? ` · ${sizeLabel(d.file_size)}` : ''}
-                  {d.uploaded_on ? ` · ${formatDate(d.uploaded_on)}` : ''}
-                </p>
-                {d.review_note && (
-                  <p className="mt-1 text-xs text-red-700">{d.review_note}</p>
-                )}
+                </div>
               </div>
               <div className="flex shrink-0 gap-2 text-xs">
+                {d.file_url && (
+                  <a
+                    href={d.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    View
+                  </a>
+                )}
                 {canUpload && (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void remove(d.name)}
-                    className="rounded-xl border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
                   >
                     Remove
                   </button>
@@ -287,17 +350,17 @@ export function DocumentShelf({
                   <>
                     <button
                       type="button"
-                      disabled={busy || d.status === 'Accepted'}
-                      onClick={() => void review(d.name, 'Accepted')}
-                      className="rounded-md border border-green-600 px-2 py-1 font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
+                      disabled={busy || d.status === "Accepted"}
+                      onClick={() => void review(d.name, "Accepted")}
+                      className="rounded-lg border border-green-600 px-2.5 py-1 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-40"
                     >
                       Accept
                     </button>
                     <button
                       type="button"
-                      disabled={busy || d.status === 'Rejected'}
-                      onClick={() => void review(d.name, 'Rejected')}
-                      className="rounded-md border border-red-500 px-2 py-1 font-medium text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      disabled={busy || d.status === "Rejected"}
+                      onClick={() => void review(d.name, "Rejected")}
+                      className="rounded-lg border border-red-500 px-2.5 py-1 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
                     >
                       Reject
                     </button>
@@ -310,53 +373,98 @@ export function DocumentShelf({
       )}
 
       {canUpload && (
-        <div className="flex flex-wrap items-end gap-3 border-t border-slate-200 pt-4">
-          <label className={only ? 'hidden' : 'text-sm'}>
-            <span className="mb-1 block text-slate-500">Document type</span>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+        <div
+          className={`flex flex-col gap-3 ${compact ? "" : "sm:flex-row sm:items-stretch"}`}
+        >
+          {!only && (
+            <label
+              className={`flex flex-col gap-1 text-xs font-bold text-slate-700 ${compact ? "" : "sm:w-56"}`}
             >
-              {shelf.settings.types.map((t) => (
-                <option key={t} value={t}>
-                  {docLabel(t)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-500">File</span>
+              Document type
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium focus:border-brand focus:outline-none focus:ring-4 focus:ring-emerald-100"
+              >
+                {shelf.settings.types.map((t) => (
+                  <option key={t} value={t}>
+                    {docLabel(t)}
+                    {shelf.missing.includes(t) ? " — needed" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files?.[0];
+              if (file && !busy) void add(file);
+            }}
+            className={`flex flex-1 cursor-pointer items-center justify-between gap-3 rounded-xl border-2 border-dashed px-4 py-3 transition-colors ${
+              busy
+                ? "border-emerald-300 bg-emerald-50/60"
+                : "border-slate-300 bg-slate-50/60 hover:border-brand hover:bg-emerald-50/40"
+            }`}
+          >
             <input
               ref={fileInput}
               type="file"
-              accept={acceptsFor(shelf.settings, type)}
+              accept={accepts}
               disabled={busy}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void add(file);
               }}
-              className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-dark"
+              className="sr-only"
             />
+            <span className="min-w-0 text-sm">
+              <b className="block font-bold text-slate-800">
+                {busy
+                  ? "Uploading…"
+                  : `Add ${only ? docLabel(only).toLowerCase() : docLabel(type).toLowerCase()}`}
+              </b>
+              <span className="text-xs text-slate-500">
+                Click to choose a file, or drag it here
+              </span>
+            </span>
+            <span className="flex-none rounded-lg bg-brand-dark px-3 py-1.5 text-xs font-bold text-white">
+              Browse
+            </span>
           </label>
-          {busy && <span className="pb-2 text-sm text-slate-500">Uploading…</span>}
         </div>
       )}
 
       {replaced.length > 0 && (
         <details className="mt-4 text-xs text-slate-500">
-          <summary className="cursor-pointer">
-            {replaced.length} replaced document{replaced.length === 1 ? '' : 's'}
+          <summary className="cursor-pointer font-semibold">
+            {replaced.length} replaced document
+            {replaced.length === 1 ? "" : "s"}
           </summary>
           <ul className="mt-2 space-y-1">
             {replaced.map((d) => (
               <li key={d.name}>
-                {docLabel(d.document_type)} · {d.file_name} · {formatDate(d.uploaded_on)}
+                {docLabel(d.document_type)} · {d.file_name} ·{" "}
+                {formatDate(d.uploaded_on)}
               </li>
             ))}
           </ul>
         </details>
       )}
-    </div>
+    </section>
+  );
+}
+
+function FileGlyph() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
+      <path
+        d="M5 2.5h6.5L15 6v11.5H5v-15Zm6 0V6.5h4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

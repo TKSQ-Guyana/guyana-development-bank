@@ -339,7 +339,9 @@ class TestPlatformAdmin(IntegrationTestCase):
 		self.assertFalse(is_same_person(DISBURSER, CITIZEN))
 
 		with self.set_user(CITIZEN):
-			application = api.save_application(loan_amount=500000, purpose="Cold store", term_months=12)["name"]
+			application = api.save_application(
+				loan_amount=500000, purpose="Cold store", term_months=12, sections={"moratorium_months": 1}
+			)["name"]
 			api.submit_application(name=application)
 		with self.set_user(UNDERWRITER), self.assertRaises(frappe.PermissionError):
 			api.review_loan(name=application, action="approve")

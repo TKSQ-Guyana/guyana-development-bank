@@ -10,8 +10,8 @@ from frappe.utils import cint, flt, now_datetime
 
 from gdb_bank.security.conflict import is_same_person
 from gdb_bank.services.evidence import missing_by_application
-from gdb_bank.utils.constants import LOAN_FIELDS, QUICK_PRODUCT, STATUS_FROM_PORTAL, STATUS_TO_PORTAL
-from gdb_bank.utils.formatters import _portal_dict, _portal_product, _stage_context, _stage_for
+from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_FROM_PORTAL, STATUS_TO_PORTAL
+from gdb_bank.utils.formatters import _portal_dict, _stage_context, _stage_for
 from gdb_bank.utils.session import _as_system, _eids, _logger
 
 
@@ -73,8 +73,9 @@ def _queue_facts() -> dict:
 
 def _queue_of(row, fact: dict) -> str | None:
 	"""Which of the disbursement officer's lists a case is on, if any."""
-	if row.status == "Open":
-		return "quick" if _portal_product(row.loan_product) == QUICK_PRODUCT else None
+	# A Quick Loan is decided by the underwriter now (2026-10-02), so an open one
+	# is on nobody's money list; the "quick" queue stays empty and is kept only
+	# so a client asking for it is answered rather than refused.
 	if row.status != "Approved":
 		return None
 	if not fact.get("has_loan"):
@@ -204,20 +205,15 @@ def review_loan(user: str, name: str, action: str, remarks: str | None = None) -
 	"""Approve or reject an open application."""
 	doc = frappe.get_doc("Loan Application", name)
 
-	# A Quick Loan is decided and paid in one act by a Disbursement Officer
-	# (services/quick_loan). A second door to its approval would be an approval
-	# nobody pays on, or one paid without the checks that path carries.
-	from gdb_bank.services.quick_loan import is_quick
-
-	if is_quick(doc.loan_product):
-		frappe.throw(_("Use Approve and pay on a Quick Loan — it is decided and paid in one step."))
+	# A Quick Loan is decided here too, like every GDB loan (2026-10-02): the
+	# underwriter decides, a Letter of Offer is signed, a different officer pays.
 
 	# Segregation of duties: an underwriter may also be a borrower, and must
 	# never decide their own case — not from the same account, and not from a
 	# staff account belonging to the same person (security/conflict.py).
 	if is_same_person(user, doc.gdb_owner):
 		frappe.throw(
-			_("You cannot review your own application. Ask another underwriter."), frappe.PermissionError
+			_("You cannot review your own application. Ask another loan officer."), frappe.PermissionError
 		)
 
 	new_status = {"approve": "Approved", "reject": "Rejected"}.get(action)

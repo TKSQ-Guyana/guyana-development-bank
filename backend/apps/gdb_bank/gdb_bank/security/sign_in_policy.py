@@ -4,6 +4,7 @@ Keycloak authenticates everybody. The realm that vouched for a sign-in says
 what kind of account it may land on:
 
   citizen realm, e-ID + password         -> citizen accounts only
+  citizen realm, TIN + password + code   -> citizen accounts only (tin_auth.py)
   staff realm, work email + password     -> GDB staff and platform admin only
   Frappe's own /api/method/login         -> System Users only — the
                                             Administrator break-glass and the
@@ -34,6 +35,7 @@ from gdb_bank.utils.session import _logger
 
 CHANNEL_FLAG = "gdb_sign_in_channel"
 EID = "eid"
+TIN = "tin"
 STAFF = "staff"
 
 
@@ -55,12 +57,16 @@ def refusal(user: str, channel: str | None) -> str | None:
 		if user_type == "System User" or is_staff_account(user):
 			return _("This e-ID belongs to a GDB staff account. GDB staff sign in with their work email.")
 		return None
+	if channel == TIN:
+		if user_type == "System User" or is_staff_account(user):
+			return _("This TIN belongs to a GDB staff account. GDB staff sign in with their work email.")
+		return None
 	if channel == STAFF:
 		if user_type != "System User" or not is_staff_account(user):
 			return _("This account has not been granted access to the GDB staff portal. Please contact GDB.")
 		return None
 	if user_type == "Website User":
-		return _("Citizens sign in with their e-ID.")
+		return _("Citizens sign in with their e-ID or TIN.")
 	return None
 
 

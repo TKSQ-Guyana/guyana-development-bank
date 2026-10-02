@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { call } from '../api';
-import { useAuth } from '../auth';
-import type { LoanOffer } from '../types';
-import { formatGyd, formatDate } from '../utils';
+import { useCallback, useEffect, useState } from "react";
+import { call } from "../api";
+import { useAuth } from "../auth";
+import { moratoriumValue } from "../shared/moratorium";
+import type { LoanOffer } from "../types";
+import { formatGyd, formatDate } from "../utils";
 
 /** The frozen agreement text is a fixed-width plain-text letter (see
  *  `offers._agreement_text`): a letterhead block of "Label : value" lines,
@@ -15,18 +16,24 @@ interface AgreementSection {
   paragraphs: string[][];
 }
 
-function parseAgreement(text: string): { meta: [string, string][]; sections: AgreementSection[] } {
+function parseAgreement(text: string): {
+  meta: [string, string][];
+  sections: AgreementSection[];
+} {
   const meta: [string, string][] = [];
   const sections: AgreementSection[] = [];
   let current: string[] | null = null;
-  let currentHeading = '';
+  let currentHeading = "";
 
   const pushSection = () => {
     if (!current) return;
-    sections.push({ heading: currentHeading, paragraphs: toParagraphs(current) });
+    sections.push({
+      heading: currentHeading,
+      paragraphs: toParagraphs(current),
+    });
   };
 
-  for (const raw of text.split('\n')) {
+  for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (/^\d+\.\s+\S/.test(line)) {
       pushSection();
@@ -48,7 +55,7 @@ function toParagraphs(lines: string[]): string[][] {
   let sentence: string[] = [];
   let list: string[] = [];
   const flushSentence = () => {
-    if (sentence.length) paragraphs.push([sentence.join(' ')]);
+    if (sentence.length) paragraphs.push([sentence.join(" ")]);
     sentence = [];
   };
   const flushList = () => {
@@ -61,7 +68,7 @@ function toParagraphs(lines: string[]): string[][] {
       flushList();
     } else if (/^\(\d+\)/.test(line)) {
       flushSentence();
-      list.push(line.replace(/^\(\d+\)\s*/, ''));
+      list.push(line.replace(/^\(\d+\)\s*/, ""));
     } else {
       flushList();
       sentence.push(line);
@@ -83,11 +90,11 @@ function toParagraphs(lines: string[]): string[][] {
  */
 
 const TONE: Record<string, string> = {
-  Issued: 'bg-gdb-gold/20 text-brand-dark',
-  Accepted: 'bg-green-50 text-green-800',
-  Declined: 'bg-red-50 text-red-700',
-  Expired: 'bg-slate-100 text-slate-600',
-  Withdrawn: 'bg-slate-100 text-slate-600',
+  Issued: "bg-gdb-gold/20 text-brand-dark",
+  Accepted: "bg-green-50 text-green-800",
+  Declined: "bg-red-50 text-red-700",
+  Expired: "bg-slate-100 text-slate-600",
+  Withdrawn: "bg-slate-100 text-slate-600",
 };
 
 export function OfferPanel({
@@ -100,15 +107,15 @@ export function OfferPanel({
   const { user } = useAuth();
   const [offer, setOffer] = useState<LoanOffer | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const [typedName, setTypedName] = useState('');
-  const [reason, setReason] = useState('');
+  const [typedName, setTypedName] = useState("");
+  const [reason, setReason] = useState("");
   const [declining, setDeclining] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAgreement, setShowAgreement] = useState(false);
 
   const load = useCallback(() => {
-    call<LoanOffer | null>('gdb_bank.offers.my_offer', { application })
+    call<LoanOffer | null>("gdb_bank.offers.my_offer", { application })
       .then((o) => {
         setOffer(o);
         setLoaded(true);
@@ -124,15 +131,20 @@ export function OfferPanel({
   // On a group's offer the right to act is the viewer's own signature line,
   // which the server has already worked out. On an individual offer it is the
   // question it always was.
-  const mine = joint ? offer.can_sign : offer.applicant_name === user?.full_name;
+  const mine = joint
+    ? offer.can_sign
+    : offer.applicant_name === user?.full_name;
   // THIS viewer's own line, matched on who they are. Finding "the first line
   // still pending" instead told whoever opened the offer to type the name of
   // whichever member happened to be first on the roster — so the second
   // member was asked for the head's name, typed it, and was refused by the
   // server for signing as somebody else. Which is exactly what the server
   // check is for, but the screen should never have asked.
-  const myLine = offer.signatures?.find((sig) => sig.member === user?.user) ?? null;
-  const nameToType = joint ? (myLine?.member_name ?? user?.full_name ?? '') : offer.applicant_name;
+  const myLine =
+    offer.signatures?.find((sig) => sig.member === user?.user) ?? null;
+  const nameToType = joint
+    ? (myLine?.member_name ?? user?.full_name ?? "")
+    : offer.applicant_name;
 
   const respond = async (accept: boolean) => {
     setBusy(true);
@@ -140,15 +152,15 @@ export function OfferPanel({
     try {
       const updated = accept
         ? joint
-          ? await call<LoanOffer>('gdb_bank.offers.sign_offer', {
+          ? await call<LoanOffer>("gdb_bank.offers.sign_offer", {
               name: offer.name,
               signed_name: typedName,
             })
-          : await call<LoanOffer>('gdb_bank.offers.accept_offer', {
+          : await call<LoanOffer>("gdb_bank.offers.accept_offer", {
               name: offer.name,
               accepted_name: typedName,
             })
-        : await call<LoanOffer>('gdb_bank.offers.decline_offer', {
+        : await call<LoanOffer>("gdb_bank.offers.decline_offer", {
             name: offer.name,
             reason,
           });
@@ -156,7 +168,9 @@ export function OfferPanel({
       setDeclining(false);
       onExecuted?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not record your response');
+      setError(
+        err instanceof Error ? err.message : "Could not record your response",
+      );
     } finally {
       setBusy(false);
     }
@@ -166,38 +180,61 @@ export function OfferPanel({
     <div className="mb-6 rounded-xl border border-gdb-gold bg-white p-6 shadow">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800">Letter of Offer</h2>
+          <h2 className="text-lg font-semibold text-slate-800">
+            Letter of Offer
+          </h2>
           <p className="font-mono text-xs text-slate-400">{offer.name}</p>
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${TONE[offer.status] ?? 'bg-slate-100 text-slate-600'}`}
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${TONE[offer.status] ?? "bg-slate-100 text-slate-600"}`}
         >
           {offer.status}
         </span>
       </div>
 
-      <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
+      <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-5">
         <div>
           <dt className="text-slate-500">Amount offered</dt>
-          <dd className="font-semibold text-slate-800">{formatGyd(offer.offered_amount)}</dd>
+          <dd className="font-semibold text-slate-800">
+            {formatGyd(offer.offered_amount)}
+          </dd>
         </div>
         <div>
           <dt className="text-slate-500">Term</dt>
-          <dd className="font-semibold text-slate-800">{offer.term_months} months</dd>
+          <dd className="font-semibold text-slate-800">
+            {offer.term_months} months
+          </dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Repayments start</dt>
+          <dd className="font-semibold text-slate-800">
+            {offer.moratorium_months
+              ? `Month ${offer.moratorium_months + 1}`
+              : "Month 1"}
+            <span className="block text-xs font-normal text-slate-500">
+              {moratoriumValue(offer.moratorium_months)}
+            </span>
+          </dd>
         </div>
         <div>
           <dt className="text-slate-500">Instalment</dt>
-          <dd className="font-semibold text-slate-800">{formatGyd(offer.monthly_instalment)}</dd>
+          <dd className="font-semibold text-slate-800">
+            {formatGyd(offer.monthly_instalment)}
+          </dd>
         </div>
         <div>
           <dt className="text-slate-500">Interest</dt>
-          <dd className="font-semibold text-slate-800">{offer.rate_of_interest}%</dd>
+          <dd className="font-semibold text-slate-800">
+            {offer.rate_of_interest}%
+          </dd>
         </div>
       </dl>
 
       {offer.conditions.length > 0 && (
         <div className="mb-4 rounded-lg bg-slate-50 p-4">
-          <p className="mb-2 text-sm font-semibold text-slate-700">As stated in this offer</p>
+          <p className="mb-2 text-sm font-semibold text-slate-700">
+            As stated in this offer
+          </p>
           <ol className="list-inside list-decimal space-y-1 text-sm text-slate-600">
             {offer.conditions.map((c, i) => (
               <li key={i}>{c}</li>
@@ -205,29 +242,60 @@ export function OfferPanel({
           </ol>
           {/* Only staff have the checklist below to be pointed at; for the
               applicant these lines are the offer's own wording, nothing more. */}
-          {(user?.is_underwriter || user?.is_finance || user?.is_disbursement) && (
-            <p className="mt-2 text-xs text-slate-400">Live status of each is tracked below.</p>
+          {(user?.is_underwriter ||
+            user?.is_finance ||
+            user?.is_disbursement) && (
+            <p className="mt-2 text-xs text-slate-400">
+              Live status of each is tracked below.
+            </p>
           )}
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => setShowAgreement(true)}
-        className="mb-4 text-sm font-medium text-brand hover:underline"
-      >
-        Read the full Letter of Offer
-      </button>
+      <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <button
+          type="button"
+          onClick={() => setShowAgreement(true)}
+          className="text-sm font-medium text-brand hover:underline"
+        >
+          Read the full Letter of Offer
+        </button>
+        {/* The GDB Inc loan agreement, filled from this offer, to print and sign
+            (gdb_bank.offers.agreement_docx). A plain link: the session cookie
+            goes with it, and the server sends it as a download. */}
+        <a
+          href={`/api/method/gdb_bank.offers.agreement_docx?name=${encodeURIComponent(offer.name)}`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
+            <path
+              d="M10 3v10m0 0 4-4m-4 4-4-4M4 15v2h12v-2"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Download loan agreement (Word)
+        </a>
+      </div>
       {showAgreement && offer.agreement_text && (
-        <LetterOfOfferDocument text={offer.agreement_text} onClose={() => setShowAgreement(false)} />
+        <LetterOfOfferDocument
+          text={offer.agreement_text}
+          onClose={() => setShowAgreement(false)}
+        />
       )}
 
-      {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && (
+        <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
 
-      {offer.status === 'Issued' && (
+      {offer.status === "Issued" && (
         <p className="mb-4 text-sm text-slate-600">
-          This offer lapses on <strong>{formatDate(offer.valid_until)}</strong> unless{' '}
-          {joint ? 'the group signs' : 'you accept'} it before then.
+          This offer lapses on <strong>{formatDate(offer.valid_until)}</strong>{" "}
+          unless {joint ? "the group signs" : "you accept"} it before then.
         </p>
       )}
 
@@ -244,7 +312,10 @@ export function OfferPanel({
           </div>
           <ul className="divide-y divide-slate-200">
             {offer.signatures.map((sig) => (
-              <li key={sig.name} className="flex items-center justify-between py-2 text-sm">
+              <li
+                key={sig.name}
+                className="flex items-center justify-between py-2 text-sm"
+              >
                 <span className="text-slate-800">
                   {sig.member_name}
                   {sig.is_head && (
@@ -255,46 +326,46 @@ export function OfferPanel({
                 </span>
                 <span
                   className={`text-xs font-semibold ${
-                    sig.signature_status === 'Signed'
-                      ? 'text-emerald-700'
-                      : sig.signature_status === 'Declined'
-                        ? 'text-rose-600'
-                        : 'text-slate-400'
+                    sig.signature_status === "Signed"
+                      ? "text-emerald-700"
+                      : sig.signature_status === "Declined"
+                        ? "text-rose-600"
+                        : "text-slate-400"
                   }`}
                 >
-                  {sig.signature_status === 'Signed'
+                  {sig.signature_status === "Signed"
                     ? `Signed ${formatDate(sig.signed_on)}`
-                    : sig.signature_status === 'Declined'
-                      ? 'Declined'
-                      : 'Waiting'}
+                    : sig.signature_status === "Declined"
+                      ? "Declined"
+                      : "Waiting"}
                 </span>
               </li>
             ))}
           </ul>
-          {offer.status === 'Issued' && !offer.execution.complete && (
+          {offer.status === "Issued" && !offer.execution.complete && (
             <p className="mt-3 text-xs leading-relaxed text-slate-500">
-              The agreement is executed when the last member signs. GDB books nothing and releases
-              nothing until then.
+              The agreement is executed when the last member signs. GDB books
+              nothing and releases nothing until then.
             </p>
           )}
         </div>
       )}
 
-      {joint && offer.status === 'Issued' && !offer.can_sign && (
+      {joint && offer.status === "Issued" && !offer.can_sign && (
         <p className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
-          {myLine?.signature_status === 'Signed'
-            ? 'You have signed. The agreement is executed once every member has.'
+          {myLine?.signature_status === "Signed"
+            ? "You have signed. The agreement is executed once every member has."
             : myLine
-              ? 'You have already answered this offer.'
-              : 'This is your group’s offer. Only the members named on it can sign.'}
+              ? "You have already answered this offer."
+              : "This is your group’s offer. Only the members named on it can sign."}
         </p>
       )}
 
-      {offer.status === 'Issued' && mine && !declining && (
+      {offer.status === "Issued" && mine && !declining && (
         <div className="border-t border-slate-200 pt-4">
           <p className="mb-2 text-sm text-slate-600">
-            To {joint ? 'sign' : 'accept'}, type your name exactly as it appears above:{' '}
-            <strong>{nameToType}</strong>
+            To {joint ? "sign" : "accept"}, type your name exactly as it appears
+            above: <strong>{nameToType}</strong>
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -309,7 +380,11 @@ export function OfferPanel({
               onClick={() => void respond(true)}
               className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
             >
-              {busy ? 'Recording…' : joint ? 'Sign the agreement' : 'Accept offer'}
+              {busy
+                ? "Recording…"
+                : joint
+                  ? "Sign the agreement"
+                  : "Accept offer"}
             </button>
             <button
               type="button"
@@ -322,7 +397,7 @@ export function OfferPanel({
         </div>
       )}
 
-      {offer.status === 'Issued' && mine && declining && (
+      {offer.status === "Issued" && mine && declining && (
         <div className="border-t border-slate-200 pt-4">
           <label className="mb-2 block text-sm text-slate-600">
             Why are you declining? This helps GDB improve the programme.
@@ -340,7 +415,7 @@ export function OfferPanel({
               onClick={() => void respond(false)}
               className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
             >
-              {busy ? 'Recording…' : 'Confirm decline'}
+              {busy ? "Recording…" : "Confirm decline"}
             </button>
             <button
               type="button"
@@ -353,32 +428,33 @@ export function OfferPanel({
         </div>
       )}
 
-      {offer.status === 'Accepted' && (
+      {offer.status === "Accepted" && (
         <p className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
           {joint ? (
             <>
-              Signed by all {offer.execution.total} members, the last on{' '}
-              {formatDate(offer.responded_on)}. This is the group&rsquo;s executed agreement with
-              GDB.
+              Signed by all {offer.execution.total} members, the last on{" "}
+              {formatDate(offer.responded_on)}. This is the group&rsquo;s
+              executed agreement with GDB.
             </>
           ) : (
             <>
-              Accepted by <strong>{offer.accepted_name}</strong> on{' '}
-              {formatDate(offer.responded_on)}. This is your executed agreement with GDB.
+              Accepted by <strong>{offer.accepted_name}</strong> on{" "}
+              {formatDate(offer.responded_on)}. This is your executed agreement
+              with GDB.
             </>
           )}
         </p>
       )}
-      {offer.status === 'Declined' && (
+      {offer.status === "Declined" && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
           Declined on {formatDate(offer.responded_on)}
-          {offer.decline_reason ? ` — “${offer.decline_reason}”` : ''}.
+          {offer.decline_reason ? ` — “${offer.decline_reason}”` : ""}.
         </p>
       )}
-      {offer.status === 'Expired' && (
+      {offer.status === "Expired" && (
         <p className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">
-          This offer lapsed on {formatDate(offer.valid_until)}. Contact GDB if you still want the
-          facility.
+          This offer lapsed on {formatDate(offer.valid_until)}. Contact GDB if
+          you still want the facility.
         </p>
       )}
     </div>
@@ -387,7 +463,13 @@ export function OfferPanel({
 
 /** The frozen Letter of Offer, full-screen — a formal document to read
  *  closely, not a panel among other panels on the case page. */
-function LetterOfOfferDocument({ text, onClose }: { text: string; onClose: () => void }) {
+function LetterOfOfferDocument({
+  text,
+  onClose,
+}: {
+  text: string;
+  onClose: () => void;
+}) {
   const { meta, sections } = parseAgreement(text);
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 px-4 py-8 sm:px-8">
@@ -411,12 +493,17 @@ function LetterOfOfferDocument({ text, onClose }: { text: string; onClose: () =>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">
               Guyana Development Bank
             </p>
-            <h1 className="mt-2 text-2xl font-bold text-slate-900">Letter of Offer</h1>
+            <h1 className="mt-2 text-2xl font-bold text-slate-900">
+              Letter of Offer
+            </h1>
           </div>
 
           <dl className="mb-10 grid grid-cols-1 gap-x-8 gap-y-2 border-y border-slate-200 py-5 text-sm sm:grid-cols-2">
             {meta.map(([label, value]) => (
-              <div key={label} className="flex items-baseline justify-between gap-4 sm:justify-start">
+              <div
+                key={label}
+                className="flex items-baseline justify-between gap-4 sm:justify-start"
+              >
                 <dt className="text-slate-400">{label}</dt>
                 <dd className="font-medium text-slate-800 sm:ml-2">{value}</dd>
               </div>
@@ -426,16 +513,24 @@ function LetterOfOfferDocument({ text, onClose }: { text: string; onClose: () =>
           <div className="space-y-8">
             {sections.map((s) => (
               <section key={s.heading}>
-                <h2 className="mb-2 text-sm font-bold tracking-wide text-slate-900">{s.heading}</h2>
+                <h2 className="mb-2 text-sm font-bold tracking-wide text-slate-900">
+                  {s.heading}
+                </h2>
                 {s.paragraphs.map((p, i) =>
                   p.length > 1 ? (
-                    <ol key={i} className="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
+                    <ol
+                      key={i}
+                      className="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-slate-700"
+                    >
                       {p.map((item, j) => (
                         <li key={j}>{item}</li>
                       ))}
                     </ol>
                   ) : (
-                    <p key={i} className="mb-2 text-sm leading-relaxed text-slate-700 last:mb-0">
+                    <p
+                      key={i}
+                      className="mb-2 text-sm leading-relaxed text-slate-700 last:mb-0"
+                    >
                       {p[0]}
                     </p>
                   ),

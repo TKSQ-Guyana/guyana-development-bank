@@ -1,29 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { call } from '../api';
-import { useAuth } from '../auth';
-import { ApplicantProfile } from '../components/ApplicantProfile';
-import { ClusterMembers } from '../components/ClusterMembers';
-import { Conditions } from '../components/Conditions';
-import { Disbursement } from '../components/Disbursement';
-import { DocumentShelf } from '../components/DocumentShelf';
-import { InformationRequests } from '../components/InformationRequests';
-import { IssueOffer } from '../components/IssueOffer';
-import { LoanAccount } from '../components/LoanAccount';
-import { OfferPanel } from '../components/OfferPanel';
-import { ApplicantCaseView } from '../features/applications/ApplicantCaseView';
-import { QuickDecision } from '../features/quick-loan/QuickDecision';
-import { ApplicationTab } from '../features/underwriting/ApplicationTab';
-import { DecisionDrawer, FieldTaskDrawer, RequestInfoDrawer } from '../features/underwriting/CaseDrawers';
-import { fo } from '../features/field-officer/api';
-import { FieldReports } from '../features/field-officer/FieldReports';
-import type { FieldTask } from '../features/field-officer/types';
-import { Badge } from '../components/ui/Badge';
-import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
-import { StageBadge } from '../components/ui/Stepper';
-import type { LoanApplication } from '../types';
-import { formatGyd, formatDate } from '../utils';
+import { useCallback, useEffect, useState } from "react";
+import { moratoriumValue } from "../shared/moratorium";
+import { formatPhone } from "../components/PhoneInput";
+import { Link, useParams } from "react-router-dom";
+import { call } from "../api";
+import { useAuth } from "../auth";
+import { ApplicantProfile } from "../components/ApplicantProfile";
+import { ClusterMembers } from "../components/ClusterMembers";
+import { Conditions } from "../components/Conditions";
+import { Disbursement } from "../components/Disbursement";
+import { DocumentShelf } from "../components/DocumentShelf";
+import { InformationRequests } from "../components/InformationRequests";
+import { IssueOffer } from "../components/IssueOffer";
+import { LoanAccount } from "../components/LoanAccount";
+import { OfferPanel } from "../components/OfferPanel";
+import { ApplicantCaseView } from "../features/applications/ApplicantCaseView";
+import { ApplicationTab } from "../features/underwriting/ApplicationTab";
+import {
+  DecisionDrawer,
+  FieldTaskDrawer,
+  RequestInfoDrawer,
+} from "../features/underwriting/CaseDrawers";
+import { fo } from "../features/field-officer/api";
+import { FieldReports } from "../features/field-officer/FieldReports";
+import type { FieldTask } from "../features/field-officer/types";
+import { Badge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { StageBadge } from "../components/ui/Stepper";
+import type { LoanApplication } from "../types";
+import { formatGyd, formatDate } from "../utils";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -35,7 +40,13 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 /** A left-rail card heading, with an optional badge on the right. */
-function RailTitle({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
+function RailTitle({
+  children,
+  aside,
+}: {
+  children: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
   return (
     <div className="mb-2 flex items-center justify-between gap-2">
       <h3 className="text-sm font-semibold text-slate-900">{children}</h3>
@@ -45,19 +56,25 @@ function RailTitle({ children, aside }: { children: React.ReactNode; aside?: Rea
 }
 
 const STAFF_TABS = [
-  { id: 'application', label: 'Application' },
-  { id: 'checks', label: 'Checks & documents' },
-  { id: 'offer', label: 'Offer' },
-  { id: 'facility', label: 'Facility' },
+  { id: "application", label: "Application" },
+  { id: "checks", label: "Checks & documents" },
+  { id: "offer", label: "Offer" },
+  { id: "facility", label: "Facility" },
 ] as const;
-type StaffTab = (typeof STAFF_TABS)[number]['id'];
+type StaffTab = (typeof STAFF_TABS)[number]["id"];
 
 /** A tab panel that stays mounted once its data is fetched, hidden with CSS
  *  rather than unmounted, so switching tabs never re-fetches and the left
  *  rail (which reads state a panel owns, like evidence completeness) stays
  *  accurate no matter which tab is on screen. */
-function Panel({ active, children }: { active: boolean; children: React.ReactNode }) {
-  return <div className={active ? 'space-y-4' : 'hidden'}>{children}</div>;
+function Panel({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return <div className={active ? "space-y-4" : "hidden"}>{children}</div>;
 }
 
 export function LoanDetail() {
@@ -73,8 +90,8 @@ export function LoanDetail() {
   // Bumped when the bank books, disburses or asks for something, so the
   // panels below remount and refetch instead of showing stale state.
   const [accountKey, setAccountKey] = useState(0);
-  const [tab, setTab] = useState<StaffTab>('application');
-  const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null);
+  const [tab, setTab] = useState<StaffTab>("application");
+  const [deciding, setDeciding] = useState<"approve" | "reject" | null>(null);
   const [asking, setAsking] = useState(false);
   const [fieldAsking, setFieldAsking] = useState(false);
   // Officer-observed evidence: site visits and reference checks on this case.
@@ -82,14 +99,16 @@ export function LoanDetail() {
 
   const load = useCallback(() => {
     if (!name) return;
-    call<LoanApplication>('gdb_bank.api.loan_detail', { name })
+    call<LoanApplication>("gdb_bank.api.loan_detail", { name })
       .then(setLoan)
       .catch((err: Error) => setError(err.message));
   }, [name]);
 
   useEffect(load, [load]);
 
-  const staffReader = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  const staffReader = Boolean(
+    user?.is_underwriter || user?.is_finance || user?.is_disbursement,
+  );
   useEffect(() => {
     if (!name || !staffReader) return;
     fo.tasksFor(name)
@@ -97,16 +116,18 @@ export function LoanDetail() {
       .catch(() => setFieldTasks([]));
   }, [name, staffReader, accountKey]);
 
-  if (error && !loan) return <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>;
+  if (error && !loan)
+    return (
+      <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>
+    );
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
-  const reviewable = loan.status === 'Submitted';
-  // A Quick Loan has no underwriter decision and no Letter of Offer: the
-  // Disbursement Officer decides and pays it in one act (QuickDecision).
-  const quick = loan.product === 'quick';
-  const underwriterDecides = Boolean(user?.is_underwriter) && reviewable && !quick;
-  const quickDecides = quick && reviewable && Boolean(user?.is_disbursement);
-  const trade = (key: string) => (loan.sections?.[key] as string | null) || '—';
+  const reviewable = loan.status === "Submitted";
+  // Every loan, Quick Loans included (2026-10-02): the underwriter decides, a
+  // Letter of Offer is signed, and a different officer books and pays.
+  const quick = loan.product === "quick";
+  const underwriterDecides = Boolean(user?.is_underwriter) && reviewable;
+  const trade = (key: string) => (loan.sections?.[key] as string | null) || "—";
   const mine = loan.applicant === user?.user;
   // NOT shared/personas.isStaff, and the difference is deliberate: that one
   // answers "is this a staff account?" for barring the citizen pages, and it
@@ -115,13 +136,23 @@ export function LoanDetail() {
   // every credit and money gate refuses it server-side, so handing it the
   // underwriter's workspace would draw controls that only answer with a
   // permission error.
-  const staff = Boolean(user?.is_underwriter || user?.is_finance || user?.is_disbursement);
+  const staff = Boolean(
+    user?.is_underwriter || user?.is_finance || user?.is_disbursement,
+  );
   // A staff account applying for their own loan reads this the way any
   // citizen does — the dense case workspace below is for deciding SOMEBODY
   // ELSE's case, never a mirror held up to your own.
   const workspace = staff && !mine;
-  const backTo = user?.is_underwriter ? '/review' : user?.is_disbursement ? '/disbursements' : '/apply';
-  const backLabel = user?.is_underwriter ? 'Queue' : user?.is_disbursement ? 'Disbursements' : 'Back';
+  const backTo = user?.is_underwriter
+    ? "/review"
+    : user?.is_disbursement
+      ? "/disbursements"
+      : "/apply";
+  const backLabel = user?.is_underwriter
+    ? "Queue"
+    : user?.is_disbursement
+      ? "Disbursements"
+      : "Back";
 
   const bump = () => setAccountKey((k) => k + 1);
 
@@ -140,7 +171,10 @@ export function LoanDetail() {
 
   return (
     <div>
-      <Link to={backTo} className="text-sm font-medium text-brand hover:underline">
+      <Link
+        to={backTo}
+        className="text-sm font-medium text-brand hover:underline"
+      >
         ← {backLabel}
       </Link>
 
@@ -148,34 +182,40 @@ export function LoanDetail() {
       <div className="mb-5 mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900">{loan.applicant_name}</h1>
+            <h1 className="text-xl font-bold text-slate-900">
+              {loan.applicant_name}
+            </h1>
             <StageBadge stage={loan.stage} />
-            <Badge tone={quick ? 'warning' : 'neutral'}>{quick ? 'Quick Loan' : 'SME Loan'}</Badge>
+            <Badge tone={quick ? "warning" : "neutral"}>
+              {quick ? "Quick Loan" : "SME Loan"}
+            </Badge>
             {loan.cluster && <Badge tone="brand">Cluster {loan.cluster}</Badge>}
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            {[loan.business_name, loan.name].filter(Boolean).join(' · ')}
-            <span className="ml-2 font-mono text-xs">{loan.applicant_eid ?? 'no e-ID on file'}</span>
+            {[loan.business_name, loan.name].filter(Boolean).join(" · ")}
+            <span className="ml-2 font-mono text-xs">
+              {loan.applicant_eid ?? "no e-ID on file"}
+            </span>
           </p>
         </div>
         {user?.is_underwriter && (
           <div className="flex flex-wrap gap-2">
-            {loan.status !== 'Draft' && (
+            {loan.status !== "Draft" && (
               <Button variant="secondary" onClick={() => setAsking(true)}>
                 Request info
               </Button>
             )}
             {reviewable && (
               <Button variant="secondary" onClick={() => setFieldAsking(true)}>
-                Request field work
+                Request field visit
               </Button>
             )}
             {underwriterDecides && (
               <>
-                <Button variant="danger" onClick={() => setDeciding('reject')}>
+                <Button variant="danger" onClick={() => setDeciding("reject")}>
                   Decline
                 </Button>
-                <Button onClick={() => setDeciding('approve')}>Approve</Button>
+                <Button onClick={() => setDeciding("approve")}>Approve</Button>
               </>
             )}
           </div>
@@ -186,50 +226,85 @@ export function LoanDetail() {
         {/* ---------------------------------------------------- LEFT: case at a glance */}
         <div className="space-y-4 lg:sticky lg:top-24">
           <Card>
-            <RailTitle>Case facts</RailTitle>
-            <Row label="Requested" value={`${formatGyd(loan.loan_amount)} · ${loan.term_months} months`} />
+            <RailTitle>Loan facts</RailTitle>
+            <Row
+              label="Requested"
+              value={`${formatGyd(loan.loan_amount)} · ${loan.term_months} months`}
+            />
             {loan.approved_amount != null && (
-              <Row label="Approved (offer)" value={`${formatGyd(loan.approved_amount)} · ${loan.approved_term} months`} />
+              <Row
+                label="Approved (offer)"
+                value={`${formatGyd(loan.approved_amount)} · ${loan.approved_term} months`}
+              />
             )}
             {loan.sanctioned_amount != null && (
               <Row
                 label="Booked in lending"
                 value={
                   loan.booked_on_offer === false ? (
-                    <span className="text-rose-700">{formatGyd(loan.sanctioned_amount)} — not the offer</span>
+                    <span className="text-rose-700">
+                      {formatGyd(loan.sanctioned_amount)} — not the offer
+                    </span>
                   ) : (
                     formatGyd(loan.sanctioned_amount)
                   )
                 }
               />
             )}
-            {loan.disbursed_amount > 0 && <Row label="Disbursed" value={formatGyd(loan.disbursed_amount)} />}
+            {loan.disbursed_amount > 0 && (
+              <Row label="Disbursed" value={formatGyd(loan.disbursed_amount)} />
+            )}
             {loan.monthly_repayment != null && (
-              <Row label="Monthly repayment" value={formatGyd(loan.monthly_repayment)} />
+              <Row
+                label="Monthly repayment"
+                value={formatGyd(loan.monthly_repayment)}
+              />
             )}
             {quick ? (
               <>
-                <Row label="Location" value={trade('trade_location')} />
-                <Row label="In business" value={trade('trading_since')} />
-                <Row label="Terms accepted" value={loan.terms_accepted_on ? formatDate(loan.terms_accepted_on) : '—'} />
+                <Row label="Location" value={trade("trade_location")} />
+                <Row label="In business" value={trade("trading_since")} />
+                <Row
+                  label="Terms accepted"
+                  value={
+                    loan.terms_accepted_on
+                      ? formatDate(loan.terms_accepted_on)
+                      : "—"
+                  }
+                />
               </>
             ) : (
               <>
-                <Row label="Business" value={loan.business_stage || '—'} />
-                <Row label="DCRA" value={loan.dcra_number || '—'} />
-                <Row label="Monthly income" value={loan.monthly_income ? formatGyd(loan.monthly_income) : '—'} />
+                <Row label="Business" value={loan.business_stage || "—"} />
+                <Row label="DCRA" value={loan.dcra_number || "—"} />
+                <Row
+                  label="Monthly income"
+                  value={
+                    loan.monthly_income ? formatGyd(loan.monthly_income) : "—"
+                  }
+                />
               </>
             )}
-            <Row label="Phone" value={loan.phone || '—'} />
+            <Row
+              label="Phone"
+              value={loan.phone ? formatPhone(loan.phone) : "—"}
+            />
             <Row label="Submitted" value={formatDate(loan.creation)} />
-            {loan.assisted_by_name && <Row label="Assisted by" value={loan.assisted_by_name} />}
+            {loan.assisted_by_name && (
+              <Row label="Assisted by" value={loan.assisted_by_name} />
+            )}
             {loan.submitted_by && loan.submitted_by !== loan.applicant && (
-              <Row label="Submitted by" value={loan.submitted_by_name ?? loan.submitted_by} />
+              <Row
+                label="Submitted by"
+                value={loan.submitted_by_name ?? loan.submitted_by}
+              />
             )}
             {loan.purpose && (
               <div className="mt-2 border-t border-slate-100 pt-2">
                 <p className="text-sm text-slate-500">Purpose</p>
-                <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-slate-800">{loan.purpose}</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-slate-800">
+                  {loan.purpose}
+                </p>
               </div>
             )}
           </Card>
@@ -240,8 +315,10 @@ export function LoanDetail() {
                 missing === null ? (
                   <span className="text-xs text-slate-400">Checking…</span>
                 ) : (
-                  <Badge tone={evidenceComplete ? 'success' : 'warning'}>
-                    {evidenceComplete ? 'Complete' : `${missing.length} outstanding`}
+                  <Badge tone={evidenceComplete ? "success" : "warning"}>
+                    {evidenceComplete
+                      ? "Complete"
+                      : `${missing.length} outstanding`}
                   </Badge>
                 )
               }
@@ -251,7 +328,10 @@ export function LoanDetail() {
             {missing && missing.length > 0 && (
               <ul className="space-y-1.5">
                 {missing.map((m) => (
-                  <li key={m} className="flex items-center gap-2 text-sm text-slate-700">
+                  <li
+                    key={m}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
                     <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-700">
                       !
                     </span>
@@ -266,9 +346,20 @@ export function LoanDetail() {
             <Card>
               <RailTitle
                 aside={
-                  <Badge tone={fieldTasks.every((t) => t.status === 'Submitted' || t.status === 'Cancelled') ? 'success' : 'warning'}>
-                    {fieldTasks.filter((t) => t.status === 'Submitted').length} of{' '}
-                    {fieldTasks.filter((t) => t.status !== 'Cancelled').length} reported
+                  <Badge
+                    tone={
+                      fieldTasks.every(
+                        (t) =>
+                          t.status === "Submitted" || t.status === "Cancelled",
+                      )
+                        ? "success"
+                        : "warning"
+                    }
+                  >
+                    {fieldTasks.filter((t) => t.status === "Submitted").length}{" "}
+                    of{" "}
+                    {fieldTasks.filter((t) => t.status !== "Cancelled").length}{" "}
+                    reported
                   </Badge>
                 }
               >
@@ -284,7 +375,9 @@ export function LoanDetail() {
             <Card>
               <RailTitle>Prior decision</RailTitle>
               {loan.underwriter_remarks && (
-                <p className="whitespace-pre-wrap text-sm text-slate-700">{loan.underwriter_remarks}</p>
+                <p className="whitespace-pre-wrap text-sm text-slate-700">
+                  {loan.underwriter_remarks}
+                </p>
               )}
               <p className="mt-2 text-xs text-slate-500">
                 {loan.reviewed_by} · {formatDate(loan.reviewed_on)}
@@ -295,7 +388,10 @@ export function LoanDetail() {
 
         {/* ---------------------------------------------------------- RIGHT: tabs */}
         <div className="min-w-0 space-y-4">
-          <div className="flex flex-wrap gap-1 border-b border-slate-200" role="tablist">
+          <div
+            className="flex flex-wrap gap-1 border-b border-slate-200"
+            role="tablist"
+          >
             {STAFF_TABS.map((t) => (
               <button
                 key={t.id}
@@ -305,38 +401,64 @@ export function LoanDetail() {
                 onClick={() => setTab(t.id)}
                 className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
                   tab === t.id
-                    ? 'border-brand text-brand'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? "border-brand text-brand"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
               >
                 {t.label}
-                {/* The Quick Loan decision lives in the Offer tab; a dot here
-                    tells the officer one is waiting. */}
-                {t.id === 'offer' && quickDecides && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-gdb-gold" aria-label="Decision needed" title="Decision needed" />
-                )}
               </button>
             ))}
           </div>
 
-          <Panel active={tab === 'application'}>
+          <Panel active={tab === "application"}>
             {quick ? (
               <Card>
                 <RailTitle>Business</RailTitle>
-                <Row label="Business name" value={loan.business_name || '—'} />
-                <Row label="Region" value={trade('trade_region')} />
-                <Row label="What the business sells or does" value={trade('trade_activity')} />
-                <Row label="Business location" value={trade('trade_location')} />
-                <Row label="In business" value={trade('trading_since')} />
+                <Row label="Business name" value={loan.business_name || "—"} />
+                <Row label="Region" value={trade("trade_region")} />
+                <Row
+                  label="Moratorium"
+                  value={moratoriumValue(Number(loan.sections?.moratorium_months ?? 0))}
+                />
+                <Row
+                  label="What the business sells or does"
+                  value={trade("trade_activity")}
+                />
+                <Row
+                  label="Business location"
+                  value={trade("trade_location")}
+                />
+                <Row label="In business" value={trade("trading_since")} />
+                <Row
+                  label="Lives in Guyana"
+                  value={
+                    Number(loan.sections?.resides_in_guyana ?? 0) === 1
+                      ? "Yes (declared)"
+                      : "Not declared"
+                  }
+                />
+                {[1, 2].map((n) => (
+                  <Row
+                    key={n}
+                    label={`Supporting contact ${n}`}
+                    value={
+                      loan.sections?.[`support_${n}_name`]
+                        ? `${trade(`support_${n}_name`)} · ${trade(`support_${n}_relationship`)} · ${formatPhone(trade(`support_${n}_phone`))}`
+                        : "—"
+                    }
+                  />
+                ))}
               </Card>
             ) : (
               <ApplicationTab loan={loan} />
             )}
           </Panel>
 
-          <Panel active={tab === 'checks'}>
+          <Panel active={tab === "checks"}>
             <ApplicantProfile user={loan.applicant} />
-            {loan.cluster && name && <ClusterMembers cluster={loan.cluster} application={name} />}
+            {loan.cluster && name && (
+              <ClusterMembers cluster={loan.cluster} application={name} />
+            )}
             {name && (
               <DocumentShelf
                 key={`docs-${accountKey}`}
@@ -345,17 +467,27 @@ export function LoanDetail() {
                 title="Documents"
               />
             )}
-            {name && loan.status !== 'Draft' && (
-              <InformationRequests key={`req-${accountKey}`} application={name} onChange={bump} />
+            {name && loan.status !== "Draft" && (
+              <InformationRequests
+                key={`req-${accountKey}`}
+                application={name}
+                onChange={bump}
+              />
             )}
-            {loan.status !== 'Draft' && (
+            {loan.status !== "Draft" && (
               <FieldReports
                 tasks={fieldTasks}
                 onCancel={
                   user?.is_underwriter
                     ? (t) => {
-                        const reason = window.prompt(`Cancel the ${t.kind.toLowerCase()}? Reason:`);
-                        if (reason?.trim()) void fo.cancelTask(t.name, reason).then(bump).catch((err: Error) => setError(err.message));
+                        const reason = window.prompt(
+                          `Cancel the ${t.kind.toLowerCase()}? Reason:`,
+                        );
+                        if (reason?.trim())
+                          void fo
+                            .cancelTask(t.name, reason)
+                            .then(bump)
+                            .catch((err: Error) => setError(err.message));
                       }
                     : undefined
                 }
@@ -363,31 +495,54 @@ export function LoanDetail() {
             )}
           </Panel>
 
-          <Panel active={tab === 'offer'}>
-            {quickDecides && <QuickDecision loan={loan} onDecided={load} />}
-
-            {quick ? null : loan.status === 'Approved' && name ? (
+          <Panel active={tab === "offer"}>
+            {loan.status === "Approved" && name ? (
               <>
-                {user?.is_underwriter && <IssueOffer application={name} onIssued={bump} />}
-                <OfferPanel key={`offer-${accountKey}`} application={name} onExecuted={bump} />
-                <Conditions key={`cp-${accountKey}`} application={name} onChange={bump} />
+                {user?.is_underwriter && (
+                  <IssueOffer
+                    application={name}
+                    onIssued={bump}
+                    defaultAmount={loan.loan_amount}
+                    defaultTerm={loan.term_months}
+                  />
+                )}
+                <OfferPanel
+                  key={`offer-${accountKey}`}
+                  application={name}
+                  onExecuted={bump}
+                />
+                <Conditions
+                  key={`cp-${accountKey}`}
+                  application={name}
+                  onChange={bump}
+                />
               </>
             ) : (
               <Card>
-                <p className="text-sm text-slate-500">Available once the case is approved.</p>
+                <p className="text-sm text-slate-500">
+                  Available once the case is approved.
+                </p>
               </Card>
             )}
           </Panel>
 
-          <Panel active={tab === 'facility'}>
-            {loan.status === 'Approved' && name ? (
+          <Panel active={tab === "facility"}>
+            {loan.status === "Approved" && name ? (
               <>
                 <Disbursement application={name} onChange={bump} />
-                {canSeeFacility && <LoanAccount key={accountKey} application={name} canPay={false} />}
+                {canSeeFacility && (
+                  <LoanAccount
+                    key={accountKey}
+                    application={name}
+                    canPay={false}
+                  />
+                )}
               </>
             ) : (
               <Card>
-                <p className="text-sm text-slate-500">Booking and release open once the case is approved.</p>
+                <p className="text-sm text-slate-500">
+                  Booking and release open once the case is approved.
+                </p>
               </Card>
             )}
           </Panel>
@@ -402,11 +557,16 @@ export function LoanDetail() {
           setLoan(updated);
           setDeciding(null);
           // An approval is followed by the Letter of Offer — take them there.
-          if (updated.status === 'Approved') setTab('offer');
+          if (updated.status === "Approved") setTab("offer");
         }}
       />
       {name && (
-        <FieldTaskDrawer application={name} open={fieldAsking} onClose={() => setFieldAsking(false)} onSent={bump} />
+        <FieldTaskDrawer
+          application={name}
+          open={fieldAsking}
+          onClose={() => setFieldAsking(false)}
+          onSent={bump}
+        />
       )}
       {name && (
         <RequestInfoDrawer

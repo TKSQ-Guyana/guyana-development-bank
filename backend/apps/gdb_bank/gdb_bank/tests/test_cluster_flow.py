@@ -357,3 +357,79 @@ class TestClusterFlow(IntegrationTestCase):
 			documents.new_document(document_type="Financials", application=application)
 		with self.set_user(OUTSIDER), self.assertRaises(frappe.PermissionError):
 			documents.list_documents(application=application)
+
+	def test_a_moratorium_runs_from_the_offer_to_the_agreement_and_the_loan(self):
+		import io
+		import re
+		import zipfile
+
+		self.join(MEMBER)
+		application = self.group_application()
+		self.submit(application)
+		with self.set_user(UNDERWRITER):
+			api.review_loan(name=application, action="approve")
+			# A moratorium GDB does not offer is refused at issue.
+			with self.assertRaises(frappe.ValidationError):
+				offers.issue_offer(application=application, moratorium_months=5)
+			offer = offers.issue_offer(application=application, moratorium_months=3)["name"]
+
+		row = frappe.db.get_value("GDB Loan Offer", offer, ["moratorium_months", "agreement_text"], as_dict=True)
+		self.assertEqual(row.moratorium_months, 3)
+		self.assertIn("Moratorium    : 3 months after disbursement", row.agreement_text)
+		self.assertIn("first falls due in month 4", row.agreement_text)
+
+		with self.set_user(HEAD):
+			offers.agreement_docx(name=offer)
+		xml = zipfile.ZipFile(io.BytesIO(frappe.local.response.filecontent)).read("word/document.xml").decode()
+		text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+		self.assertIn("A moratorium of 3 months applies", text)
+		self.assertIn("the 4th month after disbursement", text)
+
+		self.sign(offer)
+		with self.set_user(DISBURSER):
+			api.book_loan(application=application)
+		loan = frappe.db.get_value("Loan", {"loan_application": application, "docstatus": 1})
+
+		# lending's schedule: the first instalment three months on from where it
+		# would otherwise fall, then all 12 of the term, equal.
+		from frappe.utils import add_months, getdate, nowdate
+
+		from gdb_bank.services.disbursement import release_funds
+
+		with self.set_user("Administrator"):
+			release_funds(frappe.get_doc("Loan", loan), 500000, DISBURSER)
+		schedule = frappe.get_all("Loan Repayment Schedule", {"loan": loan, "docstatus": 1}, pluck="name")
+		rows = frappe.get_all(
+			"Repayment Schedule",
+			{"parent": schedule[0]},
+			["payment_date", "total_payment"],
+			order_by="payment_date asc",
+		)
+		due = [r for r in rows if r.total_payment > 0]
+		# Twelve instalments. lending may add one empty "broken period" row ahead
+		# of them, for the gap before the first one; it has nothing due.
+		self.assertEqual(len(due), 12)
+		self.assertLessEqual(len(rows) - len(due), 1)
+		self.assertEqual(sum(r.total_payment for r in due), 500000)
+		# Due one month after release plus the three-month moratorium.
+		self.assertEqual(getdate(due[0].payment_date), getdate(add_months(nowdate(), 4)))
+
+
+	def test_an_issued_offer_downloads_as_the_gdb_loan_agreement(self):
+		import io
+		import re
+		import zipfile
+
+		_, offer = self.offered_group_application()
+		row = frappe.db.get_value("GDB Loan Offer", offer, ["applicant_name", "term_months"], as_dict=True)
+		with self.set_user(HEAD):
+			offers.agreement_docx(name=offer)
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertTrue(frappe.local.response.filename.endswith(".docx"))
+		xml = zipfile.ZipFile(io.BytesIO(frappe.local.response.filecontent)).read("word/document.xml").decode()
+		text = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+		self.assertNotIn("{{", xml)
+		self.assertIn(f"Repayable in {row.term_months} months", text)
+		self.assertIn(row.applicant_name.upper(), text)
+		with self.set_user(OUTSIDER), self.assertRaises(frappe.PermissionError):
+			offers.agreement_docx(name=offer)

@@ -65,9 +65,27 @@ QUICK_CEILING_KEY = "gdb_quick_loan_ceiling"
 QUICK_CEILING_ENV = "GDB_QUICK_LOAN_CEILING"
 DEFAULT_QUICK_CEILING = 300000.0
 
-QUICK_TERM_KEY = "gdb_quick_loan_max_term_months"
-QUICK_TERM_ENV = "GDB_QUICK_LOAN_MAX_TERM_MONTHS"
-DEFAULT_QUICK_TERM = 12
+# The SME Direct Loan — the standard product — is announced at up to G$3M a
+# loan (the public site's Terms). Read and refused exactly like the Quick
+# Loan's ceiling.
+SME_CEILING_KEY = "gdb_sme_loan_ceiling"
+SME_CEILING_ENV = "GDB_SME_LOAN_CEILING"
+DEFAULT_SME_CEILING = 3000000.0
+
+# A Quick Loan is repaid over one of a fixed set of terms, not any number of
+# months: comma-separated months in configuration ("6,12,18,24").
+SME_TERMS_KEY = "gdb_sme_loan_terms"
+SME_TERMS_ENV = "GDB_SME_LOAN_TERMS"
+DEFAULT_SME_TERMS = (6, 12, 18, 24)
+# How long a borrower may ask to wait before the first repayment, in months —
+# one of these, always (GDB, 2026-10-02): the first instalment then falls this
+# many months after the usual one, a month after disbursement.
+MORATORIUM_KEY = "gdb_moratorium_months"
+MORATORIUM_ENV = "GDB_MORATORIUM_MONTHS"
+DEFAULT_MORATORIUM_OPTIONS = (1, 2, 3)
+QUICK_TERMS_KEY = "gdb_quick_loan_terms"
+QUICK_TERMS_ENV = "GDB_QUICK_LOAN_TERMS"
+DEFAULT_QUICK_TERMS = (6, 12, 18, 24)
 # Lending's own bound on a term; anything longer is a typo, not a policy.
 MAX_TERM = 360
 
@@ -140,12 +158,66 @@ def quick_loan_ceiling() -> float:
 	return amount
 
 
+def sme_loan_ceiling() -> float:
+	"""The most one SME Direct Loan may be for. Held on the standard Loan
+	Product as lending's own maximum_loan_amount, so lending refuses a larger
+	application itself — and offers.issue_offer caps an offer at it."""
+	value, source = _configured(SME_CEILING_KEY, SME_CEILING_ENV)
+	if not value:
+		return DEFAULT_SME_CEILING
+	try:
+		amount = float(value)
+	except (TypeError, ValueError):
+		amount = 0.0
+	if amount <= 0:
+		_refused(SME_CEILING_KEY, source, value, DEFAULT_SME_CEILING)
+		return DEFAULT_SME_CEILING
+	return amount
+
+
+def quick_loan_terms() -> list[int]:
+	"""The terms, in months, a Quick Loan may be repaid over — ascending. A
+	list where any entry is not a whole number of months GDB may lend for is
+	refused as a whole, so a typo never quietly drops or adds one term."""
+	value, source = _configured(QUICK_TERMS_KEY, QUICK_TERMS_ENV)
+	if not value:
+		return list(DEFAULT_QUICK_TERMS)
+	parts = [p.strip() for p in value.split(",")]
+	if not all(p.isdigit() and 1 <= int(p) <= MAX_TERM for p in parts):
+		_refused(QUICK_TERMS_KEY, source, value, list(DEFAULT_QUICK_TERMS))
+		return list(DEFAULT_QUICK_TERMS)
+	return sorted({int(p) for p in parts})
+
+
+def _month_list(key: str, env: str, default: tuple, minimum: int = 1) -> list[int]:
+	"""A configured list of whole months, ascending; the default when unset, and
+	refused as a whole when any entry is not a number of months GDB may use."""
+	value, source = _configured(key, env)
+	if not value:
+		return list(default)
+	parts = [p.strip() for p in value.split(",")]
+	if not all(p.isdigit() and minimum <= int(p) <= MAX_TERM for p in parts):
+		_refused(key, source, value, list(default))
+		return list(default)
+	return sorted({int(p) for p in parts})
+
+
+def sme_loan_terms() -> list[int]:
+	"""The terms, in months, an SME Direct Loan may be repaid over — ascending."""
+	return _month_list(SME_TERMS_KEY, SME_TERMS_ENV, DEFAULT_SME_TERMS)
+
+
+def moratorium_options() -> list[int]:
+	"""The repayment holidays, in months, a borrower may choose from."""
+	return _month_list(MORATORIUM_KEY, MORATORIUM_ENV, DEFAULT_MORATORIUM_OPTIONS)
+
+
+def months_phrase(allowed: list[int]) -> str:
+	"""6, 12, 18 or 24 — the list as a sentence says it."""
+	words = [str(t) for t in allowed]
+	return ", ".join(words[:-1]) + " or " + words[-1] if len(words) > 1 else words[0]
+
+
 def quick_loan_max_term() -> int:
 	"""The longest term, in months, a Quick Loan may be asked for."""
-	value, source = _configured(QUICK_TERM_KEY, QUICK_TERM_ENV)
-	if not value:
-		return DEFAULT_QUICK_TERM
-	if not value.isdigit() or not (1 <= int(value) <= MAX_TERM):
-		_refused(QUICK_TERM_KEY, source, value, DEFAULT_QUICK_TERM)
-		return DEFAULT_QUICK_TERM
-	return int(value)
+	return max(quick_loan_terms())

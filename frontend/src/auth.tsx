@@ -36,6 +36,9 @@ interface AuthState {
   loginAsStaff: (email: string, password: string) => Promise<StaffSignIn>;
   /** GDB staff, first sign-in: replace the one-time password, then sign in. */
   setStaffPassword: (email: string, oneTimePassword: string, newPassword: string) => Promise<Whoami | null>;
+  /** Re-read who is signed in — after a door that sets the session itself
+   *  (TIN sign-up and TIN sign-in, which finish with a one-time code). */
+  refresh: () => Promise<Whoami | null>;
   logout: () => Promise<void>;
 }
 
@@ -151,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginWithEid, loginAsStaff, setStaffPassword, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithEid, loginAsStaff, setStaffPassword, refresh, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -33,6 +33,10 @@ def whoami(user: str) -> dict:
 		# portal shows it back so an applicant can see which identity the
 		# application will be filed under before they submit it.
 		"eid": frappe.db.get_value("User", user, "gdb_eid"),
+		# The TIN, for a citizen who signed up with one (tin_auth.py) — shown in
+		# place of the e-ID, and in place of the placeholder email such an
+		# account carries when they gave none.
+		"tin": frappe.db.get_value("User", user, "gdb_tin"),
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
 		# Separate capability, separate flag. The SPA gates the money pages on

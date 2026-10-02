@@ -51,7 +51,23 @@ TRADER = "test-gdb-trader@example.gy"
 TRADER_EID = "592-9100-0001"
 
 # What a market vendor tells the Quick Loan form about their trade.
-TRADE = {"trade_activity": "Sell vegetables", "trade_location": "Fixed location", "trading_since": "1 to 3 years", "trade_region": "Region 4"}
+TRADE = {
+	"trade_activity": "Sell vegetables",
+	"trade_location": "Fixed location",
+	"trading_since": "1 to 3 years",
+	"trade_region": "Region 4",
+	"support_1_name": "Asha Persaud",
+	"support_1_relationship": "Neighbour",
+	"support_1_phone": "+592 600 1111",
+	"support_2_name": "Devon Baksh",
+	"support_2_relationship": "Supplier",
+	"support_2_phone": "600 2222",
+	"resides_in_guyana": 1,
+	"trade_latitude": 6.8013,
+	"trade_longitude": -58.1551,
+	"trade_address": "Stabroek Market, Georgetown",
+	"moratorium_months": 1,
+}
 
 
 def _user(email: str, *roles: str, eid: str | None = None) -> None:
@@ -85,8 +101,8 @@ def ceiling(**layers):
 	return configured(policy.QUICK_CEILING_KEY, policy.QUICK_CEILING_ENV, **layers)
 
 
-def longest_term(**layers):
-	return configured(policy.QUICK_TERM_KEY, policy.QUICK_TERM_ENV, **layers)
+def term_list(**layers):
+	return configured(policy.QUICK_TERMS_KEY, policy.QUICK_TERMS_ENV, **layers)
 
 
 class TestQuickLoanPolicy(IntegrationTestCase):
@@ -107,18 +123,20 @@ class TestQuickLoanPolicy(IntegrationTestCase):
 			with ceiling(site_config=bad):
 				self.assertEqual(policy.quick_loan_ceiling(), 300000.0, bad)
 
-	def test_the_longest_term_defaults_to_twelve_months(self):
-		with longest_term():
+	def test_the_terms_default_to_six_twelve_eighteen_and_twenty_four_months(self):
+		with term_list():
+			self.assertEqual(policy.quick_loan_terms(), [6, 12, 18, 24])
+			self.assertEqual(policy.quick_loan_max_term(), 24)
+
+	def test_configured_terms_are_used_in_ascending_order(self):
+		with term_list(site_config="12, 3,9"):
+			self.assertEqual(policy.quick_loan_terms(), [3, 9, 12])
 			self.assertEqual(policy.quick_loan_max_term(), 12)
 
-	def test_a_configured_longest_term_is_used(self):
-		with longest_term(site_config="9"):
-			self.assertEqual(policy.quick_loan_max_term(), 9)
-
-	def test_a_longest_term_that_is_not_a_whole_number_of_months_is_refused(self):
-		for bad in ("a year", "0", "6.5", "400"):
-			with longest_term(site_config=bad):
-				self.assertEqual(policy.quick_loan_max_term(), 12, bad)
+	def test_a_term_list_with_any_entry_that_is_not_a_whole_number_of_months_is_refused(self):
+		for bad in ("a year", "0", "6.5", "6,400", "6,,12"):
+			with term_list(site_config=bad):
+				self.assertEqual(policy.quick_loan_terms(), [6, 12, 18, 24], bad)
 
 
 class RolledBack(IntegrationTestCase):
@@ -161,12 +179,14 @@ class TestQuickLoanProduct(RolledBack):
 			install.ensure_product_terms()
 		self.assertEqual(quick_product("maximum_loan_amount").maximum_loan_amount, 200000)
 
-	def test_the_standard_product_stays_uncapped(self):
+	def test_the_standard_product_carries_the_sme_ceiling_not_the_quick_loans(self):
 		install.ensure_quick_loan_product()
 		with ceiling(site_config="200000"):
 			install.ensure_product_terms()
 		standard = frappe.db.get_value("Loan Product", {"product_name": install.LOAN_PRODUCT_NAME})
-		self.assertEqual(frappe.db.get_value("Loan Product", standard, "maximum_loan_amount"), 0)
+		self.assertEqual(
+			frappe.db.get_value("Loan Product", standard, "maximum_loan_amount"), policy.sme_loan_ceiling()
+		)
 
 	def test_a_quick_loan_posts_to_the_same_ledger_accounts_as_the_standard_loan(self):
 		install.ensure_quick_loan_product()
@@ -207,6 +227,7 @@ class TestQuickLoanTerms(QuickLoanCase):
 			terms = api.quick_loan_terms()
 		self.assertEqual(terms["ceiling"], policy.quick_loan_ceiling())
 		self.assertEqual(terms["max_term"], policy.quick_loan_max_term())
+		self.assertEqual(terms["term_options"], policy.quick_loan_terms())
 		self.assertEqual(terms["rate_of_interest"], policy.rate_of_interest())
 		self.assertEqual(terms["trade_locations"], list(install.QUICK_TRADE_LOCATIONS))
 		self.assertEqual(terms["trading_since"], list(install.QUICK_TRADING_SINCE))
@@ -264,6 +285,56 @@ class TestSavingAQuickLoan(QuickLoanCase):
 		with self.assertRaises(frappe.ValidationError):
 			self.save(term_months=policy.quick_loan_max_term() + 1)
 
+	def test_a_term_between_the_allowed_terms_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self.save(term_months=10)
+
+	def test_every_allowed_term_is_accepted(self):
+		for term in policy.quick_loan_terms():
+			self.assertEqual(self.save(term_months=term)["term_months"], term)
+
+	def test_the_applicant_must_declare_they_live_in_guyana(self):
+		with self.assertRaises(frappe.ValidationError):
+			self.save(sections={**TRADE, "resides_in_guyana": 0})
+
+	def test_both_supporting_contacts_are_required(self):
+		for key in ("support_1_name", "support_1_relationship", "support_2_phone"):
+			with self.assertRaises(frappe.ValidationError, msg=key):
+				self.save(sections={**TRADE, key: ""})
+
+	def test_a_supporting_contact_number_that_is_not_a_guyana_number_is_refused(self):
+		for bad in ("call my cousin", "12345", "9876543210", "+1 212 555 0100"):
+			with self.assertRaises(frappe.ValidationError, msg=bad):
+				self.save(sections={**TRADE, "support_1_phone": bad})
+
+	def test_a_supporting_contact_number_is_held_with_592(self):
+		for typed in ("123 4567", "5921234567", "+592 123 4567"):
+			saved = self.save(sections={**TRADE, "support_1_phone": typed})
+			self.assertEqual(frappe.db.get_value("Loan Application", saved["name"], "gdb_support_1_phone"), "+5921234567", typed)
+
+	def test_the_business_must_be_pinned_in_guyana(self):
+		with self.assertRaises(frappe.ValidationError):
+			self.save(sections={**TRADE, "trade_latitude": 0, "trade_longitude": 0})
+		with self.assertRaises(frappe.ValidationError):
+			self.save(sections={**TRADE, "trade_latitude": 40.7, "trade_longitude": -74.0})
+		saved = self.save()
+		row = frappe.db.get_value("Loan Application", saved["name"], ["gdb_trade_latitude", "gdb_trade_address"], as_dict=True)
+		self.assertAlmostEqual(row.gdb_trade_latitude, 6.8013, places=4)
+		self.assertEqual(row.gdb_trade_address, "Stabroek Market, Georgetown")
+
+	def test_supporting_contacts_and_residency_are_kept_on_the_application(self):
+		saved = self.save()
+		row = frappe.db.get_value(
+			"Loan Application",
+			saved["name"],
+			["gdb_support_1_name", "gdb_support_2_relationship", "gdb_support_1_phone", "gdb_resides_in_guyana"],
+			as_dict=True,
+		)
+		self.assertEqual(row.gdb_support_1_name, "Asha Persaud")
+		self.assertEqual(row.gdb_support_2_relationship, "Supplier")
+		self.assertTrue(row.gdb_support_1_phone.startswith("+592"))
+		self.assertEqual(row.gdb_resides_in_guyana, 1)
+
 	def test_a_quick_loan_cannot_be_filed_for_a_group(self):
 		with self.assertRaises(frappe.ValidationError):
 			self.save(cluster="Any Group")
@@ -317,8 +388,8 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		self.assertEqual(case["status"], "Submitted")
 		self.assertEqual(case["applicant_eid"], TRADER_EID)
 
-	def test_the_bank_expects_identity_and_a_photo_of_the_trade_not_accounts(self):
-		self.assertEqual(self.in_queue(self.submitted())["evidence_missing"], ["Identity", "Trading Photo"])
+	def test_the_bank_expects_identity_and_photos_of_the_business_not_accounts(self):
+		self.assertEqual(self.in_queue(self.submitted())["evidence_missing"], ["Identity", "Business Photo"])
 
 
 class TestTradingEvidence(QuickLoanCase):
@@ -380,10 +451,10 @@ FINANCE = "test-gdb-quick-finance@example.gy"
 REASON = "Stall seen at Bourda Market; trading two years."
 
 
-class TestDecidingAndPayingAQuickLoan(QuickLoanCase):
-	"""GDB's exception, taken 2026-09-30: a Quick Loan is decided AND paid by one
-	Disbursement Officer — no underwriter, no Letter of Offer. These tests are the
-	controls that stand in for the four eyes it gives up."""
+class TestAQuickLoansRoadToPayment(QuickLoanCase):
+	"""Since 2026-10-02 a Quick Loan goes the road every GDB loan goes: the
+	underwriter decides, a Letter of Offer is issued and signed, and a DIFFERENT
+	officer books and pays. The one-step approve-and-pay is retired."""
 
 	def setUp(self):
 		super().setUp()
@@ -393,7 +464,7 @@ class TestDecidingAndPayingAQuickLoan(QuickLoanCase):
 
 	def payout_account(self, user: str, status: str = "Verified"):
 		with self.set_user(user):
-			api.save_bank_details(bank="Citizens Bank Guyana", bank_account_no="0009111122223333")
+			api.save_bank_details(bank="Citizen Bank", bank_account_no="0009111122223333")
 		customer = frappe.db.get_value("Customer", {"gdb_user": user})
 		account = frappe.db.get_value("Bank Account", {"party_type": "Customer", "party": customer})
 		frappe.db.set_value("Bank Account", account, "gdb_verification_status", status)
@@ -412,9 +483,32 @@ class TestDecidingAndPayingAQuickLoan(QuickLoanCase):
 			api.submit_application(name=name, accept_terms=1, credit_check_consent=1)
 		return name
 
-	def decide(self, name: str, action: str = "approve", remarks: str = REASON, user: str = DISBURSER):
-		with self.set_user(user):
-			return api.decide_quick_loan(application=name, action=action, remarks=remarks)
+	def approved(self) -> str:
+		name = self.submitted()
+		with self.set_user(UNDERWRITER):
+			api.review_loan(name=name, action="approve", remarks=REASON)
+		return name
+
+	def offered(self) -> tuple[str, str]:
+		from gdb_bank import offers
+
+		name = self.approved()
+		with self.set_user(UNDERWRITER):
+			offer = offers.issue_offer(application=name)["name"]
+		return name, offer
+
+	def signed(self) -> tuple[str, str]:
+		from gdb_bank import conditions, offers
+
+		name, offer = self.offered()
+		with self.set_user(TRADER):
+			offers.accept_offer(
+				name=offer, accepted_name=frappe.db.get_value("GDB Loan Offer", offer, "applicant_name")
+			)
+		with self.set_user(UNDERWRITER):
+			for row in conditions.list_conditions(application=name)["conditions"]:
+				conditions.verify_condition(name=row["name"], status="Met")
+		return name, offer
 
 	def loan(self, application: str):
 		return frappe.db.get_value(
@@ -424,114 +518,71 @@ class TestDecidingAndPayingAQuickLoan(QuickLoanCase):
 			as_dict=True,
 		)
 
-	# -- the one step ----------------------------------------------------------
+	def test_the_underwriter_approves_and_nothing_is_paid_on_approval(self):
+		name = self.approved()
+		decided = frappe.db.get_value("Loan Application", name, ["status", "gdb_reviewed_by"], as_dict=True)
+		self.assertEqual(decided.status, "Approved")
+		self.assertEqual(decided.gdb_reviewed_by, UNDERWRITER)
+		self.assertIsNone(self.loan(name))
 
-	def test_one_officer_approves_and_pays_a_quick_loan_in_one_step(self):
-		name = self.submitted()
-		self.decide(name)
+	def test_its_letter_of_offer_asks_nothing_an_informal_trader_cannot_meet(self):
+		name, offer = self.offered()
+		row = frappe.db.get_value("GDB Loan Offer", offer, ["conditions", "term_months", "agreement_text"], as_dict=True)
+		self.assertEqual(row.term_months, 6)
+		self.assertNotIn("Registr", row.conditions)
+		self.assertIn("Proof of identity", row.conditions)
+		self.assertIn("LETTER OF OFFER", row.agreement_text)
+		with self.set_user(TRADER):
+			self.assertEqual(api.loan_detail(name=name)["stage"], "Signing")
+
+	def test_nothing_is_booked_before_the_borrower_signs(self):
+		name, _offer = self.offered()
+		with self.set_user(DISBURSER), self.assertRaises(frappe.ValidationError):
+			api.book_loan(application=name)
+
+	def test_once_signed_a_disbursement_officer_books_and_pays(self):
+		name, _offer = self.signed()
+		with self.set_user(DISBURSER):
+			api.book_loan(application=name)
+			api.disburse_loan(application=name)
 		loan = self.loan(name)
 		self.assertEqual(loan.disbursed_amount, 150000)
 		self.assertEqual(loan.repayment_periods, 6)
-		self.assertEqual(loan.status, "Disbursed")
-		self.assertEqual(frappe.db.get_value("Loan Application", name, "status"), "Approved")
-
-	def test_the_decision_and_the_release_both_name_the_officer_and_the_reason(self):
-		name = self.submitted()
-		self.decide(name)
-		decided = frappe.db.get_value(
-			"Loan Application", name, ["gdb_reviewed_by", "gdb_remarks"], as_dict=True
-		)
-		self.assertEqual(decided.gdb_reviewed_by, DISBURSER)
-		self.assertEqual(decided.gdb_remarks, REASON)
-		released_by = frappe.db.get_value(
-			"Loan Disbursement", {"against_loan": self.loan(name).name}, "gdb_disbursed_by"
-		)
+		released_by = frappe.db.get_value("Loan Disbursement", {"against_loan": loan.name}, "gdb_disbursed_by")
 		self.assertEqual(released_by, DISBURSER)
+		# The first instalment: a month after release, plus the one-month
+		# moratorium the trader chose — never the end of the release month.
+		from frappe.utils import add_months, getdate, nowdate
 
-	def test_asking_twice_pays_once(self):
-		name = self.submitted()
-		self.decide(name)
-		with self.assertRaises(frappe.ValidationError):
-			self.decide(name)
-		self.assertEqual(frappe.db.count("Loan Disbursement", {"against_loan": self.loan(name).name}), 1)
+		schedule = frappe.get_all("Loan Repayment Schedule", {"loan": loan.name, "docstatus": 1}, pluck="name")
+		due = frappe.get_all(
+			"Repayment Schedule",
+			{"parent": schedule[0], "total_payment": [">", 0]},
+			pluck="payment_date",
+			order_by="payment_date asc",
+		)
+		self.assertEqual(len(due), 6)
+		self.assertEqual(getdate(due[0]), getdate(add_months(nowdate(), 2)))
 
-	def test_a_decline_books_nothing_and_pays_nothing(self):
+	def test_the_underwriter_cannot_pay_it(self):
+		name, _offer = self.signed()
+		with self.set_user(UNDERWRITER), self.assertRaises(frappe.PermissionError):
+			api.book_loan(application=name)
+
+	def test_the_one_step_approve_and_pay_is_retired(self):
 		name = self.submitted()
-		self.decide(name, action="decline")
-		self.assertEqual(frappe.db.get_value("Loan Application", name, "status"), "Rejected")
+		for user in (UNDERWRITER, DISBURSER):
+			with self.set_user(user), self.assertRaises(frappe.ValidationError):
+				api.decide_quick_loan(application=name, action="approve", remarks=REASON)
 		self.assertIsNone(self.loan(name))
+		self.assertEqual(frappe.db.get_value("Loan Application", name, "status"), "Open")
 
-	# -- what stands in for the second pair of eyes ----------------------------
-
-	def test_a_decision_needs_a_reason(self):
-		name = self.submitted()
-		for blank in ("", "   "):
-			with self.assertRaises(frappe.ValidationError):
-				self.decide(name, remarks=blank)
-
-	def test_an_officer_can_never_pay_their_own_quick_loan(self):
-		self.payout_account(DISBURSER)
-		name = self.submitted(user=DISBURSER)
-		with self.assertRaises(frappe.PermissionError):
-			self.decide(name)
-		self.assertIsNone(self.loan(name))
-
-	def test_an_underwriter_may_also_decide_and_pay_a_quick_loan(self):
-		self.payout_account(TRADER)
-		name = self.submitted()
-		self.decide(name, user=UNDERWRITER)
-		self.assertEqual(self.loan(name).disbursed_amount, 150000)
-		self.assertEqual(frappe.db.get_value("Loan Application", name, "gdb_reviewed_by"), UNDERWRITER)
-
-	def test_only_an_underwriter_or_disbursement_officer_may_decide_a_quick_loan(self):
-		_user(FINANCE, "Finance Officer")
-		name = self.submitted()
-		for user in (TRADER, FINANCE):
-			with self.assertRaises(frappe.PermissionError, msg=user):
-				self.decide(name, user=user)
-
-	def test_the_underwriters_review_is_not_a_door_to_a_quick_loan(self):
-		name = self.submitted()
-		with self.set_user(UNDERWRITER), self.assertRaises(frappe.ValidationError):
-			api.review_loan(name=name, action="approve")
-
-	def test_a_quick_loan_has_no_letter_of_offer(self):
-		from gdb_bank import offers
-
-		name = self.submitted()
-		frappe.get_doc("Loan Application", name).db_set("status", "Approved")
-		with self.set_user(UNDERWRITER), self.assertRaises(frappe.ValidationError):
-			offers.issue_offer(application=name)
-
-	def test_a_standard_loan_cannot_be_paid_this_way(self):
-		with self.set_user(TRADER):
-			name = api.save_application(loan_amount=500000, purpose="New oven", term_months=12)["name"]
-			api.submit_application(name=name)
-		with self.assertRaises(frappe.ValidationError):
-			self.decide(name)
-
-	def test_an_account_the_bank_could_not_verify_does_not_stop_payment(self):
-		# GDB's decision, 2026-09-30: the check is recorded on the account, not a gate.
-		self.payout_account(TRADER, status="Not Found")
-		name = self.submitted()
-		self.decide(name)
-		self.assertEqual(self.loan(name).disbursed_amount, 150000)
-
-	def test_nothing_is_paid_without_an_account_on_file(self):
-		name = self.submitted()
-		customer = frappe.db.get_value("Customer", {"gdb_user": TRADER})
-		frappe.db.delete("Bank Account", {"party_type": "Customer", "party": customer})
-		with self.assertRaises(frappe.ValidationError):
-			self.decide(name)
-		self.assertIsNone(self.loan(name))
-
-	def test_the_ceiling_is_checked_again_at_the_moment_of_payment(self):
-		name = self.submitted()
-		product = frappe.db.get_value("Loan Application", name, "loan_product")
-		frappe.db.set_value("Loan Product", product, "maximum_loan_amount", 100000)
-		with self.assertRaises(frappe.ValidationError):
-			self.decide(name)
-		self.assertIsNone(self.loan(name))
+	def test_an_officer_can_never_decide_their_own_quick_loan(self):
+		_user(f"x-{UNDERWRITER}", "Loan Underwriter", "Citizen")
+		self.payout_account(f"x-{UNDERWRITER}")
+		name = self.submitted(user=f"x-{UNDERWRITER}")
+		with self.set_user(f"x-{UNDERWRITER}"), self.assertRaises(frappe.PermissionError):
+			api.review_loan(name=name, action="approve", remarks=REASON)
 
 	# -- the borrower's side of the bargain ------------------------------------
 
@@ -563,9 +614,21 @@ class TestTheApplicantsOwnDetails(QuickLoanCase):
 	def test_the_account_holder_name_is_recorded_as_given(self):
 		with self.set_user(TRADER):
 			saved = api.save_bank_details(
-				bank="Citizens Bank Guyana", bank_account_no="0009111122223333", account_name="Stall Co"
+				bank="Citizen Bank", bank_account_no="0009111122223333", account_name="Stall Co"
 			)
 		self.assertEqual(saved["account_name"], "Stall Co")
+
+	def test_the_account_type_is_recorded_when_given(self):
+		install.ensure_bank_account_types()
+		with self.set_user(TRADER):
+			saved = api.save_bank_details(
+				bank="Citizen Bank", bank_account_no="0009111122223333", account_type="Savings"
+			)
+		self.assertEqual(saved["account_type"], "Savings")
+
+	def test_an_account_type_other_than_checking_or_savings_is_refused(self):
+		with self.set_user(TRADER), self.assertRaises(frappe.ValidationError):
+			api.save_bank_details(bank="Citizen Bank", bank_account_no="0009111122223333", account_type="Credit")
 
 
 OTHER = "test-gdb-quick-other@example.gy"

@@ -48,6 +48,8 @@ DECLARED_FIELDS = (
 	"region",
 	"village_or_town",
 	"address",
+	"address_zone",
+	"address_code",
 	"next_of_kin",
 	"next_of_kin_phone",
 )

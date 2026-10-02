@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { roleLabel } from '../../shared/personas';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -122,7 +123,7 @@ export function UsersPage() {
                   kind === 'staff' ? (
                     <span className="flex flex-wrap gap-1">
                       {u.roles.length ? (
-                        u.roles.map((r) => <Badge key={r}>{r}</Badge>)
+                        u.roles.map((r) => <Badge key={r}>{roleLabel(r)}</Badge>)
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}

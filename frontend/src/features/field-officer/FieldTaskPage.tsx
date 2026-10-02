@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPhone, PhoneInput } from '../../components/PhoneInput';
 import { Link, useParams } from 'react-router-dom';
 import { uploadFile } from '../../api';
 import { Button } from '../../components/ui/Button';
@@ -145,7 +146,7 @@ export function FieldTaskPage() {
           <div className="mt-2 border-t border-slate-100 pt-2">
             <Row label="Applicant" value={task.applicant_name ?? '—'} />
             {task.applicant_eid && <Row label="e-ID" value={<span className="font-mono text-xs">{task.applicant_eid}</span>} />}
-            {task.phone && <Row label="Phone" value={<a href={`tel:${task.phone}`} className="text-brand">{task.phone}</a>} />}
+            {task.phone && <Row label="Phone" value={<a href={`tel:${task.phone}`} className="text-brand">{formatPhone(task.phone)}</a>} />}
             <Row label="Region" value={task.region ?? '—'} />
             <Row label="Due" value={formatDate(task.due_date)} />
             <Row label="Asked by" value={task.requested_by_name ?? '—'} />
@@ -289,7 +290,7 @@ export function FieldTaskPage() {
                     </label>
                     <label className="mt-2 block text-sm font-medium text-slate-700">
                       Phone
-                      <input value={c.phone ?? ''} disabled={!editable} onChange={(e) => setCall(i, { phone: e.target.value })} className={FIELD} />
+                      <PhoneInput value={c.phone ?? ''} disabled={!editable} onChange={(v) => setCall(i, { phone: v })} className={FIELD} />
                     </label>
                     <label className="mt-2 block text-sm font-medium text-slate-700">
                       Relationship

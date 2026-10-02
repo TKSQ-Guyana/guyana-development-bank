@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { formatPhone } from '../../components/PhoneInput';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
@@ -92,7 +93,7 @@ export function AssistRequestPage() {
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
         <Card>
           <RailTitle>Request</RailTitle>
-          <Row label="Phone" value={req.phone ? <a href={`tel:${req.phone}`} className="text-brand">{req.phone}</a> : '—'} />
+          <Row label="Phone" value={req.phone ? <a href={`tel:${req.phone}`} className="text-brand">{formatPhone(req.phone)}</a> : '—'} />
           <Row label="Region" value={req.region} />
           <Row label="Product" value={req.product || '—'} />
           <Row label="Business" value={req.business_type} />

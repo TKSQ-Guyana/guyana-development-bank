@@ -162,10 +162,22 @@ QUICK_ONLY = (
 	"gdb_trade_location",
 	"gdb_trading_since",
 	"gdb_trade_region",
+	"gdb_trade_latitude",
+	"gdb_trade_longitude",
+	"gdb_trade_address",
+	"gdb_support_1_name",
+	"gdb_support_1_relationship",
+	"gdb_support_1_phone",
+	"gdb_support_2_name",
+	"gdb_support_2_relationship",
+	"gdb_support_2_phone",
+	"gdb_resides_in_guyana",
 	"gdb_youth_entrepreneur",
 	"gdb_woman_entrepreneur",
 )
-SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY)
+# Asked on both forms: when the borrower wants repayments to start.
+SHARED_SECTIONS = ("gdb_moratorium_months",)
+SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY + SHARED_SECTIONS)
 
 # Portal product key -> the lending Loan Product it is filed on.
 STANDARD_PRODUCT = "standard"

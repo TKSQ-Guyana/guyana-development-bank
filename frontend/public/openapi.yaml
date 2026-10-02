@@ -1063,11 +1063,12 @@ paths:
   /api/method/gdb_bank.api.quick_loan_terms:
     post:
       tags: [citizen]
-      summary: The Quick Loan's ceiling, longest term, rate and closed answers
+      summary: The Quick Loan's ceiling, allowed terms, rate and closed answers
       description: |
         What the Quick Loan form needs, as the server enforces it. The ceiling
-        and rate are the GDB Quick Loan product's own; the longest term is
-        policy (`gdb_quick_loan_max_term_months`).
+        and rate are the GDB Quick Loan product's own; the allowed terms are
+        policy (`gdb_quick_loan_terms`, default 6, 12, 18 and 24 months) and
+        any other term is refused on save. `max_term` is the longest of them.
       security: [{ cookieAuth: [] }]
       responses:
         '200':
@@ -1081,7 +1082,8 @@ paths:
                     type: object
                     properties:
                       ceiling: { type: number, example: 300000 }
-                      max_term: { type: integer, example: 12 }
+                      max_term: { type: integer, example: 24 }
+                      term_options: { type: array, items: { type: integer }, example: [6, 12, 18, 24] }
                       rate_of_interest: { type: number, example: 0 }
                       trade_locations: { type: array, items: { type: string } }
                       trading_since: { type: array, items: { type: string } }

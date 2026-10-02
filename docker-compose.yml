@@ -100,6 +100,14 @@ services:
       GDB_PLATFORM_ADMIN_PASSWORD: ${GDB_PLATFORM_ADMIN_PASSWORD:-}
       KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-gdb-portal-admin}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-gdb-portal-admin-dev-secret}
+      # The citizen realm's admin client: creates the Keycloak account behind a
+      # TIN sign-up (tin_auth.py). Holds manage-users in gdb-citizen only.
+      # DEV SECRET, as above.
+      KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID:-gdb-citizen-admin}
+      KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET:-gdb-citizen-admin-dev-secret}
+      # The sign-up / TIN sign-in code, fixed until SMS is wired (tin_auth.py).
+      # NOT FOR PRODUCTION: a fixed code proves nothing about the phone.
+      GDB_STATIC_OTP: ${GDB_STATIC_OTP:-123456}
       # --- outside APIs ---------------------------------------------------
       #
       # Empty by default, which means OFF: every DCRA and bank-account check

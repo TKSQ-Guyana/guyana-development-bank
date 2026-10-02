@@ -1,15 +1,37 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { call } from '../../api';
-import { useAuth } from '../../auth';
-import { DocumentShelf, docLabel } from '../../components/DocumentShelf';
-import { REGIONS } from '../../components/apply/cluster';
-import { PayoutAccount } from '../../components/apply/PayoutAccount';
-import { CheckIcon } from '../../components/ui/icons';
-import { FieldOfficerRequest } from './FieldOfficerRequest';
-import { CONSENT_TEXT } from '../../shared/consent';
-import type { CitizenProfile, LoanApplication } from '../../types';
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { firstRepaymentLine, moratoriumChoice } from "../../shared/moratorium";
+import { useNavigate, useParams } from "react-router-dom";
+import { call } from "../../api";
+import { useAuth } from "../../auth";
 import {
+  addDocument,
+  DocumentShelf,
+  docLabel,
+  formatsLabel,
+} from "../../components/DocumentShelf";
+import { REGIONS } from "../../components/apply/cluster";
+import { LocationPicker } from "../../components/LocationPicker";
+import { formatPhone, PhoneInput } from "../../components/PhoneInput";
+import { formatDate } from "../../utils";
+import { PayoutAccount } from "../../components/apply/PayoutAccount";
+import {
+  ApplicationsIcon,
+  BankIcon,
+  CheckIcon,
+  PaymentsIcon,
+  PulseIcon,
+  UsersIcon,
+} from "../../components/ui/icons";
+import { FieldOfficerRequest } from "./FieldOfficerRequest";
+import { CONSENT_TEXT, FALSE_INFORMATION_WARNING } from "../../shared/consent";
+import type {
+  BankAccountRecord,
+  CitizenProfile,
+  DocumentSettings,
+  LoanApplication,
+} from "../../types";
+import {
+  ACCOUNT_TYPES,
   blockerFor,
   confirmErrors,
   EMPTY_ANSWERS,
@@ -17,14 +39,16 @@ import {
   gyd,
   QUICK_STEPS,
   RAIL_STEPS,
-  termOptions,
+  termList,
   toSavePayload,
   type QuickAnswers,
   type QuickLoanTerms,
   type QuickStepId,
-} from './model/quickLoan';
+  type SupportContact,
+} from "./model/quickLoan";
 import {
   Banner,
+  Bar,
   Card,
   Check,
   Chips,
@@ -32,12 +56,10 @@ import {
   Hero,
   inputClass,
   LinkButton,
-  PageIntro,
   Panel,
   Pill,
   QButton,
   QField,
-  QReadOnly,
   QSelect,
   QTextArea,
   RadioCard,
@@ -47,7 +69,7 @@ import {
   StepRail,
   Tabs,
   type StepState,
-} from '../../components/portal/ui';
+} from "../../components/portal/ui";
 
 /** The Quick Loan application — an informal trader's own short form.
  *
@@ -64,15 +86,42 @@ import {
 
 /** Where each document type is filed, for the Documents tab. */
 const DOC_SLOTS: [type: string, title: string, help: string][] = [
-  ['Trading Photo', 'Proof of business', 'Photos that show the business is running. Added in Proof of business.'],
-  ['Receipts or Records', 'Receipts or invoices', 'Optional. Added in Proof of business.'],
-  ['Identity', 'Identity document', 'Identity evidence, where requested. Added in Proof of business.'],
+  [
+    "Business Photo",
+    "Business photos",
+    "Required. Added in Business description.",
+  ],
+  [
+    "Identity",
+    "Identity document",
+    "The document on your account, shown in Your details.",
+  ],
 ];
 
-const clock = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const clock = (d: Date) =>
+  d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const stamp = (d: Date) =>
-  `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, ${clock(d)}`;
-const regionShort = (r: string) => r.split(' — ')[0];
+  `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}, ${clock(d)}`;
+const regionShort = (r: string) => r.split(" — ")[0];
+
+/** The steps whose answers every draft save carries and the server checks. */
+const DRAFT_STEPS: QuickStepId[] = ["business", "loan"];
+
+/** Who the Quick Loan is for — the eligibility screen's list, as chips. */
+const FOR_WHOM = [
+  "Market vendors",
+  "Repairs, hair & tailoring",
+  "Home-based & mobile",
+  "Other small businesses",
+];
+
+/** Each step's icon, on its heading and on its Review card. */
+const STEP_ICON: Partial<Record<QuickStepId, ReactNode>> = {
+  business: <PulseIcon />,
+  loan: <PaymentsIcon />,
+  bank: <BankIcon />,
+  review: <ApplicationsIcon />,
+};
 
 export function QuickApplyPage() {
   const navigate = useNavigate();
@@ -81,29 +130,38 @@ export function QuickApplyPage() {
 
   const [terms, setTerms] = useState<QuickLoanTerms | null>(null);
   const [answers, setAnswers] = useState<QuickAnswers>(EMPTY_ANSWERS);
-  const [branchCode, setBranchCode] = useState('');
-  const [step, setStep] = useState<QuickStepId>('eligibility');
-  const [tab, setTab] = useState<'app' | 'docs'>('app');
+  const [branchCode, setBranchCode] = useState("");
+  const [step, setStep] = useState<QuickStepId>("eligibility");
+  const [tab, setTab] = useState<"app" | "docs">("app");
   const [draft, setDraft] = useState<LoanApplication | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [profile, setProfile] = useState<CitizenProfile | null>(null);
-  const [consented, setConsented] = useState<boolean | null>(null);
-  const [consentChecked, setConsentChecked] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
+  // Whether `missing` is the server's answer yet — until it is, an empty list
+  // must not read as "every photo is on file".
+  const [shelfLoaded, setShelfLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Business photos chosen before a draft exists — there is nothing to file
+  // them against until Loan details is saved, so they wait here (in memory,
+  // never browser storage) and go up the moment it is.
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [docSettings, setDocSettings] = useState<DocumentSettings | null>(null);
   const [submitted, setSubmitted] = useState<LoanApplication | null>(null);
   const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState<string | null>(null);
   // "I need help from a field officer" — the request form instead of the steps.
   const [helping, setHelping] = useState(false);
-  // The separate submit page, reached from Review.
-  const [confirming, setConfirming] = useState(false);
   const [confirmTried, setConfirmTried] = useState(false);
   // The draft this page already holds — so the URL moving from /apply/quick to
   // /apply/quick/<name> on the first save is not read as "open another draft".
   const loaded = useRef<string | null>(null);
+  // A draft just opened from its link, still to be routed to the first step
+  // it is missing an answer on (see the effect below `furthest`).
+  const resumed = useRef(false);
+  // Shown once on a reopened draft that is missing a newer question.
+  const [notice, setNotice] = useState<string | null>(null);
 
   const set =
     <K extends keyof QuickAnswers>(key: K) =>
@@ -114,54 +172,78 @@ export function QuickApplyPage() {
     };
 
   useEffect(() => {
-    call<QuickLoanTerms>('gdb_bank.api.quick_loan_terms')
+    call<QuickLoanTerms>("gdb_bank.api.quick_loan_terms")
       .then(setTerms)
       .catch((err: Error) => setError(err.message));
-    call<CitizenProfile>('gdb_bank.profiles.my_profile')
+    call<DocumentSettings>("gdb_bank.documents.document_settings")
+      .then(setDocSettings)
+      .catch(() => setDocSettings(null));
+    call<CitizenProfile>("gdb_bank.profiles.my_profile")
       .then((p) => {
         setProfile(p);
-        setConsented(Boolean(p?.consent_version));
         setAnswers((a) => ({
           ...a,
-          phone: a.phone || p.phone || p.verified_phone || '',
-          dob: a.dob || p.date_of_birth || p.verified_birth_date || '',
-          nationalId: a.nationalId || p.national_id || '',
-          holder: a.holder || user?.full_name || '',
+          phone: a.phone || p.phone || p.verified_phone || "",
+          dob: a.dob || p.date_of_birth || p.verified_birth_date || "",
+          holder: a.holder || user?.full_name || "",
         }));
       })
-      .catch(() => setConsented(false));
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!routeName || loaded.current === routeName) return;
     loaded.current = routeName;
     setBusy(true);
-    call<LoanApplication>('gdb_bank.api.loan_detail', { name: routeName })
+    call<LoanApplication>("gdb_bank.api.loan_detail", { name: routeName })
       .then((loan) => {
-        if (loan.status !== 'Draft') {
+        if (loan.status !== "Draft") {
           navigate(`/loans/${loan.name}`, { replace: true });
           return;
         }
-        if (loan.product !== 'quick') {
+        if (loan.product !== "quick") {
           navigate(`/apply/${loan.name}`, { replace: true });
           return;
         }
         setDraft(loan);
         setAnswers((a) => ({ ...a, ...fromDraft(loan) }));
-        setStep('proof');
+        setStep("bank");
+        resumed.current = true;
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
   }, [routeName, navigate]);
 
-  // What is still not on file — Review and the Documents tab report it. The
-  // Proof step's own shelf reports it too (onChange below).
+  // What is still not on file. Every step reads it once a draft exists: the
+  // business photos are a requirement every later save is checked against.
+  const refreshShelf = (application: string) =>
+    call<{ missing: string[] }>("gdb_bank.documents.list_documents", {
+      application,
+    }).then((shelf) => {
+      setMissing(shelf.missing);
+      setShelfLoaded(true);
+    });
   useEffect(() => {
-    if (!draft?.name || (step !== 'review' && tab !== 'docs')) return;
-    call<{ missing: string[] }>('gdb_bank.documents.list_documents', { application: draft.name })
-      .then((shelf) => setMissing(shelf.missing))
-      .catch((err: Error) => setError(err.message));
+    if (!draft?.name) return;
+    refreshShelf(draft.name).catch((err: Error) => setError(err.message));
   }, [draft?.name, step, tab]);
+
+  // How many business photos the applicant has given: waiting to upload, or on
+  // file (Business Photo is one of the Quick Loan's expected documents, so
+  // `missing` says whether any is).
+  const photoCount =
+    photos.length +
+    (draft && shelfLoaded && !missing.includes("Business Photo") ? 1 : 0);
+  useEffect(() => {
+    setAnswers((a) =>
+      a.photos === photoCount ? a : { ...a, photos: photoCount },
+    );
+  }, [photoCount]);
+
+  // A date of birth the account does not hold is asked in Your details.
+  const dobOnFile = Boolean(
+    profile?.date_of_birth || profile?.verified_birth_date,
+  );
 
   const index = QUICK_STEPS.findIndex((s) => s.id === step);
   const current = QUICK_STEPS[index];
@@ -172,17 +254,87 @@ export function QuickApplyPage() {
     setFurthest((f) => Math.max(f, index));
   }, [index]);
 
+  /** The first step before `upTo` whose answers the draft save needs and does
+   *  not have. Business and Loan details are the two the server checks on
+   *  every save, so a draft missing one of them can never be saved from a
+   *  later step — the applicant has to be taken back to it. */
+  const gapBefore = (upTo: QuickStepId): QuickStepId | null => {
+    if (!terms) return null;
+    const limit = QUICK_STEPS.findIndex((s) => s.id === upTo);
+    return (
+      DRAFT_STEPS.find(
+        (id) =>
+          QUICK_STEPS.findIndex((s) => s.id === id) < limit &&
+          blockerFor(id, answers, terms),
+      ) ?? null
+    );
+  };
+
+  // A reopened draft starts at Bank information — unless something it was
+  // saved without is now asked for (a question added since), in which case it
+  // starts there.
+  useEffect(() => {
+    if (!resumed.current || !terms || !draft) return;
+    resumed.current = false;
+    setFurthest(QUICK_STEPS.findIndex((s) => s.id === "bank"));
+    const gap = gapBefore("bank");
+    if (gap) {
+      setStep(gap);
+      setNotice(
+        "We have added a few questions since you saved this draft. Answer them below to carry on.",
+      );
+    }
+  }, [terms, draft, answers]);
+
   const saveDraft = async (): Promise<LoanApplication> => {
     const saved = await call<LoanApplication>(
-      'gdb_bank.api.save_application',
+      "gdb_bank.api.save_application",
       toSavePayload(answers, draft?.name),
     );
     setDraft(saved);
     setSavedAt(new Date());
     loaded.current = saved.name;
-    if (routeName !== saved.name) navigate(`/apply/quick/${saved.name}`, { replace: true });
+    if (routeName !== saved.name)
+      navigate(`/apply/quick/${saved.name}`, { replace: true });
     return saved;
   };
+
+  /** File the waiting business photos on the draft. Each one that arrives
+   *  leaves the queue, so a retry sends only what did not. */
+  const uploadPhotos = async (application: string) => {
+    if (!photos.length) return;
+    const settings =
+      docSettings ??
+      (await call<DocumentSettings>("gdb_bank.documents.document_settings"));
+    for (const file of photos) {
+      await addDocument(file, "Business Photo", settings, application);
+      setPhotos((queue) => queue.filter((f) => f !== file));
+    }
+  };
+
+  const setContact =
+    (i: 0 | 1, key: keyof SupportContact) => (value: string) => {
+      setError(null);
+      setAnswers((a) => {
+        const contacts = [...a.contacts] as QuickAnswers["contacts"];
+        contacts[i] = { ...contacts[i], [key]: value };
+        return { ...a, contacts };
+      });
+    };
+
+  // The account type already on file, for an applicant coming back to Bank.
+  useEffect(() => {
+    if (step !== "bank" || answers.accountType) return;
+    call<BankAccountRecord & { account_type?: string | null }>(
+      "gdb_bank.api.my_bank_details",
+    )
+      .then((saved) => {
+        const t = saved?.account_type;
+        if (t === "Checking" || t === "Savings")
+          setAnswers((a) => (a.accountType ? a : { ...a, accountType: t }));
+      })
+      .catch(() => {});
+  }, [step]);
 
   const run = async (work: () => Promise<unknown>): Promise<boolean> => {
     setBusy(true);
@@ -191,7 +343,9 @@ export function QuickApplyPage() {
       await work();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      setError(
+        err instanceof Error ? err.message : "Something went wrong. Try again.",
+      );
       return false;
     } finally {
       setBusy(false);
@@ -200,10 +354,10 @@ export function QuickApplyPage() {
 
   const goTo = (id: QuickStepId) => {
     setError(null);
-    setConfirming(false);
-    setTab('app');
+    setNotice(null);
+    setTab("app");
     setStep(id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   /** Leave the step on screen: its check, then whatever it saves. True when
@@ -215,38 +369,53 @@ export function QuickApplyPage() {
       setError(blocker);
       return false;
     }
-    if (step === 'eligibility' && answers.how === 'help') {
-      setError(null);
-      setHelping(true);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Bank saves the draft, and the server refuses a draft missing an earlier
+    // step's answers — say so where those answers are, not here.
+    const gap = step === "bank" ? gapBefore("bank") : null;
+    if (gap) {
+      goTo(gap);
+      setError(blockerFor(gap, answers, terms));
       return false;
     }
-    if (step === 'eligibility' && !consented) {
-      if (!consentChecked) {
-        setError('Give your consent to continue.');
-        return false;
-      }
-      if (!(await run(() => call('gdb_bank.profiles.record_consent')))) return false;
-      setConsented(true);
+    if (step === "eligibility" && answers.how === "help") {
+      setError(null);
+      setHelping(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return false;
     }
-    // Date of birth and national ID are the person's, so they go on the profile.
+    // A date of birth asked here is the person's, so it goes on the profile.
     if (
-      step === 'about' &&
-      !(await run(() =>
-        call('gdb_bank.profiles.save_profile', { date_of_birth: answers.dob, national_id: answers.nationalId }),
-      ))
+      step === "business" &&
+      !dobOnFile &&
+      !(await run(async () => {
+        setProfile(
+          await call<CitizenProfile>("gdb_bank.profiles.save_profile", {
+            date_of_birth: answers.dob,
+          }),
+        );
+      }))
     )
       return false;
     // The loan step is the first the server will hold as a draft; from here
     // on, moving forward saves to GDB.
-    if (step === 'loan' && !(await run(saveDraft))) return false;
-    if (step === 'bank') {
+    if (
+      step === "loan" &&
+      !(await run(async () => {
+        const saved = await saveDraft();
+        await uploadPhotos(saved.name);
+        await refreshShelf(saved.name);
+      }))
+    )
+      return false;
+    if (step === "bank") {
       const saved = await run(async () => {
-        await call('gdb_bank.api.save_bank_details', {
+        await call("gdb_bank.api.save_bank_details", {
           bank: answers.bank,
           bank_account_no: answers.accountNo,
           branch_code: branchCode,
+          branch: answers.manualAccount ? answers.branch : undefined,
           account_name: answers.holder,
+          account_type: answers.accountType,
         });
         await saveDraft();
       });
@@ -256,7 +425,8 @@ export function QuickApplyPage() {
   };
 
   const goNext = async () => {
-    if (await leave()) goTo(QUICK_STEPS[Math.min(index + 1, QUICK_STEPS.length - 1)].id);
+    if (await leave())
+      goTo(QUICK_STEPS[Math.min(index + 1, QUICK_STEPS.length - 1)].id);
   };
 
   /** Rail navigation. Back is free. Forward goes as far as the applicant has
@@ -269,7 +439,9 @@ export function QuickApplyPage() {
       return;
     }
     if (!(await leave())) return;
-    const stuck = QUICK_STEPS.slice(index + 1, i).find((s) => blockerFor(s.id, answers, terms));
+    const stuck = QUICK_STEPS.slice(index + 1, i).find((s) =>
+      blockerFor(s.id, answers, terms),
+    );
     goTo((stuck ?? QUICK_STEPS[i]).id);
     if (stuck) setError(blockerFor(stuck.id, answers, terms));
   };
@@ -277,13 +449,23 @@ export function QuickApplyPage() {
   const submit = async () => {
     setConfirmTried(true);
     if (Object.keys(confirmErrors(answers)).length) return;
+    const gap =
+      gapBefore("review") ??
+      (terms && blockerFor("bank", answers, terms) ? "bank" : null);
+    if (gap && terms) {
+      goTo(gap);
+      setError(blockerFor(gap, answers, terms));
+      return;
+    }
     setSubmitting(true);
     setSubmitFailed(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
     try {
+      // The first statement IS the consent the profile records.
+      await call("gdb_bank.profiles.record_consent");
       const saved = await saveDraft();
       setSubmitted(
-        await call<LoanApplication>('gdb_bank.api.submit_application', {
+        await call<LoanApplication>("gdb_bank.api.submit_application", {
           name: saved.name,
           accept_terms: 1,
           credit_check_consent: 1,
@@ -291,7 +473,11 @@ export function QuickApplyPage() {
       );
       setSubmittedAt(new Date());
     } catch (err) {
-      setSubmitFailed(err instanceof Error ? err.message : 'The submission did not go through.');
+      setSubmitFailed(
+        err instanceof Error
+          ? err.message
+          : "The submission did not go through.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -299,61 +485,122 @@ export function QuickApplyPage() {
 
   const screen = (): ReactNode => {
     if (!terms) {
-      return error ? <Banner kind="error" title={error} /> : <p className="text-ql-muted">Loading…</p>;
+      return error ? (
+        <Banner kind="error" title={error} />
+      ) : (
+        <p className="text-ql-muted">Loading…</p>
+      );
     }
     const amount = gyd(Number(answers.amount));
-    const months = `${answers.term} month${answers.term === '1' ? '' : 's'}`;
+    const months = `${answers.term} month${answers.term === "1" ? "" : "s"}`;
 
     if (submitted) {
       return (
-        <Panel narrow>
-          <Hero title="Your application has been submitted">
-            Your application is now read-only. GDB will review it and contact you if more information is needed.
-          </Hero>
-          <Card>
-            <b className="font-semibold">Submission record</b>
-            <div className="mt-1 text-[13px] text-ql-ink2">
-              Quick Loan · {amount} · {months}
-              <br />
-              Submitted {submittedAt ? stamp(submittedAt) : ''} · <b className="font-semibold">{submitted.name}</b>
-              <br />
-              Keep these application details when contacting GDB.
+        <div className="flex flex-col gap-5">
+          <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand p-7 text-white shadow-xl shadow-emerald-950/20 sm:p-9">
+            <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
+            <div className="relative">
+              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-amber-400 text-emerald-950 shadow-lg ring-8 ring-amber-400/20">
+                <CheckIcon className="h-8 w-8" />
+              </span>
+              <h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">
+                Application submitted
+              </h1>
+              <p className="mt-2 max-w-xl text-emerald-100">
+                Your application is now read-only. GDB will review it and
+                contact you if more information is needed.
+              </p>
+              <dl className="mt-6 grid gap-4 rounded-2xl bg-black/20 p-4 backdrop-blur-xs sm:grid-cols-3">
+                {[
+                  ["Reference", submitted.name],
+                  ["Quick Loan", `${amount} · ${months}`],
+                  ["Submitted", submittedAt ? stamp(submittedAt) : "—"],
+                ].map(([k, v]) => (
+                  <div key={k} className="border-l-2 border-amber-400/80 pl-3">
+                    <dt className="text-[10px] font-bold uppercase tracking-wider text-amber-300/90">
+                      {k}
+                    </dt>
+                    <dd className="mt-0.5 font-mono text-sm font-bold">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-3 text-xs text-emerald-200">
+                Keep your reference when contacting GDB.
+              </p>
             </div>
-          </Card>
-          <Card tone="soft">
-            <b className="font-semibold">What happens next</b>
-            <div className="mt-1 text-[13px] text-ql-ink2">
-              A member of the GDB team will review your application. If more information is required, you will receive
-              a request explaining what to provide. Submission is not approval.
+          </section>
+          <Panel>
+            <SectionTitle>What happens next</SectionTitle>
+            <ol className="relative ml-3 flex flex-col gap-5 border-l-2 border-slate-200 pl-6">
+              {[
+                [
+                  "Submitted",
+                  "Your application and documents are with GDB.",
+                  true,
+                ],
+                [
+                  "GDB reviews it",
+                  "A member of the GDB team reviews your application. If more information is required, you will receive a request explaining what to provide.",
+                  false,
+                ],
+                [
+                  "A person decides",
+                  "Submission is not approval. You will be told the decision in the portal.",
+                  false,
+                ],
+              ].map(([t, d, done]) => (
+                <li key={String(t)} className="relative">
+                  <span
+                    className={`absolute -left-[35px] grid h-6 w-6 place-items-center rounded-full border-2 ${
+                      done
+                        ? "border-brand bg-brand text-white"
+                        : "border-slate-300 bg-white"
+                    }`}
+                  >
+                    {done && <CheckIcon className="h-3.5 w-3.5" />}
+                  </span>
+                  <b className="text-sm font-extrabold text-slate-900">{t}</b>
+                  <p className="text-[13px] text-slate-500">{d}</p>
+                </li>
+              ))}
+            </ol>
+            <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-5">
+              <QButton
+                onClick={() => navigate(`/loans/${submitted.name}`)}
+                next
+              >
+                View submitted application
+              </QButton>
+              <QButton kind="secondary" onClick={() => navigate("/apply")}>
+                My applications
+              </QButton>
             </div>
-          </Card>
-          <div className="flex flex-wrap gap-3">
-            <QButton kind="secondary" onClick={() => navigate(`/loans/${submitted.name}`)}>
-              View submitted application
-            </QButton>
-            <QButton onClick={() => navigate('/apply')}>My applications</QButton>
-          </div>
-        </Panel>
+          </Panel>
+        </div>
       );
     }
 
     if (submitting) {
       return (
-        <Panel narrow>
+        <Panel>
           <div className="flex items-center gap-4">
             <Spinner />
             <div>
-              <h2 className="text-[23px] font-semibold leading-tight">Submitting your application</h2>
+              <h2 className="text-[23px] font-semibold leading-tight">
+                Submitting your application
+              </h2>
               <p className="text-ql-ink2">Sending your application to GDB</p>
             </div>
           </div>
           <p className="text-[13px] text-ql-ink2">
-            Please wait for confirmation before trying again. No approval or lending decision has been made.
+            Please wait for confirmation before trying again. No approval or
+            lending decision has been made.
           </p>
           <Card tone="soft">
             <b className="font-semibold">Submission in progress</b>
             <div className="text-[13px] text-ql-ink2">
-              Quick Loan · {amount}. Your saved information and attached documents are being submitted together.
+              Quick Loan · {amount}. Your saved information and attached
+              documents are being submitted together.
             </div>
           </Card>
           <div>
@@ -365,14 +612,16 @@ export function QuickApplyPage() {
 
     if (submitFailed) {
       return (
-        <Panel narrow>
+        <Panel>
           <Hero kind="err" title="We could not submit your application">
-            Your draft and documents are saved. Check your connection and try again.
+            Your draft and documents are saved. Check your connection and try
+            again.
           </Hero>
           <Card tone="soft">
             <b className="font-semibold">Your application is still a draft</b>
             <div className="text-[13px] text-ql-ink2">
-              You can submit again. Trying again never creates a second application.
+              You can submit again. Trying again never creates a second
+              application.
               <br />
               <span className="text-ql-muted">{submitFailed}</span>
             </div>
@@ -382,7 +631,6 @@ export function QuickApplyPage() {
               kind="secondary"
               onClick={() => {
                 setSubmitFailed(null);
-                setConfirming(false);
               }}
             >
               Back to review
@@ -396,132 +644,125 @@ export function QuickApplyPage() {
     if (helping) {
       return (
         <FieldOfficerRequest
-          defaultName={user?.full_name ?? ''}
+          defaultName={user?.full_name ?? ""}
           defaultPhone={answers.phone}
           onBack={() => setHelping(false)}
           onApplySelf={() => {
-            set('how')('self');
+            set("how")("self");
             setHelping(false);
           }}
         />
       );
     }
 
-    if (confirming) {
-      const errs = confirmTried ? confirmErrors(answers) : {};
+    if (step === "eligibility") {
       return (
-        <Panel narrow>
-          <PageIntro title="Confirm your submission">
-            Quick Loan · {amount} · {months}
-          </PageIntro>
-          <Banner kind="warn" title="You will not be able to edit after submission">
-            GDB can request specific corrections or additional information through a Request for Information.
-            Submission is not a lending decision.
-          </Banner>
-          <div className="flex flex-col gap-3">
-            <Check checked={answers.accurate} onChange={set('accurate')}>
-              I confirm that the information I have provided is accurate.
-            </Check>
-            {errs.accurate && <div className="text-[12.5px] font-medium text-ql-red">{errs.accurate}</div>}
-            <Check checked={answers.noGuarantee} onChange={set('noGuarantee')}>
-              I understand that submitting this application does not guarantee a loan.
-            </Check>
-            {errs.noGuarantee && <div className="text-[12.5px] font-medium text-ql-red">{errs.noGuarantee}</div>}
-          </div>
-          <div className="flex flex-col gap-2">
-            <SectionTitle>Credit check consent</SectionTitle>
-            <p className="text-[13px] text-ql-ink2">
-              GDB checks your credit history with EveryData, the credit bureau, before a person at GDB decides on your
-              application.
-            </p>
-            <Check checked={answers.creditConsent} onChange={set('creditConsent')}>
-              I consent to GDB obtaining my credit report from EveryData to assess this application.
-            </Check>
-            {errs.creditConsent && <div className="text-[12.5px] font-medium text-ql-red">{errs.creditConsent}</div>}
-          </div>
-          <Footer>
-            <QButton
-              kind="secondary"
-              onClick={() => {
-                setError(null);
-                setConfirming(false);
-              }}
-            >
-              Back to review
-            </QButton>
-            <QButton onClick={() => void submit()}>Submit application</QButton>
-          </Footer>
-        </Panel>
-      );
-    }
+        <div className="flex flex-col gap-4">
+          <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand p-5 text-white shadow-xl shadow-emerald-950/20 sm:px-7 sm:py-6">
+            <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
+            <div className="pointer-events-none absolute -right-10 -bottom-10 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
+            <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div>
+                <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-black/30 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-300">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+                  Quick Loan
+                </span>
+                <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
+                  Before you start
+                </h1>
+                <p className="mt-1 max-w-xl text-sm leading-relaxed text-emerald-100">
+                  A short application for small businesses. No business
+                  registration needed.
+                </p>
+                <ul
+                  className="mt-3 flex flex-wrap gap-1.5"
+                  aria-label="Who it is for"
+                >
+                  {FOR_WHOM.map((x) => (
+                    <li
+                      key={x}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white"
+                    >
+                      <CheckIcon className="h-3.5 w-3.5 text-amber-300" />
+                      {x}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <dl className="grid grid-cols-3 gap-4 rounded-xl bg-black/20 px-4 py-3 backdrop-blur-xs lg:min-w-[380px]">
+                {[
+                  ["Loan up to", gyd(terms.ceiling), true],
+                  ["Interest", `${terms.rate_of_interest}%`, false],
+                  ["Collateral", "None", false],
+                ].map(([k, v, gold]) => (
+                  <div
+                    key={String(k)}
+                    className={`border-l-2 pl-3 ${gold ? "border-amber-400/80" : "border-emerald-400/80"}`}
+                  >
+                    <dt
+                      className={`text-[10px] font-bold uppercase tracking-wider ${gold ? "text-amber-300/90" : "text-emerald-200/90"}`}
+                    >
+                      {k}
+                    </dt>
+                    <dd
+                      className={`mt-0.5 text-base font-black tracking-tight sm:text-lg ${gold ? "text-amber-300" : "text-white"}`}
+                    >
+                      {v}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </section>
 
-    if (step === 'eligibility') {
-      return (
-        <Panel narrow>
-          <PageIntro title="Before you start" />
-          {error && <Banner kind="error" title={error} />}
-          <Card>
-            <h3 className="text-[17px] font-semibold">For small businesses</h3>
-            <div className="mt-3 overflow-hidden rounded-xl border border-ql-line">
-              {[
-                'Market vendors',
-                'Small services, like repairs, hair or tailoring',
-                'Home-based and mobile businesses',
-                'Other small businesses',
-              ].map((x, i) => (
-                <div key={x} className={`flex items-center gap-3 px-4 py-3.5 text-[13px] ${i ? 'border-t border-ql-line' : ''}`}>
-                  <CheckIcon className="h-4 w-4 flex-none" />
-                  {x}
-                </div>
-              ))}
+          <Panel>
+            <div>
+              <SectionTitle>How would you like to apply?</SectionTitle>
+              <p className="mt-1 text-sm text-slate-500">
+                Either way, applying is free and a person at GDB makes every
+                decision.
+              </p>
             </div>
-          </Card>
-          <Card>
-            <div className="grid grid-cols-3 gap-4">
-              {[
-                ['Loan up to', gyd(terms.ceiling)],
-                ['Interest', `${terms.rate_of_interest}%`],
-                ['Collateral', 'None'],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <div className="text-xs text-ql-muted">{k}</div>
-                  <b className="font-semibold">{v}</b>
-                </div>
-              ))}
-            </div>
-          </Card>
-          <div className="flex flex-col gap-3">
-            <h2 className="text-[19px] font-semibold">How would you like to apply?</h2>
+            {error && <Banner kind="error" title={error} />}
             <div className="grid gap-4 md:grid-cols-2">
               <RadioCard
+                icon={<ApplicationsIcon className="h-6 w-6" />}
                 title="I will apply myself"
+                badge={
+                  <Pill tone="green">{RAIL_STEPS.length} short steps</Pill>
+                }
                 body="Fill in the application in this portal. Your answers save as you go."
-                selected={answers.how === 'self'}
-                onSelect={() => set('how')('self')}
+                selected={answers.how === "self"}
+                onSelect={() => set("how")("self")}
               />
               <RadioCard
+                icon={<UsersIcon className="h-6 w-6" />}
                 title="I need help from a field officer"
                 body="A GDB field officer contacts you and completes the application with you."
-                selected={answers.how === 'help'}
-                onSelect={() => set('how')('help')}
+                selected={answers.how === "help"}
+                onSelect={() => set("how")("help")}
               />
             </div>
-          </div>
-          {consented === false && answers.how === 'self' && (
-            <Card tone="soft">
-              <Check checked={consentChecked} onChange={setConsentChecked}>
-                {CONSENT_TEXT}
-              </Check>
-            </Card>
-          )}
-          <Footer>
-            <span />
-            <QButton disabled={!answers.how || busy} onClick={() => void goNext()}>
-              {busy ? 'Saving…' : answers.how === 'help' ? 'Continue to request help' : 'Start application'}
-            </QButton>
-          </Footer>
-          <p className="text-xs text-ql-muted">Applying is free, and a person at GDB makes every decision.</p>
-        </Panel>
+            <Footer>
+              <span className="text-xs text-slate-500">
+                {answers.how
+                  ? "Ready when you are."
+                  : "Choose how you would like to apply."}
+              </span>
+              <QButton
+                disabled={!answers.how || busy}
+                onClick={() => void goNext()}
+                next
+              >
+                {busy
+                  ? "Saving…"
+                  : answers.how === "help"
+                    ? "Continue to request help"
+                    : "Start application"}
+              </QButton>
+            </Footer>
+          </Panel>
+        </div>
       );
     }
 
@@ -529,31 +770,82 @@ export function QuickApplyPage() {
 
     const stateOf = (id: string): StepState => {
       const i = QUICK_STEPS.findIndex((s) => s.id === id);
-      if (id === step) return 'cur';
-      if (i > furthest || id === 'review') return '';
-      return blockerFor(id as QuickStepId, answers, terms) ? 'attn' : 'done';
+      if (id === step) return "cur";
+      if (i > furthest || id === "review") return "";
+      return blockerFor(id as QuickStepId, answers, terms) ? "attn" : "done";
     };
-    const issues = RAIL_STEPS.filter((s) => s.id !== 'review')
+    const issues = RAIL_STEPS.filter((s) => s.id !== "review")
       .map((s) => ({ step: s, text: blockerFor(s.id, answers, terms) }))
-      .filter((x): x is { step: (typeof RAIL_STEPS)[number]; text: string } => Boolean(x.text));
-    const meta = `Quick Loan · ${draft ? 'Draft' : 'Not saved yet'}${savedAt ? ` · Saved · ${clock(savedAt)}` : ''}`;
+      .filter((x): x is { step: (typeof RAIL_STEPS)[number]; text: string } =>
+        Boolean(x.text),
+      );
     const overCap = Number(answers.amount) > terms.ceiling;
+    const reviewErrs = confirmTried ? confirmErrors(answers) : {};
+    const railIndex = RAIL_STEPS.findIndex((s) => s.id === step) + 1;
+    const sections = RAIL_STEPS.filter((s) => s.id !== "review");
+    const doneCount = sections.filter((s) => stateOf(s.id) === "done").length;
+    const amt = Number(answers.amount);
+    const termN = Number(answers.term);
+    // Zero interest makes the instalment plain division; at any other rate it
+    // is lending's to compute, so the estimate is not shown.
+    const monthly =
+      amt > 0 && termN > 0 && terms.rate_of_interest === 0
+        ? gyd(Math.ceil(amt / termN))
+        : null;
+    const saveState = savedAt ? (
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        Saved · {clock(savedAt)}
+      </span>
+    ) : draft ? (
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        Draft saved
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+        <span className="h-2 w-2 rounded-full bg-slate-300" />
+        Saving starts at Loan details
+      </span>
+    );
 
-    const summary = (id: QuickStepId, title: string, body: ReactNode, pill?: ReactNode) => (
-      <Card key={id}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <b className="font-semibold">{title}</b>
-            {pill ?? (blockerFor(id, answers, terms) ? <Pill tone="amber">1 item missing</Pill> : <Pill tone="green">Complete</Pill>)}
+    const summary = (
+      id: QuickStepId,
+      title: string,
+      body: ReactNode,
+      pill?: ReactNode,
+    ) => (
+      <div
+        key={id}
+        className="flex flex-col rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-xs"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-brand-dark [&>svg]:h-4 [&>svg]:w-4">
+              {STEP_ICON[id]}
+            </span>
+            <div>
+              <b className="text-sm font-extrabold text-slate-900">{title}</b>
+              <div className="mt-0.5">
+                {pill ??
+                  (blockerFor(id, answers, terms) ? (
+                    <Pill tone="amber">1 item missing</Pill>
+                  ) : (
+                    <Pill tone="green">✓ Complete</Pill>
+                  ))}
+              </div>
+            </div>
           </div>
           <LinkButton onClick={() => goTo(id)}>Edit</LinkButton>
         </div>
-        <div className="mt-2 text-[13px] text-ql-ink2">{body}</div>
-      </Card>
+        <div className="mt-2 border-t border-slate-100 pt-2 text-[12.5px] leading-relaxed text-slate-600">
+          {body}
+        </div>
+      </div>
     );
 
     let body: ReactNode;
-    if (tab === 'docs') {
+    if (tab === "docs") {
       body = (
         <>
           <SecHead
@@ -569,109 +861,145 @@ export function QuickApplyPage() {
                     <b className="font-semibold">{title}</b>
                     <div className="text-[13px] text-ql-muted">{help}</div>
                   </div>
-                  <LinkButton onClick={() => goTo('proof')}>Open section</LinkButton>
+                  <LinkButton onClick={() => goTo("business")}>
+                    Open section
+                  </LinkButton>
                 </div>
-                <DocumentShelf application={draft.name} only={type} title={title} />
+                <DocumentShelf
+                  application={draft.name}
+                  only={type}
+                  title={title}
+                />
               </Card>
             ))
           ) : (
-            <Banner kind="info" title="Documents open once your loan details are saved." />
+            <Banner
+              kind="info"
+              title="Documents open once your loan details are saved."
+            />
           )}
           <div>
-            <QButton kind="secondary" onClick={() => setTab('app')}>
+            <QButton kind="secondary" onClick={() => setTab("app")}>
               Back to application
             </QButton>
           </div>
         </>
       );
-    } else if (step === 'review') {
+    } else if (step === "review") {
       body = (
         <>
           <SecHead
+            index={railIndex}
             title="Review your application"
-            meta={meta}
-            intro={issues.length ? 'Review does not submit your application.' : 'Review all details before sending them to GDB.'}
+            intro={
+              issues.length
+                ? "Review does not submit your application."
+                : "Review all details before sending them to GDB."
+            }
           />
           {error && <Banner kind="error" title={error} />}
-          {issues.length ? (
-            <>
-              <Banner kind="warn" title={`${issues.length} item${issues.length > 1 ? 's need' : ' needs'} your attention`}>
-                Resolve the items below before submitting. You can return to any section.
-              </Banner>
-              <div className="overflow-hidden rounded-xl border border-ql-line">
-                {issues.map(({ step: s, text }, i) => (
-                  <div
-                    key={s.id}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${i ? 'border-t border-ql-line' : ''}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <b className="text-[13px] font-semibold">{text}</b>
-                      <div className="text-xs text-ql-muted">{s.title} · Required field missing</div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {issues.length ? (
+              <>
+                <Banner
+                  kind="warn"
+                  title={`${issues.length} item${issues.length > 1 ? "s need" : " needs"} your attention`}
+                >
+                  Resolve the items below before submitting. You can return to
+                  any section.
+                </Banner>
+                <div className="overflow-hidden rounded-xl border border-slate-200 lg:col-span-2">
+                  {issues.map(({ step: s, text }, i) => (
+                    <div
+                      key={s.id}
+                      className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${i ? "border-t border-ql-line" : ""}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <b className="text-[13px] font-semibold">{text}</b>
+                        <div className="text-xs text-ql-muted">
+                          {s.title} · Required field missing
+                        </div>
+                      </div>
+                      <LinkButton onClick={() => goTo(s.id)}>
+                        Go to field
+                      </LinkButton>
                     </div>
-                    <LinkButton onClick={() => goTo(s.id)}>Go to field</LinkButton>
-                  </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <Banner kind="success" title="No outstanding items">
+                The required sections are complete.
+              </Banner>
+            )}
+            {missing.length > 0 && (
+              <Banner
+                kind="info"
+                title={`Not on file yet: ${missing.map(docLabel).join(", ")}`}
+              >
+                You can still submit. GDB may ask you for them.
+              </Banner>
+            )}
+          </div>
+          <YourDetails user={user} profile={profile} dob={answers.dob} />
+          <div className="grid gap-3 md:grid-cols-2">
+            {summary(
+              "business",
+              "Business description",
+              <>
+                {answers.businessName || "No business name"} ·{" "}
+                {regionShort(answers.region) || "—"}
+                <br />
+                {answers.tradeActivity || "—"}
+                <br />
+                In business: {answers.tradingSince || "—"} · Location:{" "}
+                {answers.tradeLocation || "—"}
+                <span className="block">
+                  Pinned:{" "}
+                  {answers.lat != null
+                    ? answers.place ||
+                      `${answers.lat.toFixed(4)}, ${answers.lng?.toFixed(4)}`
+                    : "—"}
+                </span>
+                <span className="block">
+                  Photos:{" "}
+                  {missing.includes("Business Photo")
+                    ? "not on file yet"
+                    : "on file"}
+                </span>
+                {answers.contacts.map((c, i) => (
+                  <span key={i} className="block">
+                    Contact {i + 1}: {c.name || "—"}
+                    {c.relationship ? ` (${c.relationship})` : ""}
+                    {c.phone ? ` · ${formatPhone(c.phone)}` : ""}
+                  </span>
                 ))}
-              </div>
-            </>
-          ) : (
-            <Banner kind="success" title="No outstanding items">
-              The required sections are complete.
-            </Banner>
-          )}
-          {missing.length > 0 && (
-            <Banner kind="info" title={`Not on file yet: ${missing.map(docLabel).join(', ')}`}>
-              You can still submit. GDB may ask you for them.
-            </Banner>
-          )}
-          <div className="flex flex-col gap-3">
-            {summary(
-              'about',
-              'About you',
-              <>
-                {user?.full_name ?? '—'} · Date of birth: {answers.dob || '—'}
-                <br />
-                e-ID: {user?.eid ?? '—'} · National ID: {answers.nationalId ? `•••• ${answers.nationalId.slice(-4)}` : '—'}
-                <br />
-                {answers.phone || '—'}
               </>,
             )}
             {summary(
-              'business',
-              'Business description',
+              "loan",
+              "Loan details",
               <>
-                {answers.businessName || 'No business name'} · {regionShort(answers.region) || '—'}
+                Loan amount {answers.amount ? amount : "—"} · {months}
                 <br />
-                {answers.tradeActivity || '—'}
+                Moratorium: {moratoriumChoice(Number(answers.moratorium))}
                 <br />
-                In business: {answers.tradingSince || '—'} · Location: {answers.tradeLocation || '—'}
+                Purpose: {answers.purpose || "—"}
+                <br />
+                Lives in Guyana:{" "}
+                {answers.residesInGuyana ? "Yes" : "Not confirmed"}
               </>,
             )}
             {summary(
-              'loan',
-              'Loan details',
+              "bank",
+              "Bank information",
               <>
-                Loan amount {answers.amount ? amount : '—'} · {months}
-                <br />
-                Purpose: {answers.purpose || '—'}
-              </>,
-            )}
-            {summary(
-              'proof',
-              'Proof of business',
-              <>
-                Proof of business: {missing.includes('Trading Photo') ? 'not on file yet' : 'on file'}
-                <br />
-                Identity document: {missing.includes('Identity') ? 'not on file yet' : 'on file'}
-              </>,
-              missing.length ? <Pill tone="amber">Not on file yet</Pill> : <Pill tone="green">Complete</Pill>,
-            )}
-            {summary(
-              'bank',
-              'Bank information',
-              <>
-                {answers.bank || '—'}
-                {branchCode ? ` · ${branchCode}` : ''}
-                {answers.accountNo ? ` · •••• ${answers.accountNo.replace(/\s/g, '').slice(-4)}` : ''}
+                {answers.bank || "—"}
+                {answers.accountType ? ` · ${answers.accountType}` : ""}
+                {branchCode ? ` · ${branchCode}` : ""}
+                {answers.accountNo
+                  ? ` · •••• ${answers.accountNo.replace(/\s/g, "").slice(-4)}`
+                  : ""}
                 {answers.holder && (
                   <>
                     <br />
@@ -681,20 +1009,52 @@ export function QuickApplyPage() {
               </>,
             )}
           </div>
+          <section
+            aria-label="Declarations"
+            className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+          >
+            <SectionTitle>Consent</SectionTitle>
+            <Check
+              checked={answers.consentGiven}
+              onChange={set("consentGiven")}
+            >
+              {CONSENT_TEXT}
+            </Check>
+            {reviewErrs.consentGiven && (
+              <div className="text-[12.5px] font-semibold text-rose-600">
+                {reviewErrs.consentGiven}
+              </div>
+            )}
+            <Check
+              checked={answers.warningAcknowledged}
+              onChange={set("warningAcknowledged")}
+            >
+              {FALSE_INFORMATION_WARNING}
+            </Check>
+            {reviewErrs.warningAcknowledged && (
+              <div className="text-[12.5px] font-semibold text-rose-600">
+                {reviewErrs.warningAcknowledged}
+              </div>
+            )}
+            <p className="text-xs text-slate-500">
+              You cannot edit the application after you submit it. Submitting is
+              not approval — a person at GDB decides.
+            </p>
+          </section>
           <Footer>
-            <QButton kind="secondary" back onClick={() => goTo('bank')}>
+            <QButton kind="secondary" back onClick={() => goTo("bank")}>
               Back
             </QButton>
             <QButton
-              disabled={issues.length > 0}
-              onClick={() => {
-                setError(null);
-                setConfirmTried(false);
-                setConfirming(true);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
+              disabled={
+                issues.length > 0 ||
+                !answers.consentGiven ||
+                !answers.warningAcknowledged
+              }
+              next
+              onClick={() => void submit()}
             >
-              Continue to submit
+              Submit application
             </QButton>
           </Footer>
         </>
@@ -702,62 +1062,39 @@ export function QuickApplyPage() {
     } else {
       body = (
         <>
-          <SecHead title={current.title} meta={meta} intro={current.blurb} />
+          <SecHead
+            index={railIndex}
+            title={current.title}
+            intro={current.blurb}
+          />
+          {notice && !error && <Banner kind="info" title={notice} />}
           {error && <Banner kind="error" title={error} />}
 
-          {step === 'about' && (
+          {step === "business" && (
             <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <QReadOnly label="Full legal name" value={user?.full_name} source="e-ID" />
-                <QField label="Date of birth" required>
-                  <input type="date" value={answers.dob} onChange={(e) => set('dob')(e.target.value)} className={inputClass()} />
-                </QField>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <QReadOnly label="e-ID number" value={user?.eid} source="e-ID" />
-                <QField label="National ID number" required>
-                  <input
-                    value={answers.nationalId}
-                    onChange={(e) => set('nationalId')(e.target.value)}
-                    placeholder="As printed on your National ID"
-                    className={inputClass()}
-                  />
-                </QField>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <QField label="Your phone number">
-                  <input
-                    type="tel"
-                    value={answers.phone}
-                    onChange={(e) => set('phone')(e.target.value)}
-                    placeholder="+592 600 0000"
-                    className={inputClass()}
-                  />
-                </QField>
-                {(profile?.region || profile?.village_or_town) && (
-                  <QReadOnly
-                    label="Where do you live?"
-                    value={[profile?.village_or_town, profile?.region].filter(Boolean).join(', ')}
-                    source="Profile"
-                  />
-                )}
-              </div>
-            </>
-          )}
-
-          {step === 'business' && (
-            <>
+              <YourDetails
+                user={user}
+                profile={profile}
+                dob={answers.dob}
+                askDob={!dobOnFile}
+                onDob={set("dob")}
+              />
               <div className="grid gap-4 md:grid-cols-2">
                 <QField label="Business name (optional)">
                   <input
                     value={answers.businessName}
-                    onChange={(e) => set('businessName')(e.target.value)}
+                    onChange={(e) => set("businessName")(e.target.value)}
                     placeholder="The name you trade under, if you have one"
                     className={inputClass()}
                   />
                 </QField>
                 <QField label="Which region do you do business in?" required>
-                  <QSelect value={answers.region} onChange={set('region')} options={REGIONS} placeholder="Choose a region" />
+                  <QSelect
+                    value={answers.region}
+                    onChange={set("region")}
+                    options={REGIONS}
+                    placeholder="Choose a region"
+                  />
                 </QField>
               </div>
               <QField
@@ -766,42 +1103,282 @@ export function QuickApplyPage() {
                 helpFirst
                 help="For example: vegetables at the market, phone repairs, or hair braiding from home."
               >
-                <QTextArea value={answers.tradeActivity} onChange={set('tradeActivity')} />
-              </QField>
-              <QField label="How long have you been in business?" required>
-                <Chips
-                  label="How long have you been in business?"
-                  options={terms.trading_since}
-                  value={answers.tradingSince}
-                  onChange={set('tradingSince')}
+                <QTextArea
+                  value={answers.tradeActivity}
+                  onChange={set("tradeActivity")}
                 />
               </QField>
-              <QField label="Business location" required help="Choose Mobile if you move around to sell or work.">
-                <Chips
+              <div className="grid gap-4 lg:grid-cols-2">
+                <QField label="How long have you been in business?" required>
+                  <Chips
+                    label="How long have you been in business?"
+                    options={terms.trading_since}
+                    value={answers.tradingSince}
+                    onChange={set("tradingSince")}
+                  />
+                </QField>
+                <QField
                   label="Business location"
-                  options={terms.trade_locations}
-                  value={answers.tradeLocation}
-                  onChange={set('tradeLocation')}
+                  required
+                  help="Choose Mobile if you move around to sell or work."
+                >
+                  <Chips
+                    label="Business location"
+                    options={terms.trade_locations}
+                    value={answers.tradeLocation}
+                    onChange={set("tradeLocation")}
+                  />
+                </QField>
+              </div>
+
+              <QField
+                label="Where is your business?"
+                required
+                helpFirst
+                help="Search for it, click the map, or drag the pin to the exact spot. Use your current location if you are there now."
+              >
+                <LocationPicker
+                  lat={answers.lat}
+                  lng={answers.lng}
+                  place={answers.place}
+                  onChange={(p) => {
+                    setError(null);
+                    setAnswers((a) => ({
+                      ...a,
+                      lat: p.lat,
+                      lng: p.lng,
+                      place: p.place ?? a.place,
+                    }));
+                  }}
+                />
+                <input
+                  value={answers.place}
+                  onChange={(e) => set("place")(e.target.value)}
+                  placeholder="Directions or a landmark near it (optional)"
+                  aria-label="Directions or landmark"
+                  className={inputClass()}
                 />
               </QField>
+
+              <QField
+                label="Photos of your business"
+                required
+                helpFirst
+                help="Your stall, shop, goods or tools — at least one. JPG or PNG."
+              >
+                {draft ? (
+                  <DocumentShelf
+                    application={draft.name}
+                    only="Business Photo"
+                    title="Business photos"
+                    onChange={(m) => {
+                      setMissing(m);
+                      setShelfLoaded(true);
+                    }}
+                  />
+                ) : (
+                  <PhotoQueue
+                    files={photos}
+                    onChange={setPhotos}
+                    settings={docSettings}
+                    onError={setError}
+                  />
+                )}
+              </QField>
+
+              <div className="flex flex-col gap-2">
+                <div>
+                  <span className="text-[13px] font-bold text-slate-800">
+                    Two supporting contacts
+                    <span className="ml-0.5 text-rose-500"> *</span>
+                  </span>
+                  <p className="text-xs text-slate-500">
+                    People who know you and your business, and how GDB can reach
+                    them.
+                  </p>
+                </div>
+                {([0, 1] as const).map((i) => (
+                  <div
+                    key={i}
+                    className="grid items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 md:grid-cols-[auto_1fr_1fr_1fr]"
+                  >
+                    <span className="hidden h-10 w-7 items-center justify-center text-sm font-black text-brand-dark md:flex">
+                      {i + 1}
+                    </span>
+                    <QField label="Full name" required>
+                      <input
+                        value={answers.contacts[i].name}
+                        onChange={(e) => setContact(i, "name")(e.target.value)}
+                        placeholder="Their full name"
+                        aria-label={`Supporting contact ${i + 1} name`}
+                        className={inputClass()}
+                      />
+                    </QField>
+                    <QField label="Relationship" required>
+                      <input
+                        value={answers.contacts[i].relationship}
+                        onChange={(e) =>
+                          setContact(i, "relationship")(e.target.value)
+                        }
+                        placeholder="For example: neighbour, supplier"
+                        aria-label={`Supporting contact ${i + 1} relationship`}
+                        className={inputClass()}
+                      />
+                    </QField>
+                    <QField label="Phone number" required>
+                      <PhoneInput
+                        value={answers.contacts[i].phone}
+                        onChange={setContact(i, "phone")}
+                        ariaLabel={`Supporting contact ${i + 1} phone`}
+                        className={inputClass()}
+                      />
+                    </QField>
+                  </div>
+                ))}
+              </div>
             </>
           )}
 
-          {step === 'loan' && (
+          {step === "loan" && (
             <>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <QField
+                  label="How much do you need?"
+                  required
+                  help={`Up to ${gyd(terms.ceiling)}. GDB decides the approved amount.`}
+                  error={
+                    overCap
+                      ? `Exceeds the ${gyd(terms.ceiling)} limit. Enter ${gyd(terms.ceiling)} or less.`
+                      : null
+                  }
+                >
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-base font-black text-slate-400">
+                      G$
+                    </span>
+                    <input
+                      inputMode="numeric"
+                      aria-label="Loan amount in Guyana dollars"
+                      value={
+                        answers.amount
+                          ? Number(answers.amount).toLocaleString("en-US")
+                          : ""
+                      }
+                      onChange={(e) =>
+                        set("amount")(e.target.value.replace(/\D/g, ""))
+                      }
+                      placeholder="150,000"
+                      className={`${inputClass(overCap)} h-12! pl-11! text-xl! font-black tracking-tight`}
+                    />
+                  </div>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    aria-label="Quick amounts"
+                  >
+                    {[0.25, 0.5, 0.75, 1].map((f) => {
+                      const v = Math.round((terms.ceiling * f) / 1000) * 1000;
+                      const on = Number(answers.amount) === v;
+                      return (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => set("amount")(String(v))}
+                          aria-pressed={on}
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                            on
+                              ? "border-brand-dark bg-brand-dark text-white"
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {gyd(v)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </QField>
+                <QField
+                  label="Repayment term"
+                  required
+                  help={`Choose ${termList(terms.term_options)} months. Equal monthly instalments, ${terms.rate_of_interest}% interest.`}
+                >
+                  <div
+                    className="grid grid-cols-4 gap-2"
+                    role="radiogroup"
+                    aria-label="Repayment term in months"
+                  >
+                    {terms.term_options.map((m) => {
+                      const on = answers.term === String(m);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          aria-label={`${m} month${m === 1 ? "" : "s"}`}
+                          onClick={() => set("term")(String(m))}
+                          className={`flex h-12 flex-col items-center justify-center rounded-lg border transition-all ${
+                            on
+                              ? "border-brand-dark bg-brand-dark text-white shadow-sm shadow-emerald-950/20"
+                              : "border-slate-300 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
+                          }`}
+                        >
+                          <span
+                            className={`text-base font-black leading-none ${on ? "text-amber-300" : ""}`}
+                          >
+                            {m}
+                          </span>
+                          <span
+                            className={`mt-0.5 text-[10px] font-semibold ${on ? "text-emerald-100" : "text-slate-400"}`}
+                          >
+                            months
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </QField>
+              </div>
               <QField
-                label="Loan amount (GYD)"
+                label="Moratorium"
                 required
-                help={`Up to ${gyd(terms.ceiling)}. GDB decides the approved amount.`}
-                error={overCap ? `Exceeds the ${gyd(terms.ceiling)} limit. Enter ${gyd(terms.ceiling)} or less.` : null}
+                help="How long to wait, after the funds are released, before your first instalment."
               >
-                <input
-                  inputMode="numeric"
-                  value={answers.amount ? Number(answers.amount).toLocaleString('en-US') : ''}
-                  onChange={(e) => set('amount')(e.target.value.replace(/\D/g, ''))}
-                  placeholder="For example: 150,000"
-                  className={inputClass(overCap)}
-                />
+                <div
+                  className="grid grid-cols-3 gap-2 sm:max-w-md"
+                  role="radiogroup"
+                  aria-label="Moratorium in months"
+                >
+                  {(terms.moratorium_options ?? [1, 2, 3]).map((m) => {
+                    const on = answers.moratorium === String(m);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        aria-label={`${m} month${m === 1 ? "" : "s"} moratorium`}
+                        onClick={() => set("moratorium")(String(m))}
+                        className={`flex h-12 flex-col items-center justify-center rounded-lg border transition-all ${
+                          on
+                            ? "border-brand-dark bg-brand-dark text-white shadow-sm shadow-emerald-950/20"
+                            : "border-slate-300 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <span className={`text-base font-black leading-none ${on ? "text-amber-300" : ""}`}>
+                          {m}
+                        </span>
+                        <span className={`mt-0.5 text-[10px] font-semibold ${on ? "text-emerald-100" : "text-slate-400"}`}>
+                          month{m === 1 ? "" : "s"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {Number(answers.moratorium) > 0 && (
+                  <p className="mt-1.5 text-xs font-semibold text-emerald-800">
+                    {firstRepaymentLine(Number(answers.moratorium))}
+                  </p>
+                )}
               </QField>
               <QField
                 label="Purpose of the loan"
@@ -809,44 +1386,45 @@ export function QuickApplyPage() {
                 helpFirst
                 help="What you will use the money for, and how it helps your business."
               >
-                <QTextArea value={answers.purpose} onChange={set('purpose')} />
+                <QTextArea value={answers.purpose} onChange={set("purpose")} />
               </QField>
-              <QField label="Repayment term" required help="Equal monthly instalments. 0% interest.">
-                <QSelect
-                  value={answers.term}
-                  onChange={set('term')}
-                  options={termOptions(terms.max_term).map((m): [string, string] => [String(m), `${m} month${m === 1 ? '' : 's'}`])}
-                  placeholder="Choose a term"
-                />
-              </QField>
-            </>
-          )}
-
-          {step === 'proof' && draft && (
-            <>
-              <QField
-                label="Proof of business"
-                helpFirst
-                help="Photos of your goods, tools or workspace, or anything else that shows the business is running."
+              {monthly && !overCap && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-gradient-to-r from-amber-50 to-white px-4 py-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                      You would repay about
+                    </p>
+                    <p className="text-lg font-black tracking-tight text-slate-900">
+                      {monthly}{" "}
+                      <span className="text-sm font-semibold text-slate-500">
+                        / month
+                      </span>
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    for {months} · total {gyd(amt)} · no interest
+                  </p>
+                </div>
+              )}
+              <Check
+                checked={answers.residesInGuyana}
+                onChange={set("residesInGuyana")}
               >
-                <DocumentShelf application={draft.name} only="Trading Photo" title="Proof of business" onChange={setMissing} />
-              </QField>
-              <QField label="Any receipts or invoices (optional)" helpFirst help="From suppliers or customers, if you keep them.">
-                <DocumentShelf application={draft.name} only="Receipts or Records" title="Receipts or invoices" />
-              </QField>
-              <QField label="Identity document" helpFirst help="Identity evidence, where requested.">
-                <DocumentShelf application={draft.name} only="Identity" title="Identity document" />
-              </QField>
+                <b className="font-bold text-slate-900">
+                  I confirm I have been residing in Guyana for the last 12 months or more.
+                </b>
+              </Check>
             </>
           )}
 
-          {step === 'bank' && (
+          {step === "bank" && (
             <>
               <PayoutAccount
                 value={{
                   bank: answers.bank,
                   accountNo: answers.accountNo,
                   branchCode,
+                  branch: answers.branch,
                   holder: answers.holder,
                   confirmNo: answers.confirmNo,
                   manual: answers.manualAccount,
@@ -858,6 +1436,7 @@ export function QuickApplyPage() {
                   setAnswers((a) => ({
                     ...a,
                     bank: next.bank,
+                    branch: next.branch,
                     accountNo: next.accountNo,
                     holder: next.holder,
                     confirmNo: next.confirmNo,
@@ -866,16 +1445,36 @@ export function QuickApplyPage() {
                   setBranchCode(next.branchCode);
                 }}
               />
-              <p className="text-[12.5px] text-ql-muted">GDB checks the account before any payment is released.</p>
+              <QField label="Type of account" required>
+                <Chips
+                  label="Type of account"
+                  options={[...ACCOUNT_TYPES]}
+                  value={answers.accountType}
+                  onChange={(v) =>
+                    set("accountType")(v as QuickAnswers["accountType"])
+                  }
+                />
+              </QField>
+              <p className="text-[12.5px] text-ql-muted">
+                GDB checks the account before any payment is released.
+              </p>
             </>
           )}
 
           <Footer>
-            <QButton kind="secondary" back onClick={() => goTo(QUICK_STEPS[Math.max(index - 1, 0)].id)}>
+            <QButton
+              kind="secondary"
+              back
+              onClick={() => goTo(QUICK_STEPS[Math.max(index - 1, 0)].id)}
+            >
               Back
             </QButton>
-            <QButton disabled={busy} onClick={() => void goNext()}>
-              {busy ? 'Saving…' : step === 'bank' ? 'Save and review' : 'Save and continue'}
+            <QButton disabled={busy} onClick={() => void goNext()} next>
+              {busy
+                ? "Saving…"
+                : step === "bank"
+                  ? "Save and review"
+                  : "Save and continue"}
             </QButton>
           </Footer>
         </>
@@ -884,31 +1483,300 @@ export function QuickApplyPage() {
 
     return (
       <div className="flex flex-col gap-4">
-        <StepRail
-          steps={RAIL_STEPS}
-          current={step}
-          stateOf={stateOf}
-          canOpen={(id) => !busy && QUICK_STEPS.findIndex((s) => s.id === id) <= furthest}
-          onOpen={(id) => {
-            setTab('app');
-            void jumpTo(QUICK_STEPS.findIndex((s) => s.id === id));
-          }}
-        />
-        <Tabs
-          items={[
-            ['app', 'Your application'],
-            ['docs', 'Documents'],
-          ]}
-          value={tab}
-          onChange={(v) => {
-            setError(null);
-            setTab(v);
-          }}
-        />
-        <Panel>{body}</Panel>
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-xs sm:px-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-gdb-goldleaf">
+                Quick Loan application
+              </p>
+              <p className="text-[13px] font-bold text-slate-800">
+                {tab === "docs"
+                  ? "Your documents"
+                  : `Step ${railIndex} of ${RAIL_STEPS.length} · ${current.title}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {saveState}
+              {draft && (
+                <Tabs
+                  items={[
+                    ["app", "Application"],
+                    ["docs", "Documents"],
+                  ]}
+                  value={tab}
+                  onChange={(v) => {
+                    setError(null);
+                    setTab(v);
+                  }}
+                />
+              )}
+            </div>
+          </div>
+          <StepRail
+            steps={RAIL_STEPS}
+            current={step}
+            stateOf={stateOf}
+            canOpen={(id) =>
+              !busy && QUICK_STEPS.findIndex((s) => s.id === id) <= furthest
+            }
+            onOpen={(id) => {
+              setTab("app");
+              void jumpTo(QUICK_STEPS.findIndex((s) => s.id === id));
+            }}
+          />
+        </div>
+
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_272px]">
+          <Panel>{body}</Panel>
+
+          {/* What they are applying for, always in view — so no step is
+              answered without the amount and its monthly cost in front of them. */}
+          <aside
+            className="flex flex-col gap-3 lg:sticky lg:top-20"
+            aria-label="Your Quick Loan"
+          >
+            <div className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+              <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-60" />
+              <div className="relative px-4 py-3.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300/90">
+                  Your Quick Loan
+                </p>
+                <p
+                  className={`mt-0.5 font-black tracking-tight ${amt > 0 ? "text-2xl text-amber-300" : "text-base text-white/70"}`}
+                >
+                  {amt > 0 ? gyd(amt) : "Amount not set yet"}
+                </p>
+                <p className="text-[11px] text-emerald-200">
+                  Up to {gyd(terms.ceiling)} · GDB decides the approved amount
+                </p>
+              </div>
+              <dl className="relative grid grid-cols-2 border-t border-white/10 bg-black/20">
+                <div className="border-r border-white/10 px-4 py-2.5">
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/90">
+                    Term
+                  </dt>
+                  <dd className="text-sm font-bold">{termN ? months : "—"}</dd>
+                </div>
+                <div className="px-4 py-2.5">
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/90">
+                    Monthly{Number(answers.moratorium) ? ` · first in ${Number(answers.moratorium) + 1} months` : ""}
+                  </dt>
+                  <dd className="text-sm font-bold">
+                    {monthly && !overCap ? `≈ ${monthly}` : "—"}
+                  </dd>
+                </div>
+              </dl>
+              {answers.purpose.trim() && (
+                <p className="relative line-clamp-2 border-t border-white/10 px-4 py-2.5 text-xs text-emerald-100">
+                  For: {answers.purpose}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-xs">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-extrabold text-slate-900">
+                  Your progress
+                </p>
+                <span className="text-xs font-bold text-slate-500">
+                  {doneCount} of {sections.length}
+                </span>
+              </div>
+              <Bar pct={(doneCount / sections.length) * 100} />
+              <p className="mt-2 text-[11px] text-slate-500">
+                {draft
+                  ? "Saved to GDB as you go — you can leave and come back."
+                  : "Your draft is saved once you reach Loan details."}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setHelping(true);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="group flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-left transition-colors hover:bg-amber-50"
+            >
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-200">
+                <UsersIcon className="h-4 w-4" />
+              </span>
+              <span>
+                <b className="block text-sm font-extrabold text-slate-900">
+                  Prefer some help?
+                </b>
+                <span className="text-xs text-slate-600">
+                  A GDB field officer can call you and complete it with you.
+                </span>
+              </span>
+            </button>
+          </aside>
+        </div>
       </div>
     );
   };
 
   return <>{screen()}</>;
+}
+
+/** Business photos picked before the draft exists: checked against the
+ *  server's published rules now, uploaded when Loan details is saved. */
+function PhotoQueue({
+  files,
+  onChange,
+  settings,
+  onError,
+}: {
+  files: File[];
+  onChange: (next: File[]) => void;
+  settings: DocumentSettings | null;
+  onError: (message: string | null) => void;
+}) {
+  const accepts =
+    settings?.accepts_by_type?.["Business Photo"] ?? ".jpg,.jpeg,.png";
+  const allowed = accepts.split(",").map((e) => e.trim().toLowerCase());
+  const add = (picked: FileList | null) => {
+    if (!picked) return;
+    const next = [...files];
+    for (const f of Array.from(picked)) {
+      const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+      if (!allowed.includes(ext)) {
+        onError(`${f.name}: use ${formatsLabel(accepts)}.`);
+        continue;
+      }
+      if (settings && f.size > settings.max_bytes) {
+        onError(
+          `${f.name} is too large. The limit is ${Math.round(settings.max_bytes / 1024 / 1024)} MB.`,
+        );
+        continue;
+      }
+      next.push(f);
+    }
+    onChange(next);
+  };
+  return (
+    <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/40 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-brand-dark px-3.5 py-2 text-xs font-bold text-white hover:bg-[#022c19]">
+          <input
+            type="file"
+            accept={accepts}
+            multiple
+            className="sr-only"
+            onChange={(e) => {
+              add(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          + Add photos
+        </label>
+        <span className="text-[11px] text-slate-500">
+          {formatsLabel(accepts)} · uploaded to GDB when you save Loan details
+        </span>
+      </div>
+      {files.length > 0 && (
+        <ul
+          className="mt-2.5 flex flex-wrap gap-1.5"
+          aria-label="Photos waiting to upload"
+        >
+          {files.map((f, i) => (
+            <li
+              key={`${f.name}-${i}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pr-1 pl-2.5 text-xs font-medium text-slate-700"
+            >
+              {f.name}
+              <button
+                type="button"
+                aria-label={`Remove ${f.name}`}
+                onClick={() => onChange(files.filter((x) => x !== f))}
+                className="grid h-5 w-5 place-items-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Who is applying — already known, so shown rather than asked: their name,
+ *  e-ID or TIN, phone and date of birth from their account and profile, and the
+ *  identity document on file. A date of birth the account lacks is the one
+ *  thing asked here (`askDob`). */
+function YourDetails({
+  user,
+  profile,
+  dob,
+  askDob,
+  onDob,
+}: {
+  user: { full_name?: string; eid?: string | null; tin?: string | null } | null;
+  profile: CitizenProfile | null;
+  dob: string;
+  askDob?: boolean;
+  onDob?: (v: string) => void;
+}) {
+  const phone = profile?.phone || profile?.verified_phone || "";
+  const facts: [string, ReactNode][] = [
+    ["Name", user?.full_name || "—"],
+    [
+      user?.eid ? "e-ID" : "TIN",
+      <span className="font-mono">{user?.eid || user?.tin || "—"}</span>,
+    ],
+    ["Phone", phone ? formatPhone(phone) : "—"],
+  ];
+  return (
+    <section
+      className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4"
+      aria-label="Your details"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">
+          Your details
+        </p>
+        <span className="text-[11px] text-slate-500">
+          From your account. To change them, go to{" "}
+          <a href="/profile" className="font-bold text-brand hover:underline">
+            My details
+          </a>
+          .
+        </span>
+      </div>
+      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+        {facts.map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              {k}
+            </dt>
+            <dd className="text-sm font-bold text-slate-900">{v}</dd>
+          </div>
+        ))}
+        <div>
+          <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Date of birth{askDob && <span className="text-rose-500"> *</span>}
+          </dt>
+          {askDob && onDob ? (
+            <dd>
+              <input
+                type="date"
+                value={dob}
+                onChange={(e) => onDob(e.target.value)}
+                aria-label="Date of birth"
+                className={`${inputClass()} mt-0.5 h-9!`}
+              />
+            </dd>
+          ) : (
+            <dd className="text-sm font-bold text-slate-900">
+              {dob ? formatDate(dob) : "—"}
+            </dd>
+          )}
+        </div>
+      </dl>
+      <div className="mt-3 border-t border-emerald-200/70 pt-3">
+        <DocumentShelf only="Identity" title="Identity document" />
+      </div>
+    </section>
+  );
 }

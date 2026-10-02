@@ -587,6 +587,30 @@ def disburse_loan(application: str, amount=None):
 
 
 @frappe.whitelist()
+def sme_loan_terms():
+	"""The SME Direct Loan's ceiling, longest term and rate, as the server will
+	enforce them — read off the standard Loan Product, which lending refuses
+	past. Any signed-in user; nothing here is private."""
+	from gdb_bank.install import LOAN_PRODUCT_NAME
+	from gdb_bank.utils import policy
+
+	_session_user()
+	product = frappe.db.get_value(
+		"Loan Product",
+		{"product_name": LOAN_PRODUCT_NAME},
+		["maximum_loan_amount", "rate_of_interest"],
+		as_dict=True,
+	)
+	return {
+		"ceiling": flt(product.maximum_loan_amount) if product else policy.sme_loan_ceiling(),
+		"max_term": max(policy.sme_loan_terms()),
+		"term_options": policy.sme_loan_terms(),
+		"moratorium_options": policy.moratorium_options(),
+		"rate_of_interest": flt(product.rate_of_interest) if product else policy.rate_of_interest(),
+	}
+
+
+@frappe.whitelist()
 def quick_loan_terms():
 	"""The Quick Loan's ceiling, longest term, rate and closed answers, as the
 	server will enforce them. Any signed-in user; nothing here is private."""
@@ -631,18 +655,17 @@ def cancel_field_officer_request(name: str):
 
 
 @frappe.whitelist()
-def decide_quick_loan(application: str, action: str, remarks: str | None = None):
-	"""Approve-and-pay, or decline, a Quick Loan. UNDERWRITER OR DISBURSEMENT OFFICER.
-
-	The one path on which the officer who decides also pays — GDB's exception for
-	the Quick Loan, with the controls that replace the four eyes set out in
-	services/quick_loan. `action` is approve | decline; `remarks` is required.
-	"""
-	from gdb_bank.services import quick_loan
-	from gdb_bank.utils.session import _require_underwriter_or_disbursement
-
-	quick_loan.decide(_require_underwriter_or_disbursement(), application, action, remarks)
-	return loan_account(application)
+def decide_quick_loan(application: str, action: str | None = None, remarks: str | None = None):
+	"""RETIRED 2026-10-02. A Quick Loan follows the same road as every GDB loan:
+	review_loan, a Letter of Offer the borrower signs, then book_loan and
+	disburse_loan by a different officer. Kept so an old client is told why,
+	rather than answered with "method not found"."""
+	frappe.throw(
+		_(
+			"Quick Loans now follow the standard process: approve the application, issue the "
+			"Letter of Offer, and once the borrower has signed, a Disbursement Officer books and pays."
+		)
+	)
 
 
 # --------------------------------------------------------------------------
@@ -666,6 +689,9 @@ BANK_ACCOUNT_FIELDS = [
 	"bank_account_no",
 	"branch_code",
 	"account_name",
+	# Checking or Savings — ERPNext's Bank Account Type (install.BANK_ACCOUNT_TYPES).
+	"account_type",
+	"gdb_bank_branch",
 	# The verification check, recorded the way plan.md 6.1 asks every external
 	# check to be recorded: result, source, timestamp, reference.
 	"gdb_verification_status",
@@ -679,7 +705,19 @@ BANK_ACCOUNT_FIELDS = [
 def bank_options():
 	"""Banks a citizen may nominate. Names only — nothing else is theirs to see."""
 	_session_user()
-	return frappe.get_all("Bank", fields=["name"], order_by="name asc", pluck="name")
+	return frappe.get_all("Bank", filters={"gdb_enabled": 1}, fields=["name"], order_by="name asc", pluck="name")
+
+
+@frappe.whitelist()
+def bank_branches(bank: str):
+	"""A bank's branches, as the payout form lists them."""
+	_session_user()
+	return frappe.get_all(
+		"GDB Bank Branch",
+		filters={"bank": bank},
+		fields=["name", "branch_name", "routing_number"],
+		order_by="sort_order asc, branch_name asc",
+	)
 
 
 @frappe.whitelist()
@@ -702,24 +740,44 @@ def save_bank_details(
 	branch_code: str | None = None,
 	account_name: str | None = None,
 	acting: str | None = None,
+	account_type: str | None = None,
+	branch: str | None = None,
 ):
 	"""Record (or update) where this citizen should be paid.
 
 	One account per citizen: a second call replaces the first rather than
 	adding another, so a payment run can never find two destinations for the
 	same person and have to guess.
+
+	`account_type` is Checking or Savings. Optional, because the SME form does
+	not ask it; when given it must be one of the two.
+
+	`branch` is a GDB Bank Branch of that bank; its routing number becomes the
+	branch code. Without one, `branch_code` is recorded as typed.
 	"""
 	user = subject_for(acting)
 	bank = (bank or "").strip()
 	bank_account_no = (bank_account_no or "").strip()
 	branch_code = (branch_code or "").strip()
 
-	if not bank or not frappe.db.exists("Bank", bank):
+	if not bank or not frappe.db.get_value("Bank", bank, "gdb_enabled"):
 		frappe.throw(_("Choose a bank from the list."))
+	branch = (branch or "").strip() or None
+	if branch:
+		row = frappe.db.get_value("GDB Bank Branch", branch, ["bank", "routing_number"], as_dict=True)
+		if not row or row.bank != bank:
+			frappe.throw(_("Choose a branch of {0}.").format(bank))
+		branch_code = row.routing_number or ""
+	branch_fields = {"gdb_bank_branch": branch} if branch else {}
 	if not bank_account_no:
 		frappe.throw(_("Account number is required."))
 	if not bank_account_no.isdigit():
 		frappe.throw(_("Account number should contain digits only."))
+	from gdb_bank.install import BANK_ACCOUNT_TYPES
+
+	account_type = (account_type or "").strip() or None
+	if account_type and account_type not in BANK_ACCOUNT_TYPES:
+		frappe.throw(_("Choose Checking or Savings."))
 
 	customer = _get_or_create_customer(user)
 	full_name = frappe.utils.get_fullname(user)
@@ -758,6 +816,8 @@ def save_bank_details(
 					"bank_account_no": bank_account_no,
 					"branch_code": branch_code,
 					"account_name": holder,
+					**({"account_type": account_type} if account_type else {}),
+					**branch_fields,
 					**verification,
 				}
 			)
@@ -777,6 +837,8 @@ def save_bank_details(
 					"bank_account_no": bank_account_no,
 					"branch_code": branch_code,
 					"is_company_account": 0,
+					**({"account_type": account_type} if account_type else {}),
+					**branch_fields,
 					**verification,
 				}
 			)

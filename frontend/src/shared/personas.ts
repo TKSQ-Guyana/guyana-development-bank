@@ -46,3 +46,8 @@ export function deskFor(user: Whoami | null | undefined): string | null {
   if (user?.is_finance) return '/finance/reconciliation';
   return null;
 }
+
+/** A role as staff read it. The role keeps its system name ("Loan Underwriter")
+ *  so no permission moves; only what people see is renamed (GDB, 2026-10-02). */
+const ROLE_LABELS: Record<string, string> = { 'Loan Underwriter': 'Loan Officer' };
+export const roleLabel = (role: string): string => ROLE_LABELS[role] ?? role;
