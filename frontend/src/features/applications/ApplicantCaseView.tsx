@@ -11,7 +11,9 @@ import { Notice } from '../../components/apply/fields';
 import { Button } from '../../components/ui/Button';
 import { Card, CardLabel } from '../../components/ui/Card';
 import { Fold } from '../../components/ui/Fold';
+import { Badge } from '../../components/ui/Badge';
 import { StageBadge, Stepper } from '../../components/ui/Stepper';
+import { OFFICER_SUBMITTED, submittedByOfficer } from '../field-officer/model/desk';
 import type { LoanApplication } from '../../types';
 import { formatDate, formatGyd } from '../../utils';
 import { YourPartCard } from '../personal-financials/YourPartCard';
@@ -75,7 +77,10 @@ export function ApplicantCaseView({
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{loan.name}</h1>
-        <StageBadge stage={stage} />
+        <span className="flex flex-wrap gap-2">
+          {submittedByOfficer(loan) && <Badge tone="brand">{OFFICER_SUBMITTED}</Badge>}
+          <StageBadge stage={stage} />
+        </span>
       </div>
 
       <Card>
@@ -107,14 +112,31 @@ export function ApplicantCaseView({
           {mine && (
             <Card>
               <h2 className="mb-2 font-semibold">Not yet submitted</h2>
-              <p className="mb-3 text-sm text-slate-600">
-                {missing && missing.length > 0
-                  ? `You can submit now. GDB will ask for your ${missing.join(', ')} during review.`
-                  : 'Everything GDB expects is attached. Submit when you are ready.'}
-              </p>
-              <Button disabled={busy} onClick={() => void submit()}>
-                {busy ? 'Submitting…' : 'Submit application'}
-              </Button>
+              {loan.product === 'quick' ? (
+                // A Quick Loan is submitted with its terms and the credit-check
+                // consent accepted, which only its own form asks for — a bare
+                // submit here is refused ("Accept the terms to submit.").
+                <>
+                  <p className="mb-3 text-sm text-slate-600">Check it, accept the terms and submit.</p>
+                  <Link
+                    to={`/apply/quick/${loan.name}`}
+                    className="inline-flex rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 hover:bg-brand-dark"
+                  >
+                    Check and submit
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <p className="mb-3 text-sm text-slate-600">
+                    {missing && missing.length > 0
+                      ? `You can submit now. GDB will ask for your ${missing.join(', ')} during review.`
+                      : 'Everything GDB expects is attached. Submit when you are ready.'}
+                  </p>
+                  <Button disabled={busy} onClick={() => void submit()}>
+                    {busy ? 'Submitting…' : 'Submit application'}
+                  </Button>
+                </>
+              )}
             </Card>
           )}
         </>
@@ -156,6 +178,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 /** What was applied for. A group member is sent neither the head's phone nor
  *  income, and a group case has no single applicant income to show. */
 function ApplicationDetails({ loan }: { loan: LoanApplication }) {
+  const quick = loan.product === 'quick';
+  // The Quick Loan form's own answers (sections.trade_*) — the same rows the
+  // underwriter reads on pages/LoanDetail, whoever filled them in.
+  const trade = (key: string) => (loan.sections?.[key] as string | null) || '—';
   return (
     <>
       <Card>
@@ -188,12 +214,24 @@ function ApplicationDetails({ loan }: { loan: LoanApplication }) {
         )}
         {loan.phone && <Row label="Phone" value={loan.phone} />}
         <Row label="Started on" value={formatDate(loan.creation)} />
+        {quick && loan.terms_accepted_on && <Row label="Terms accepted" value={formatDate(loan.terms_accepted_on)} />}
         <div className="py-2 text-sm">
           <span className="text-slate-500">Purpose</span>
           <p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{loan.purpose}</p>
         </div>
       </Card>
-      {loan.stage !== 'Draft' && (
+      {quick && (
+        <Card>
+          <CardLabel>Business</CardLabel>
+          <Row label="Business name" value={loan.business_name || '—'} />
+          <Row label="What the business sells or does" value={trade('trade_activity')} />
+          <Row label="Region" value={trade('trade_region')} />
+          <Row label="In business" value={trade('trading_since')} />
+          <Row label="Business location" value={trade('trade_location')} />
+        </Card>
+      )}
+      {/* The SME plan's sections; a Quick Loan asks none of them. */}
+      {loan.stage !== 'Draft' && !quick && (
         <ApplicationSections
           sections={loan.sections}
           businessStage={loan.business_stage}

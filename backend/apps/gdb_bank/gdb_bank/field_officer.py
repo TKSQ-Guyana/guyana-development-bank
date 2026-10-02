@@ -78,9 +78,13 @@ def hand_off_application(consent: str, name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def submit_assisted_application(consent: str, name: str):
-	"""Submit the applicant's draft to GDB for them. They are told it was."""
-	return service.submit_for(_require_field_officer(), consent, name)
+def submit_assisted_application(consent: str, name: str, accept_terms=None, credit_check_consent=None):
+	"""Submit the applicant's draft to GDB for them. They are told it was.
+	A Quick Loan also needs the applicant's `accept_terms` and
+	`credit_check_consent`, given in front of the officer."""
+	return service.submit_for(
+		_require_field_officer(), consent, name, accept_terms=accept_terms, credit_check_consent=credit_check_consent
+	)
 
 
 @frappe.whitelist()

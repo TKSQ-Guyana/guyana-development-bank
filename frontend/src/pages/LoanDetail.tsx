@@ -17,6 +17,7 @@ import { ApplicationTab } from '../features/underwriting/ApplicationTab';
 import { DecisionDrawer, FieldTaskDrawer, RequestInfoDrawer } from '../features/underwriting/CaseDrawers';
 import { fo } from '../features/field-officer/api';
 import { FieldReports } from '../features/field-officer/FieldReports';
+import { OFFICER_SUBMITTED, submittedByOfficer } from '../features/field-officer/model/desk';
 import type { FieldTask } from '../features/field-officer/types';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -152,6 +153,7 @@ export function LoanDetail() {
             <StageBadge stage={loan.stage} />
             <Badge tone={quick ? 'warning' : 'neutral'}>{quick ? 'Quick Loan' : 'SME Loan'}</Badge>
             {loan.cluster && <Badge tone="brand">Cluster {loan.cluster}</Badge>}
+            {submittedByOfficer(loan) && <Badge tone="brand">{OFFICER_SUBMITTED}</Badge>}
           </div>
           <p className="mt-1 text-sm text-slate-500">
             {[loan.business_name, loan.name].filter(Boolean).join(' · ')}

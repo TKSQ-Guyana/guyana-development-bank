@@ -238,8 +238,12 @@ underwriter review queue. The official name everywhere is
   `security/assist.subject_for`, and the SPA injects it from one allow-list in
   `api.ts` (`setActing`); the officer either submits it for the applicant
   (`submit_assisted_application` — `gdb_submitted_by` records the officer, the
-  applicant is notified, never a Quick Loan) or `hand_off_application`s it
-  back for the applicant to submit; either ends the consent; `GDB Field Task` (site visit /
+  applicant is notified, and every screen tags it "Submitted by Field
+  Officer"; a Quick Loan too since 2026-10-02, but only with the applicant's
+  `accept_terms` + `credit_check_consent` given in front of the officer) or
+  `hand_off_application`s it back for the applicant to submit; either ends
+  the consent. The form is filled INSIDE the officer's applicant page
+  (`/field/assist/:consent/apply/…`, Apply or the Quick Loan form); `GDB Field Task` (site visit /
   reference check raised by the underwriter, photos attached to the task row,
   never the applicant's shelf); and files staged against an information
   request that only the applicant sends (`confirm_document` refuses

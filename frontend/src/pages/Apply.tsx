@@ -181,9 +181,10 @@ interface Saved {
 }
 
 /** A GDB Field Officer filling this form WITH the applicant, under their
- *  consent (features/field-officer/AssistedApply). The form is the same one;
- *  what changes is whose name it shows, where its URLs live, and that it ends
- *  in handing the draft back rather than submitting it. */
+ *  consent (features/field-officer/AssistConsentPage). The form is the same one;
+ *  what changes is whose name it shows, where its URLs live, and how it ends:
+ *  sent back for the applicant to submit, or submitted by the officer for
+ *  them — tagged "Submitted by Field Officer" wherever the case is shown. */
 export interface AssistMode {
   consent: string;
   applicantName: string | null;
@@ -370,11 +371,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       }
       if (loan.product === 'quick') {
         // A Quick Loan draft is resumed on its own form.
-        if (assist) {
-          setError('Quick Loan drafts are completed by the applicant.');
-          return;
-        }
-        navigate(`/apply/quick/${name}`, { replace: true });
+        navigate(assist ? `${assist.base}/quick/${name}` : `/apply/quick/${name}`, { replace: true });
         return;
       }
       setDraft(loan);
@@ -1246,10 +1243,15 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           <CheckIcon className="h-7 w-7" />
         </div>
         <h1 className="text-2xl font-bold text-slate-900">
-          {assistDone.submitted ? 'Submitted for the applicant' : 'Sent to applicant'}
+          {assistDone.submitted
+            ? `Submitted to GDB for ${assist.applicantName ?? 'the applicant'}`
+            : `Sent to ${assist.applicantName ?? 'the applicant'}`}
         </h1>
         <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-          Reference {assistDone.name}. {assistDone.submitted ? 'The applicant has been told.' : 'Waiting for the applicant to submit.'}
+          Reference {assistDone.name}.{' '}
+          {assistDone.submitted
+            ? 'They have been notified, and it shows on their account as submitted by you.'
+            : 'Not submitted to GDB yet — it reaches GDB when they submit it from their account.'}
         </p>
         <button
           type="button"
@@ -1287,15 +1289,18 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={() => void exitToApplications()}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition-colors hover:text-brand disabled:opacity-50"
-      >
-        <ArrowRightIcon className="h-4 w-4 rotate-180" />
-        {assist ? 'Back' : 'My applications'}
-      </button>
+      {/* Assisted, the officer's case page around this form has the way back. */}
+      {!assist && (
+        <button
+          type="button"
+          onClick={() => void exitToApplications()}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition-colors hover:text-brand disabled:opacity-50"
+        >
+          <ArrowRightIcon className="h-4 w-4 rotate-180" />
+          My applications
+        </button>
+      )}
 
       {/* Every step is visible from the start, because an applicant deciding
           whether to begin needs to see what the whole thing asks. */}
@@ -1357,11 +1362,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       )}
 
       <div className={`min-w-0 ${tab === 'application' ? '' : 'hidden'}`}>
-        {assist && (
-          <div className="mb-4">
-            <Notice tone="warn">Assisting {assist.applicantName}</Notice>
-          </div>
-        )}
         {!assist && draft?.handed_off_on && (
           <div className="mb-4">
             <Notice tone="info">Prepared with {draft.assisted_by_name ?? 'a GDB Field Officer'}. Check it and submit.</Notice>
@@ -2378,7 +2378,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     onClick={() => void (assist ? finishAssisted(true) : onFinalSubmit())}
                     className="rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
                   >
-                    {busy ? 'Submitting…' : assist ? 'Submit for applicant' : 'Submit application'}
+                    {busy ? 'Submitting…' : assist ? 'Submit to GDB' : 'Submit application'}
                   </button>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { Card } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { StageBadge } from '../components/ui/Stepper';
+import { OFFICER_SUBMITTED, submittedByOfficer } from '../features/field-officer/model/desk';
 import { ApplicationsIcon, PlusIcon } from '../components/ui/icons';
 import type { CitizenProfile, ClusterInvitation, LoanApplication } from '../types';
 import { formatDate, formatGyd } from '../utils';
@@ -328,7 +329,9 @@ export function Applications() {
         ? loan.handed_off_on
           ? `Prepared with ${loan.assisted_by_name ?? 'a GDB Field Officer'} · check and submit`
           : `6 of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(loan.modified)}`
-        : loan.stage_label,
+        : submittedByOfficer(loan)
+          ? `${OFFICER_SUBMITTED} · ${loan.stage_label}`
+          : loan.stage_label,
       amount: loan.loan_amount,
       flag: !draft && attention ? attention.tag : undefined,
       primary: draft

@@ -70,7 +70,7 @@ const ACTING_METHODS = new Set([
 
 // ponytail: one module-level consent rather than a prop threaded through the
 // wizard and every shelf component it renders. Set only by the assisted-mode
-// page (features/field-officer/AssistedApply), which clears it on unmount.
+// page (features/field-officer/AssistConsentPage), which clears it on unmount.
 let acting: string | null = null;
 
 /** Act for the applicant who granted `consent`, or stop (null). */

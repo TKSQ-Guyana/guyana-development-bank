@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { call } from '../../api';
+import { REGIONS } from '../../components/apply/cluster';
 import { Button } from '../../components/ui/Button';
 import { Drawer } from '../../components/ui/Drawer';
 import type { LoanApplication } from '../../types';
@@ -255,6 +256,7 @@ export function FieldTaskDrawer({
   const [instructions, setInstructions] = useState('');
   const [due, setDue] = useState('');
   const [address, setAddress] = useState('');
+  const [region, setRegion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -272,10 +274,14 @@ export function FieldTaskDrawer({
         instructions,
         due_date: due || undefined,
         address: address || undefined,
+        // Empty: the server takes the applicant's own region, and refuses
+        // when they have none on file — which is when this is needed.
+        region: region || undefined,
       });
       setInstructions('');
       setDue('');
       setAddress('');
+      setRegion('');
       onSent();
       onClose();
     } catch (err) {
@@ -319,6 +325,17 @@ export function FieldTaskDrawer({
       <label className="mt-3 block text-sm font-medium text-slate-700">
         Due
         <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={FIELD} />
+      </label>
+      <label className="mt-3 block text-sm font-medium text-slate-700">
+        Region <span className="font-normal text-slate-400">(defaults to the applicant's)</span>
+        <select value={region} onChange={(e) => setRegion(e.target.value)} className={FIELD}>
+          <option value="">Applicant's region</option>
+          {REGIONS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
       </label>
       {kind === 'Site Visit' && (
         <label className="mt-3 block text-sm font-medium text-slate-700">

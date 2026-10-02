@@ -58,9 +58,6 @@ const FindApplicant = page(() =>
 const AssistConsentPage = page(() =>
   import('./features/field-officer/AssistConsentPage').then((m) => ({ default: m.AssistConsentPage })),
 );
-const AssistedApply = page(() =>
-  import('./features/field-officer/AssistedApply').then((m) => ({ default: m.AssistedApply })),
-);
 const FieldTaskPage = page(() =>
   import('./features/field-officer/FieldTaskPage').then((m) => ({ default: m.FieldTaskPage })),
 );
@@ -320,35 +317,13 @@ export function App() {
                 </RequireFieldOfficer>
               }
             />
+            {/* The applicant page, with the application form on its own tab
+                (nested routes inside AssistConsentPage). */}
             <Route
-              path="/field/assist/:consent"
+              path="/field/assist/:consent/*"
               element={
                 <RequireFieldOfficer>
                   <AssistConsentPage />
-                </RequireFieldOfficer>
-              }
-            />
-            <Route
-              path="/field/assist/:consent/apply/new"
-              element={
-                <RequireFieldOfficer>
-                  <AssistedApply />
-                </RequireFieldOfficer>
-              }
-            />
-            <Route
-              path="/field/assist/:consent/apply/draft/:pid"
-              element={
-                <RequireFieldOfficer>
-                  <AssistedApply />
-                </RequireFieldOfficer>
-              }
-            />
-            <Route
-              path="/field/assist/:consent/apply/:name"
-              element={
-                <RequireFieldOfficer>
-                  <AssistedApply />
                 </RequireFieldOfficer>
               }
             />

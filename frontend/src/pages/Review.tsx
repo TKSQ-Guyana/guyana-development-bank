@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '../components/ui/Badge';
 import { DataTable } from '../components/ui/DataTable';
 import { Pager } from '../components/ui/Pager';
+import { OFFICER_SUBMITTED, submittedByOfficer } from '../features/field-officer/model/desk';
 import { StageBadge } from '../components/ui/Stepper';
 import { PAGE_LENGTH, useLoanQueue } from '../shared/useLoanQueue';
 import type { LoanApplication, LoanStage } from '../types';
@@ -105,6 +106,11 @@ export function Review() {
                   <Link to={`/loans/${loan.name}`} className="font-medium text-brand hover:underline">
                     {loan.applicant_name}
                   </Link>
+                  {submittedByOfficer(loan) && (
+                    <span className="ml-2">
+                      <Badge tone="brand">{OFFICER_SUBMITTED}</Badge>
+                    </span>
+                  )}
                   <span className="block text-xs text-slate-500">
                     {loan.business_name ? `${loan.business_name} · ` : ''}
                     {loan.name}

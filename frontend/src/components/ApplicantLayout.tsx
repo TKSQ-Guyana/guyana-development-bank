@@ -7,6 +7,7 @@ import {
   LogoutIcon,
   MapPinIcon,
   PaymentsIcon,
+  PlusIcon,
   PortfolioIcon,
   ProfileIcon,
   ClusterIcon,
@@ -47,8 +48,8 @@ const MODULE_TITLES: [string, string][] = [
   ['/field/requests', 'Assist request'],
   ['/field/tasks', 'Field task'],
   ['/field/cases', 'Case'],
-  ['/field/find', 'Find applicant'],
-  ['/field', 'Field desk'],
+  ['/field/find', 'New assisted application'],
+  ['/field', 'Work queue'],
   ['/loans/', 'Application'],
   ['/review', 'Review queue'],
   ['/disbursements', 'Disbursements'],
@@ -96,7 +97,9 @@ export function ApplicantLayout() {
     staffItems.push({ to: '/facilitator', label: 'Groups', icon: <ClusterIcon /> });
   }
   if (user?.is_field_officer) {
-    staffItems.push({ to: '/field', label: 'Field desk', icon: <MapPinIcon /> });
+    // `end`: /field/find is under /field, and only one item should be lit.
+    staffItems.push({ to: '/field', label: 'Work queue', icon: <MapPinIcon />, end: true });
+    staffItems.push({ to: '/field/find', label: 'New application', icon: <PlusIcon /> });
   }
   if (user?.is_platform_admin) {
     staffItems.push({ to: '/admin/users', label: 'Administration', icon: <UsersIcon /> });

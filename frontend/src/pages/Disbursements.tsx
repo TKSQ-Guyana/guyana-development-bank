@@ -71,11 +71,12 @@ const APPLICANT: Column<LoanApplication> = {
 export function Disbursements() {
   const [view, setView] = useState<'queue' | 'file'>('queue');
   const [company, setCompany] = useState<string | null>(null);
+  const [companyError, setCompanyError] = useState<string | null>(null);
 
   useEffect(() => {
     getList<{ name: string }>('Company', { fields: ['name'], limit: 1 })
       .then((rows) => setCompany(rows[0]?.name ?? null))
-      .catch(() => setCompany(null));
+      .catch((err) => setCompanyError(err instanceof Error ? err.message : 'Could not load the company'));
   }, []);
 
   // Four lists, four pages. "Released" is everything with a loan that is no
@@ -114,7 +115,12 @@ export function Disbursements() {
         />
       </div>
 
-      {view === 'file' && <PaymentFile company={company} />}
+      {view === 'file' &&
+        (companyError ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{companyError}</p>
+        ) : (
+          <PaymentFile company={company} />
+        ))}
 
       {view === 'queue' && error && (
         <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>

@@ -8,6 +8,7 @@ import { PayoutAccount } from '../../components/apply/PayoutAccount';
 import { CheckIcon } from '../../components/ui/icons';
 import { FieldOfficerRequest } from './FieldOfficerRequest';
 import { CONSENT_TEXT } from '../../shared/consent';
+import type { AssistMode } from '../../pages/Apply';
 import type { CitizenProfile, LoanApplication } from '../../types';
 import {
   blockerFor,
@@ -74,13 +75,22 @@ const stamp = (d: Date) =>
   `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, ${clock(d)}`;
 const regionShort = (r: string) => r.split(' — ')[0];
 
-export function QuickApplyPage() {
+/** `assist`: a GDB Field Officer filling this form WITH the applicant, under
+ *  their consent (features/field-officer/AssistConsentPage). The same form —
+ *  what changes is whose name it shows, where its URLs live, and that it ends
+ *  in handing the draft back: a Quick Loan's terms are accepted by the
+ *  borrower alone, so the officer never submits one (field_operations.submit_for). */
+export function QuickApplyPage({ assist }: { assist?: AssistMode } = {}) {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user: signedIn } = useAuth();
+  // Whose application this is: assisted, the applicant's — never the officer's.
+  const user = assist ? { full_name: assist.applicantName ?? '', eid: assist.applicantEid } : signedIn;
+  const quickBase = assist ? `${assist.base}/quick` : '/apply/quick';
   const { name: routeName } = useParams<{ name: string }>();
 
   const [terms, setTerms] = useState<QuickLoanTerms | null>(null);
-  const [answers, setAnswers] = useState<QuickAnswers>(EMPTY_ANSWERS);
+  // Assisted, the applicant has already chosen help: the officer is it.
+  const [answers, setAnswers] = useState<QuickAnswers>(assist ? { ...EMPTY_ANSWERS, how: 'self' } : EMPTY_ANSWERS);
   const [branchCode, setBranchCode] = useState('');
   const [step, setStep] = useState<QuickStepId>('eligibility');
   const [tab, setTab] = useState<'app' | 'docs'>('app');
@@ -101,6 +111,8 @@ export function QuickApplyPage() {
   // The separate submit page, reached from Review.
   const [confirming, setConfirming] = useState(false);
   const [confirmTried, setConfirmTried] = useState(false);
+  // Assisted: the draft once it is with the applicant.
+  const [sentBack, setSentBack] = useState<string | null>(null);
   // The draft this page already holds — so the URL moving from /apply/quick to
   // /apply/quick/<name> on the first save is not read as "open another draft".
   const loaded = useRef<string | null>(null);
@@ -139,20 +151,22 @@ export function QuickApplyPage() {
     call<LoanApplication>('gdb_bank.api.loan_detail', { name: routeName })
       .then((loan) => {
         if (loan.status !== 'Draft') {
-          navigate(`/loans/${loan.name}`, { replace: true });
+          navigate(assist ? `/field/cases/${loan.name}` : `/loans/${loan.name}`, { replace: true });
           return;
         }
         if (loan.product !== 'quick') {
-          navigate(`/apply/${loan.name}`, { replace: true });
+          navigate(assist ? `${assist.base}/${loan.name}` : `/apply/${loan.name}`, { replace: true });
           return;
         }
         setDraft(loan);
         setAnswers((a) => ({ ...a, ...fromDraft(loan) }));
-        setStep('proof');
+        // Handed back by a Field Officer: the applicant's part is to check it
+        // and submit, so it opens at Review rather than mid-way.
+        setStep(!assist && loan.handed_off_on ? 'review' : 'proof');
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setBusy(false));
-  }, [routeName, navigate]);
+  }, [routeName, navigate, assist]);
 
   // What is still not on file — Review and the Documents tab report it. The
   // Proof step's own shelf reports it too (onChange below).
@@ -180,7 +194,7 @@ export function QuickApplyPage() {
     setDraft(saved);
     setSavedAt(new Date());
     loaded.current = saved.name;
-    if (routeName !== saved.name) navigate(`/apply/quick/${saved.name}`, { replace: true });
+    if (routeName !== saved.name) navigate(`${quickBase}/${saved.name}`, { replace: true });
     return saved;
   };
 
@@ -274,6 +288,20 @@ export function QuickApplyPage() {
     if (stuck) setError(blockerFor(stuck.id, answers, terms));
   };
 
+  /** Assisted: save, then give it back for the applicant to check and submit. */
+  const handOff = async () => {
+    if (!assist || !window.confirm(`Send to ${user?.full_name || 'the applicant'} to check and submit?`)) return;
+    await run(async () => {
+      const saved = await saveDraft();
+      await call('gdb_bank.field_officer.hand_off_application', { consent: assist.consent, name: saved.name });
+      setSentBack(saved.name);
+    });
+  };
+
+  /** Submit to GDB. Assisted, the officer submits FOR the applicant, who has
+   *  just accepted the terms and the credit check in front of them
+   *  (field_operations.submit_for records it as the officer's act and tells
+   *  the applicant); the applicant's own submit never carries a consent. */
   const submit = async () => {
     setConfirmTried(true);
     if (Object.keys(confirmErrors(answers)).length) return;
@@ -283,11 +311,15 @@ export function QuickApplyPage() {
     try {
       const saved = await saveDraft();
       setSubmitted(
-        await call<LoanApplication>('gdb_bank.api.submit_application', {
-          name: saved.name,
-          accept_terms: 1,
-          credit_check_consent: 1,
-        }),
+        await call<LoanApplication>(
+          assist ? 'gdb_bank.field_officer.submit_assisted_application' : 'gdb_bank.api.submit_application',
+          {
+            ...(assist ? { consent: assist.consent } : {}),
+            name: saved.name,
+            accept_terms: 1,
+            credit_check_consent: 1,
+          },
+        ),
       );
       setSubmittedAt(new Date());
     } catch (err) {
@@ -303,6 +335,33 @@ export function QuickApplyPage() {
     }
     const amount = gyd(Number(answers.amount));
     const months = `${answers.term} month${answers.term === '1' ? '' : 's'}`;
+
+    if (assist && sentBack) {
+      return (
+        <Panel narrow>
+          <Hero title={`Sent to ${user?.full_name || 'the applicant'}`}>
+            Reference {sentBack}. Not submitted to GDB yet — it reaches GDB when {user?.full_name || 'the applicant'} accepts
+            the terms and submits it from their account.
+          </Hero>
+          <div>
+            <QButton onClick={() => navigate(assist.home)}>Done</QButton>
+          </div>
+        </Panel>
+      );
+    }
+
+    if (assist && submitted) {
+      return (
+        <Panel narrow>
+          <Hero title={`Submitted to GDB for ${user?.full_name || 'the applicant'}`}>
+            Reference {submitted.name}. They have been notified, and it shows on their account as submitted by you.
+          </Hero>
+          <div>
+            <QButton onClick={() => navigate(assist.home)}>Done</QButton>
+          </div>
+        </Panel>
+      );
+    }
 
     if (submitted) {
       return (
@@ -409,33 +468,46 @@ export function QuickApplyPage() {
 
     if (confirming) {
       const errs = confirmTried ? confirmErrors(answers) : {};
+      // Assisted, each statement is the applicant's, read to them and agreed in
+      // front of the officer — so it is worded as theirs, not the officer's.
+      const who = user?.full_name || 'The applicant';
       return (
         <Panel narrow>
-          <PageIntro title="Confirm your submission">
+          <PageIntro title={assist ? `Submit for ${who}` : 'Confirm your submission'}>
             Quick Loan · {amount} · {months}
           </PageIntro>
-          <Banner kind="warn" title="You will not be able to edit after submission">
-            GDB can request specific corrections or additional information through a Request for Information.
-            Submission is not a lending decision.
-          </Banner>
+          {assist ? (
+            <Banner kind="warn" title="Can't be edited after submission." />
+          ) : (
+            <Banner kind="warn" title="You will not be able to edit after submission">
+              GDB can request specific corrections or additional information through a Request for Information.
+              Submission is not a lending decision.
+            </Banner>
+          )}
           <div className="flex flex-col gap-3">
             <Check checked={answers.accurate} onChange={set('accurate')}>
-              I confirm that the information I have provided is accurate.
+              {assist ? `${who} confirms the information is accurate.` : 'I confirm that the information I have provided is accurate.'}
             </Check>
             {errs.accurate && <div className="text-[12.5px] font-medium text-ql-red">{errs.accurate}</div>}
             <Check checked={answers.noGuarantee} onChange={set('noGuarantee')}>
-              I understand that submitting this application does not guarantee a loan.
+              {assist
+                ? `${who} understands that submitting does not guarantee a loan.`
+                : 'I understand that submitting this application does not guarantee a loan.'}
             </Check>
             {errs.noGuarantee && <div className="text-[12.5px] font-medium text-ql-red">{errs.noGuarantee}</div>}
           </div>
           <div className="flex flex-col gap-2">
             <SectionTitle>Credit check consent</SectionTitle>
-            <p className="text-[13px] text-ql-ink2">
-              GDB checks your credit history with EveryData, the credit bureau, before a person at GDB decides on your
-              application.
-            </p>
+            {!assist && (
+              <p className="text-[13px] text-ql-ink2">
+                GDB checks your credit history with EveryData, the credit bureau, before a person at GDB decides on your
+                application.
+              </p>
+            )}
             <Check checked={answers.creditConsent} onChange={set('creditConsent')}>
-              I consent to GDB obtaining my credit report from EveryData to assess this application.
+              {assist
+                ? `${who} consents to GDB obtaining their credit report from EveryData.`
+                : 'I consent to GDB obtaining my credit report from EveryData to assess this application.'}
             </Check>
             {errs.creditConsent && <div className="text-[12.5px] font-medium text-ql-red">{errs.creditConsent}</div>}
           </div>
@@ -449,7 +521,7 @@ export function QuickApplyPage() {
             >
               Back to review
             </QButton>
-            <QButton onClick={() => void submit()}>Submit application</QButton>
+            <QButton onClick={() => void submit()}>{assist ? 'Submit to GDB' : 'Submit application'}</QButton>
           </Footer>
         </Panel>
       );
@@ -490,6 +562,7 @@ export function QuickApplyPage() {
               ))}
             </div>
           </Card>
+          {!assist && (
           <div className="flex flex-col gap-3">
             <h2 className="text-[19px] font-semibold">How would you like to apply?</h2>
             <div className="grid gap-4 md:grid-cols-2">
@@ -507,6 +580,7 @@ export function QuickApplyPage() {
               />
             </div>
           </div>
+          )}
           {consented === false && answers.how === 'self' && (
             <Card tone="soft">
               <Check checked={consentChecked} onChange={setConsentChecked}>
@@ -520,7 +594,7 @@ export function QuickApplyPage() {
               {busy ? 'Saving…' : answers.how === 'help' ? 'Continue to request help' : 'Start application'}
             </QButton>
           </Footer>
-          <p className="text-xs text-ql-muted">Applying is free, and a person at GDB makes every decision.</p>
+          {!assist && <p className="text-xs text-ql-muted">Applying is free, and a person at GDB makes every decision.</p>}
         </Panel>
       );
     }
@@ -685,17 +759,24 @@ export function QuickApplyPage() {
             <QButton kind="secondary" back onClick={() => goTo('bank')}>
               Back
             </QButton>
-            <QButton
-              disabled={issues.length > 0}
-              onClick={() => {
-                setError(null);
-                setConfirmTried(false);
-                setConfirming(true);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            >
-              Continue to submit
-            </QButton>
+            <div className="flex flex-wrap gap-3">
+              {assist && (
+                <QButton kind="secondary" disabled={busy || issues.length > 0} onClick={() => void handOff()}>
+                  {busy ? 'Sending…' : 'Send to applicant'}
+                </QButton>
+              )}
+              <QButton
+                disabled={issues.length > 0}
+                onClick={() => {
+                  setError(null);
+                  setConfirmTried(false);
+                  setConfirming(true);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              >
+                {assist ? 'Submit to GDB' : 'Continue to submit'}
+              </QButton>
+            </div>
           </Footer>
         </>
       );

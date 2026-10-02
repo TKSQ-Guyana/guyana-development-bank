@@ -763,8 +763,10 @@ LENDING_REPORTS = (
 # so read alone is not enough to run one — the same lesson ACCOUNTS_READ_DOCTYPES
 # records. Read and report ONLY: this persona reads the portfolio, and every
 # write it is entitled to goes through a whitelisted endpoint in api.py that
-# logs who did it.
-LENDING_READ_DOCTYPES = ("Loan", "Loan Repayment", "Loan Disbursement", "Loan Demand")
+# logs who did it. Company is here because every one of those reports, and the
+# payment file, is filtered by it — without read the Disbursements page 403s
+# looking up the company name and never runs the report.
+LENDING_READ_DOCTYPES = ("Loan", "Loan Repayment", "Loan Disbursement", "Loan Demand", "Company")
 
 
 def ensure_lending_reports_read():

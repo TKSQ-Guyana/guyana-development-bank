@@ -1,6 +1,6 @@
 import { Badge } from '../../components/ui/Badge';
 import { formatDate } from '../../utils';
-import { mapLink } from './FieldTaskPage';
+import { hasPin, mapLink } from './model/desk';
 import { StatusBadge } from './StatusBadge';
 import type { FieldTask } from './types';
 
@@ -39,14 +39,18 @@ export function FieldReports({ tasks, onCancel }: { tasks: FieldTask[]; onCancel
               <div className="space-y-2 rounded-md bg-slate-50 p-3">
                 <ul className="space-y-1">
                   {t.checks.map((c) => (
-                    <li key={c.item} className="flex justify-between gap-3 text-sm">
-                      <span className="text-slate-600">{c.item}</span>
-                      <span className="font-medium text-slate-900">{c.result || '—'}</span>
+                    <li key={c.item} className="text-sm">
+                      <span className="flex justify-between gap-3">
+                        <span className="text-slate-600">{c.item}</span>
+                        <span className="font-medium text-slate-900">{c.result || '—'}</span>
+                      </span>
+                      {/* Why the officer answered as they did — a "No" always has one. */}
+                      {c.note && <span className="block text-xs text-slate-500">{c.note}</span>}
                     </li>
                   ))}
                 </ul>
-                {t.latitude != null && t.longitude != null && (
-                  <a href={mapLink(t.latitude, t.longitude)} target="_blank" rel="noreferrer" className="text-sm font-medium text-brand hover:underline">
+                {hasPin(t.latitude, t.longitude) && (
+                  <a href={mapLink(t.latitude!, t.longitude!)} target="_blank" rel="noreferrer" className="text-sm font-medium text-brand hover:underline">
                     Map pin {t.latitude}, {t.longitude}
                   </a>
                 )}

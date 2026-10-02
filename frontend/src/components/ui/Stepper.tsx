@@ -32,65 +32,71 @@ export function Stepper({ stage, label, compact = false }: StepperProps) {
     );
   }
 
-  const current = LOAN_STAGES.indexOf(stage);
-
   return (
     <div>
-      <ol className={`flex items-start ${compact ? 'gap-1' : 'gap-2'}`}>
-        {LOAN_STAGES.map((step, i) => {
-          const done = i < current;
-          const active = i === current;
-          const last = i === LOAN_STAGES.length - 1;
-          return (
-            <li key={step} className="flex flex-1 items-start">
-              <div className="flex flex-1 flex-col items-center">
-                <div className="flex w-full items-center">
-                  {/* Left half of the connector, so the dot sits centred over
-                      its own label rather than between two of them. */}
-                  <span
-                    className={`h-0.5 flex-1 rounded-full ${i === 0 ? 'bg-transparent' : done || active ? 'bg-brand' : 'bg-slate-200'}`}
-                  />
-                  <span
-                    className={`flex flex-none items-center justify-center rounded-full transition-all ${
-                      compact ? 'h-5 w-5' : 'h-7 w-7'
-                    } ${
-                      done
-                        ? 'bg-brand text-white'
-                        : active
-                          ? 'bg-brand text-white ring-4 ring-brand/15'
-                          : 'border-2 border-slate-200 bg-white text-slate-300'
-                    }`}
-                  >
-                    {done ? (
-                      <CheckIcon className={compact ? 'h-3 w-3' : 'h-4 w-4'} />
-                    ) : (
-                      <span className={`font-semibold ${compact ? 'text-[10px]' : 'text-xs'}`}>{i + 1}</span>
-                    )}
-                  </span>
-                  <span
-                    className={`h-0.5 flex-1 rounded-full ${last ? 'bg-transparent' : done ? 'bg-brand' : 'bg-slate-200'}`}
-                  />
-                </div>
-                {!compact && (
-                  <span
-                    className={`mt-2 text-center text-[11px] leading-tight ${
-                      active ? 'font-semibold text-brand-text' : done ? 'text-slate-500' : 'text-slate-400'
-                    }`}
-                  >
-                    {STEP_NAMES[step]}
-                  </span>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <StepBar steps={LOAN_STAGES.map((s) => STEP_NAMES[s])} current={LOAN_STAGES.indexOf(stage)} compact={compact} />
       {label && (
         <p className={`text-slate-600 ${compact ? 'mt-2 text-xs' : 'mt-4 text-center text-sm font-medium'}`}>
           {label}
         </p>
       )}
     </div>
+  );
+}
+
+/** The rail itself, for any ordered process: done steps ticked, the current
+ *  one ringed, the rest waiting. `current` past the end marks them all done. */
+export function StepBar({ steps, current, compact = false }: { steps: string[]; current: number; compact?: boolean }) {
+  return (
+    <ol className={`flex items-start ${compact ? 'gap-1' : 'gap-2'}`}>
+      {steps.map((step, i) => {
+        const done = i < current;
+        const active = i === current;
+        const last = i === steps.length - 1;
+        return (
+          <li key={step} className="flex flex-1 items-start" aria-current={active ? 'step' : undefined}>
+            <div className="flex flex-1 flex-col items-center">
+              <div className="flex w-full items-center">
+                {/* Left half of the connector, so the dot sits centred over
+                    its own label rather than between two of them. */}
+                <span
+                  className={`h-0.5 flex-1 rounded-full ${i === 0 ? 'bg-transparent' : done || active ? 'bg-brand' : 'bg-slate-200'}`}
+                />
+                <span
+                  className={`flex flex-none items-center justify-center rounded-full transition-all ${
+                    compact ? 'h-5 w-5' : 'h-7 w-7'
+                  } ${
+                    done
+                      ? 'bg-brand text-white'
+                      : active
+                        ? 'bg-brand text-white ring-4 ring-brand/15'
+                        : 'border-2 border-slate-200 bg-white text-slate-300'
+                  }`}
+                >
+                  {done ? (
+                    <CheckIcon className={compact ? 'h-3 w-3' : 'h-4 w-4'} />
+                  ) : (
+                    <span className={`font-semibold ${compact ? 'text-[10px]' : 'text-xs'}`}>{i + 1}</span>
+                  )}
+                </span>
+                <span
+                  className={`h-0.5 flex-1 rounded-full ${last ? 'bg-transparent' : done ? 'bg-brand' : 'bg-slate-200'}`}
+                />
+              </div>
+              {!compact && (
+                <span
+                  className={`mt-2 text-center text-[11px] leading-tight ${
+                    active ? 'font-semibold text-brand-text' : done ? 'text-slate-500' : 'text-slate-400'
+                  }`}
+                >
+                  {step}
+                </span>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

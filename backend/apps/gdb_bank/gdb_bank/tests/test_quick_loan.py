@@ -591,8 +591,31 @@ class TestAskingForAFieldOfficer(QuickLoanCase):
 		with self.set_user(TRADER):
 			self.assertEqual(api.my_field_officer_request()["name"], request["name"])
 
-	def test_asking_again_while_waiting_does_not_open_a_second_request(self):
-		self.assertEqual(self.ask()["name"], self.ask()["name"])
+	def test_asking_again_while_waiting_replaces_the_request(self):
+		first = self.ask(region="Region 2")
+		second = self.ask(region="Region 3")
+		self.assertNotEqual(first["name"], second["name"])
+		self.assertEqual(second["status"], "Waiting")
+		old = frappe.db.get_value("GDB Field Officer Request", first["name"], ["status", "outcome_note"], as_dict=True)
+		self.assertEqual(old.status, "Cancelled")
+		self.assertIn(second["name"], old.outcome_note)
+		# Never two of theirs in the pools.
+		self.assertEqual(
+			frappe.db.count("GDB Field Officer Request", {"applicant": TRADER, "status": "Waiting"}), 1
+		)
+		with self.set_user(TRADER):
+			self.assertEqual(api.my_field_officer_request()["name"], second["name"])
+
+	def test_a_refused_new_request_leaves_the_waiting_one_open(self):
+		first = self.ask()
+		with self.assertRaises(frappe.ValidationError):
+			self.ask(phone="")
+		self.assertEqual(frappe.db.get_value("GDB Field Officer Request", first["name"], "status"), "Waiting")
+
+	def test_asking_again_once_an_officer_has_it_answers_that_request(self):
+		first = self.ask()
+		frappe.db.set_value("GDB Field Officer Request", first["name"], "status", "Accepted")
+		self.assertEqual(self.ask(region="Region 4")["name"], first["name"])
 
 	def test_who_to_call_is_required(self):
 		for blank in ("applicant_name", "phone", "business_type", "region"):

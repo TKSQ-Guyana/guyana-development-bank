@@ -8,6 +8,7 @@ import { formatDate, formatGyd } from '../../utils';
 import { ApplicationTab } from '../underwriting/ApplicationTab';
 import { fo } from './api';
 import { FieldReports } from './FieldReports';
+import { OFFICER_SUBMITTED, submittedByOfficer } from './model/desk';
 import type { FieldTask, HistoryEvent } from './types';
 import { ErrorLine, RailTitle, Row, Timeline } from './ui';
 
@@ -29,13 +30,14 @@ export function FieldCaseView() {
   return (
     <div>
       <Link to="/field" className="text-sm font-medium text-brand hover:underline">
-        ← Field desk
+        ← Work queue
       </Link>
 
       <div className="mb-5 mt-2">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-bold text-slate-900">{loan.applicant_name}</h1>
           <StageBadge stage={loan.stage} />
+          {submittedByOfficer(loan) && <Badge tone="brand">{OFFICER_SUBMITTED}</Badge>}
           <Badge tone="neutral">Read only</Badge>
         </div>
         <p className="mt-1 text-sm text-slate-500">

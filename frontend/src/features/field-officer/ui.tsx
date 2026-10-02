@@ -1,5 +1,10 @@
 import type { ReactNode } from 'react';
 
+/** The assisted application's steps, for the shared StepBar. The last one ends
+ *  either way — submitted to GDB by the officer, or sent back to the applicant —
+ *  and is named for what happened once it has (AssistConsentPage). */
+export const ASSIST_STEPS = ['Find applicant', 'Consent', 'Application', 'Submit and send'];
+
 /** The case page's rail parts (pages/LoanDetail) and the drawers' input class
  *  (features/underwriting/CaseDrawers), for the field officer's screens. */
 

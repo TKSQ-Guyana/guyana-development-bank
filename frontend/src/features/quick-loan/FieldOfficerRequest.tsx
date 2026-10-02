@@ -7,7 +7,11 @@ import { Banner, Card, Chips, Footer, Hero, inputClass, Modal, PageIntro, Panel,
 
 /** "I need help from a field officer": who to call, where and when
  *  (gdb_bank.api.request_field_officer). The officer completes the Quick Loan
- *  with the applicant; the applicant still checks and submits it themselves. */
+ *  with the applicant, then submits it with their agreement or sends it back.
+ *
+ *  A request still waiting in a pool does not block a new one: sending again
+ *  replaces it on the server (a wrong region, a wrong number). One an officer
+ *  has already taken is shown instead — someone is helping them. */
 interface FieldOfficerRequestRow {
   name: string;
   applicant_name: string;
@@ -36,6 +40,8 @@ export function FieldOfficerRequest({
   onApplySelf: () => void;
 }) {
   const [request, setRequest] = useState<FieldOfficerRequestRow | null | undefined>(undefined);
+  // The waiting request a new one would replace — named on the form, not shown instead of it.
+  const [replacing, setReplacing] = useState<FieldOfficerRequestRow | null>(null);
   const [name, setName] = useState(defaultName);
   const [phone, setPhone] = useState(defaultPhone);
   const [type, setType] = useState('');
@@ -49,7 +55,11 @@ export function FieldOfficerRequest({
 
   useEffect(() => {
     call<FieldOfficerRequestRow | null>('gdb_bank.api.my_field_officer_request')
-      .then((r) => setRequest(r && OPEN.includes(r.status) ? r : null))
+      .then((r) => {
+        const open = r && OPEN.includes(r.status) ? r : null;
+        setReplacing(open?.status === 'Waiting' ? open : null);
+        setRequest(open && open.status !== 'Waiting' ? open : null);
+      })
       .catch(() => setRequest(null));
   }, []);
 
@@ -129,7 +139,7 @@ export function FieldOfficerRequest({
               {[
                 'The field officer calls to arrange a time.',
                 'You go through the application together, in person or by phone.',
-                'You check the answers and submit from your account. Nothing goes to GDB until you do.',
+                'With your agreement, the officer submits it to GDB — or sends it to you to check and submit.',
               ].map((x, i) => (
                 <div key={x} className={`flex items-start gap-3 px-4 py-3.5 text-[13px] ${i ? 'border-t border-ql-line' : ''}`}>
                   <Pill tone="blue">{i + 1}</Pill>
@@ -177,9 +187,11 @@ export function FieldOfficerRequest({
   return (
     <Panel narrow>
       <PageIntro title="Get help from a field officer">
-        A GDB field officer calls you and completes the application with you. You check it and submit it from your
-        account.
+        A GDB field officer calls you and completes the application with you.
       </PageIntro>
+      {replacing && (
+        <Banner kind="info" title={`Sending replaces your request ${replacing.name} (${replacing.region.split(' — ')[0]}).`} />
+      )}
       {error && (
         <Banner kind="error" title="We could not send your request">
           {error}

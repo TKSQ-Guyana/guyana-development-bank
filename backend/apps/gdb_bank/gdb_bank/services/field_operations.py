@@ -512,15 +512,21 @@ def hand_off(officer: str, consent: str, application: str) -> dict:
 	return {"application": application, "handed_off_on": doc.gdb_handed_off_on}
 
 
-def submit_for(officer: str, consent: str, application: str) -> dict:
+def submit_for(
+	officer: str, consent: str, application: str, accept_terms=None, credit_check_consent=None
+) -> dict:
 	"""Put the applicant's draft before the Bank, for them, under their consent.
 
 	Recorded as the officer's act (gdb_submitted_by) and told to the applicant
 	in their inbox, so nobody learns from the Bank that an application they
 	never saw submitted exists. The consent ends here, as at a handback.
 
-	Not a Quick Loan: it has no Letter of Offer, so its borrower accepts the
-	terms and the credit check at submission, and that is theirs alone.
+	A Quick Loan has no Letter of Offer, so its terms and the credit check are
+	accepted at submission. Assisted, the applicant accepts them in front of the
+	officer, who records it: `accept_terms` and `credit_check_consent` are
+	required for a Quick Loan exactly as on the applicant's own submit
+	(application.submit_application stamps both), and the log names the officer
+	who attested them. Decided 2026-10-02 — an officer may submit a Quick Loan.
 	"""
 	from gdb_bank.services import application as application_service
 	from gdb_bank.services.quick_loan import is_quick
@@ -531,8 +537,16 @@ def submit_for(officer: str, consent: str, application: str) -> dict:
 	)
 	if not row or row.gdb_owner != applicant:
 		frappe.throw(_("Loan Application {0} not found.").format(application), frappe.PermissionError)
-	if is_quick(row.loan_product):
-		frappe.throw(_("A Quick Loan is submitted by the applicant, who accepts its terms."))
+	if row.gdb_cluster:
+		frappe.throw(_("A group's application is managed by its GDB facilitator."), frappe.PermissionError)
+	quick = is_quick(row.loan_product)
+	# Refuse before anything changes: the consent is ended below, and a refused
+	# submission must leave the officer's access exactly as it was. The same two
+	# rules application.submit_application enforces, asked first here.
+	if quick and not cint(accept_terms):
+		frappe.throw(_("Accept the terms to submit."))
+	if quick and not cint(credit_check_consent):
+		frappe.throw(_("Give your consent for the credit check to submit."))
 
 	# Before the submission's own commit, so all of it lands together.
 	grant = frappe.get_doc(CONSENT, consent)
@@ -545,9 +559,17 @@ def submit_for(officer: str, consent: str, application: str) -> dict:
 		officer,
 	)
 	case = application_service.submit_application(
-		applicant, application, submitted_by=officer, assisted_by=officer
+		applicant,
+		application,
+		accept_terms=accept_terms,
+		credit_check_consent=credit_check_consent,
+		submitted_by=officer,
+		assisted_by=officer,
 	)
-	_logger().info(f"assisted application {application} submitted by {officer} under {consent}")
+	_logger().info(
+		f"assisted application {application} submitted by {officer} under {consent}"
+		+ (" — terms and credit check accepted by the applicant, attested by the officer" if quick else "")
+	)
 	return case
 
 

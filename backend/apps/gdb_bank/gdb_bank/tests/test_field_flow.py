@@ -176,6 +176,29 @@ class TestFieldFlow(IntegrationTestCase):
 			inbox = frappe.get_list("Notification Log", fields=["subject", "link"])
 		self.assertIn(f"/loans/{draft}", [n.link for n in inbox])
 
+	def test_officer_submits_a_quick_loan_only_with_the_applicants_terms_and_consent(self):
+		consent = self.granted()
+		trade = {"trade_activity": "Sell vegetables", "trade_location": "Fixed location", "trading_since": "1 to 3 years", "trade_region": "Region 4"}
+		with self.set_user(OFFICER):
+			draft = api.save_application(
+				product="quick", loan_amount=150000, purpose="Stock", term_months=6, sections=trade, acting=consent
+			)["name"]
+			# The terms and the credit check are the applicant's to accept.
+			with self.assertRaises(frappe.ValidationError):
+				field_officer.submit_assisted_application(consent=consent, name=draft)
+			with self.assertRaises(frappe.ValidationError):
+				field_officer.submit_assisted_application(consent=consent, name=draft, accept_terms=1)
+			case = field_officer.submit_assisted_application(
+				consent=consent, name=draft, accept_terms=1, credit_check_consent=1
+			)
+			self.assertEqual(case["status"], "Submitted")
+			self.assertEqual(case["submitted_by"], OFFICER)
+			self.assertTrue(case["terms_accepted_on"])
+			self.assertTrue(case["credit_consent_on"])
+		with self.set_user(CITIZEN):
+			inbox = frappe.get_list("Notification Log", fields=["link"])
+		self.assertIn(f"/loans/{draft}", [n.link for n in inbox])
+
 	def test_officer_cannot_change_what_the_applicant_declared(self):
 		consent = self.granted()
 		with self.set_user(OFFICER):

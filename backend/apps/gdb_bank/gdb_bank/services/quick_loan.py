@@ -95,17 +95,26 @@ def my_field_officer_request(user: str):
 
 
 def request_field_officer(user: str, applicant_name, phone, business_type, region, best_time=None, product=None):
-	"""Record who a field officer should call. One open request per person: a
-	second ask while one is open answers the first rather than adding another.
+	"""Record who a field officer should call. One open request per person.
+
+	A request still WAITING in a pool — no officer has it — is replaced: closed
+	with a note naming its successor, and the new one opens. That is how a
+	citizen corrects a request (a region no officer covers, a wrong number)
+	without two of theirs sitting in the pools. One an officer has already
+	ACCEPTED (or booked a visit on) is answered instead: someone is helping
+	them, and a second request would send a second officer to the same person.
 	The region is stored as the profile list spells it, because that is what an
 	officer's pool is matched on (services/field_operations)."""
 	from gdb_bank.gdb_bank.doctype.gdb_citizen_profile.gdb_citizen_profile import canonical_region
 
-	waiting = frappe.db.get_value(
-		FIELD_OFFICER_REQUEST, {"applicant": user, "status": ["in", list(OPEN_FIELD_OFFICER_REQUEST)]}
+	open_row = frappe.db.get_value(
+		FIELD_OFFICER_REQUEST,
+		{"applicant": user, "status": ["in", list(OPEN_FIELD_OFFICER_REQUEST)]},
+		["name", "status"],
+		as_dict=True,
 	)
-	if waiting:
-		return frappe.db.get_value(FIELD_OFFICER_REQUEST, waiting, FIELD_OFFICER_FIELDS, as_dict=True)
+	if open_row and open_row.status != "Waiting":
+		return frappe.db.get_value(FIELD_OFFICER_REQUEST, open_row.name, FIELD_OFFICER_FIELDS, as_dict=True)
 
 	values = {
 		"applicant_name": (applicant_name or "").strip(),
@@ -137,8 +146,16 @@ def request_field_officer(user: str, applicant_name, phone, business_type, regio
 			**values,
 		}
 	).insert(ignore_permissions=True)
+	if open_row:
+		# Validated first, so a refused new request never closes the old one.
+		old = frappe.get_doc(FIELD_OFFICER_REQUEST, open_row.name)
+		old.update({"status": "Cancelled", "closed_on": now_datetime(), "outcome_note": _("Replaced by {0}").format(doc.name)})
+		old.save(ignore_permissions=True)
 	frappe.db.commit()
-	_logger().info(f"field officer request {doc.name} raised by {user} for {values['region']}")
+	_logger().info(
+		f"field officer request {doc.name} raised by {user} for {values['region']}"
+		+ (f", replacing {open_row.name}" if open_row else "")
+	)
 	return frappe.db.get_value(FIELD_OFFICER_REQUEST, doc.name, FIELD_OFFICER_FIELDS, as_dict=True)
 
 
