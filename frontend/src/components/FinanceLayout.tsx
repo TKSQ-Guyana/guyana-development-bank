@@ -48,7 +48,7 @@ export function FinanceLayout() {
 
   const onLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate('/staff/login');
   };
 
   // A finance officer who also releases funds works out of two sections; the

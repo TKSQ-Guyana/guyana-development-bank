@@ -73,7 +73,7 @@ export function ApplicantLayout() {
 
   const onLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate(isStaff(user) ? '/staff/login' : '/login');
   };
 
   // Staff aren't applying for anything themselves, and the routes behind the

@@ -20,7 +20,7 @@ export function AdminLayout() {
 
   const onLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate('/staff/login');
   };
 
   return (

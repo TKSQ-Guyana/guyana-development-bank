@@ -1,32 +1,29 @@
 import { useState } from 'react';
-import type { FormEvent } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import type { FormEvent, ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { EidBoxes } from '../components/EidBoxes';
 import { RequiredMark } from '../components/ui/RequiredMark';
-import { BankMark, FlagRibbon, goldActionClass, NotOpenIcon } from '../components/site/atoms';
-import { ArrowRight } from '../components/site/atoms';
+import { BankMark, FlagRibbon } from '../components/site/atoms';
 import { EMPTY_EID, isCompleteEid } from '../eid';
 import type { Whoami } from '../types';
 
 /**
- * KEYCLOAK AUTHENTICATES EVERYBODY — two doors, one realm each:
+ * KEYCLOAK AUTHENTICATES EVERYBODY — two doors, one realm each, one page each:
  *
- *   citizens   e-ID + password        -> gdb_bank.identity.password_login
- *   GDB staff  work email + password  -> gdb_bank.identity.staff_login
+ *   /login        citizens   e-ID + password        -> gdb_bank.identity.password_login
+ *   /staff/login  GDB staff  work email + password  -> gdb_bank.identity.staff_login
  *
  * Both end in the same `sid` session, so nothing downstream cares which was
  * used. Which door may open which kind of account is the server's decision
  * (security/sign_in_policy.py): the e-ID door never opens a staff account and
- * the staff door never opens a citizen's, whatever this page offers.
+ * the staff door never opens a citizen's, whatever these pages offer.
  *
  * There is no sign-up. A citizen's account is created by their first e-ID
  * sign-in; a staff account by the platform administrator, who is shown a
- * one-time password for it. That password opens no session: the staff pane
+ * one-time password for it. That password opens no session: the staff page
  * then asks the person to choose their own (identity.staff_set_password).
  */
-
-type Method = 'eid' | 'staff';
 
 // Mirrors identity.NEW_PASSWORD_MIN so the button can wait for it; the server
 // decides.
@@ -42,17 +39,198 @@ function landingFor(whoami: Whoami | null, from: string): string {
   return from;
 }
 
-export function Login() {
-  const { loginAsStaff, loginWithEid, setStaffPassword } = useAuth();
-  const navigate = useNavigate();
+function useFrom() {
   const location = useLocation();
+  return (location.state as { from?: string } | null)?.from ?? '/';
+}
 
-  const [method, setMethod] = useState<Method>('eid');
+const fieldLabel = 'block text-[14px] leading-[1.4] font-bold text-gdb-ink';
+const fieldHelp = 'mt-1.5 text-[13px] leading-[1.5] text-gdb-ink/55';
+const textInput =
+  'mt-1.5 w-full rounded-[10px] border border-gdb-border bg-white px-3.5 py-[11px] font-body text-[15px] leading-[1.4] text-gdb-ink placeholder:text-gdb-ink/35 focus:border-transparent focus:outline-2 focus:outline-offset-1 focus:outline-gdb-indigo';
+const errorBox = 'mb-4 rounded-[10px] bg-red-50 px-4 py-3 text-[14px] leading-[1.5] font-medium text-red-700';
+const primaryButton =
+  'mt-6 w-full cursor-pointer rounded-[10px] border-0 bg-gdb-ink py-3.5 font-body text-[15px] font-bold text-white hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:opacity-60';
+const switchLink = 'font-bold text-gdb-indigo underline-offset-2 hover:underline';
+
+function CheckIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="mt-0.5 shrink-0">
+      <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.14)" />
+      <path d="M8 12.5l2.6 2.5L16 9.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** The split frame both doors share: the dark panel says whose door this is,
+ *  the card on the right is the door. */
+function AuthFrame({
+  workspace,
+  eyebrow,
+  headline,
+  points,
+  title,
+  subtitle,
+  children,
+  below,
+}: {
+  workspace: string;
+  eyebrow: string;
+  headline: string;
+  points: string[];
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  below: ReactNode;
+}) {
+  return (
+    <div className="gdb-public flex min-h-screen flex-col bg-[#eef1f7] font-body text-gdb-ink">
+      <FlagRibbon />
+      <div className="flex flex-1 flex-col lg:flex-row">
+        <aside className="flex flex-col justify-between gap-12 bg-[linear-gradient(160deg,#0f172a_0%,#1e1b4b_55%,#2e2a7a_100%)] px-6 py-8 text-white sm:px-12 lg:w-[44%] lg:max-w-[640px] lg:py-10">
+          <div className="flex items-center gap-3">
+            <BankMark className="h-11 w-11 rounded-[12px] ring-1 ring-white/20" />
+            <div>
+              <div className="text-[15px] font-bold leading-tight">Guyana Development Bank</div>
+              <div className="text-[13px] text-white/60">{workspace}</div>
+            </div>
+          </div>
+
+          <div className="hidden lg:block">
+            <div className="font-code text-[12px] font-extrabold tracking-[0.12em] text-white/60">{eyebrow}</div>
+            <h1 className="mt-4 max-w-[460px] font-display text-[40px] leading-[1.12] font-extrabold tracking-[-0.02em]">
+              {headline}
+            </h1>
+            <ul className="mt-8 flex list-none flex-col gap-3.5">
+              {points.map((point) => (
+                <li key={point} className="flex gap-3 text-[15px] leading-[1.5] text-white/80">
+                  <CheckIcon />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="hidden text-[13px] text-white/50 lg:block">
+            Government of Guyana &middot; Ministry of Finance
+          </div>
+        </aside>
+
+        <main className="flex flex-1 flex-col items-center justify-center gap-5 px-4 py-12 sm:px-10">
+          <div className="w-full max-w-[420px] rounded-2xl bg-white px-7 pt-8 pb-7 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.12)] sm:px-9">
+            <h2 className="font-display text-[24px] leading-[1.2] font-extrabold tracking-[-0.01em]">{title}</h2>
+            <p className="mt-1 text-[14px] leading-[1.5] text-gdb-ink/60">{subtitle}</p>
+            {children}
+          </div>
+          <p className="text-center text-[14px] text-gdb-ink/60">{below}</p>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+/** Citizens: e-ID + password. The first sign-in opens the account. */
+export function Login() {
+  const { loginWithEid } = useAuth();
+  const navigate = useNavigate();
+  const from = useFrom();
 
   const [eid, setEid] = useState(EMPTY_EID);
-  const [eidPassword, setEidPassword] = useState('');
-  const [eidError, setEidError] = useState<string | null>(null);
-  const [eidBusy, setEidBusy] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const whoami = await loginWithEid(eid, password);
+      navigate(landingFor(whoami, from), { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign-in failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthFrame
+      workspace="Applicant portal"
+      eyebrow="GDB APPLICANT PORTAL"
+      headline="Welcome to Guyana Development Bank."
+      points={[]}
+      title="Applicant sign-in"
+      subtitle="New here? Your first sign-in opens your account."
+      below={
+        <>
+          GDB staff?{' '}
+          <Link to="/staff/login" state={{ from }} className={switchLink}>
+            Go to the staff sign-in
+          </Link>
+        </>
+      }
+    >
+      <form className="mt-6" onSubmit={(e) => void onSubmit(e)}>
+        {error && (
+          <p className={errorBox} role="alert">
+            {error}
+          </p>
+        )}
+        <span className={fieldLabel}>
+          e-ID number
+          <RequiredMark />
+        </span>
+        <div className="mt-1.5">
+          <EidBoxes
+            value={eid}
+            onChange={setEid}
+            disabled={busy}
+            invalid={!!error}
+            describedBy="eid-hint"
+            variant="public"
+          />
+        </div>
+        <p id="eid-hint" className={fieldHelp}>
+          The 11-digit number on your national e-ID card.
+        </p>
+
+        <label className="mt-4 block">
+          <span className={fieldLabel}>
+            Password
+            <RequiredMark />
+          </span>
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={busy}
+            className={textInput}
+          />
+        </label>
+
+        <button type="submit" disabled={busy || !isCompleteEid(eid) || !password} className={primaryButton}>
+          {busy ? 'Signing in…' : 'Sign in with e-ID'}
+        </button>
+
+        <hr className="mt-6 h-px border-0 bg-gdb-line" />
+        <p className="mt-4 text-[13px] leading-[1.5] text-gdb-ink/55">
+          You need a verified e-ID from My Guyana.
+        </p>
+      </form>
+    </AuthFrame>
+  );
+}
+
+/** GDB staff: work email + password. A first sign-in with the one-time
+ *  password goes on to choosing their own. */
+export function StaffLogin() {
+  const { loginAsStaff, setStaffPassword } = useAuth();
+  const navigate = useNavigate();
+  const from = useFrom();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -64,22 +242,6 @@ export function Login() {
   const [choosing, setChoosing] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  const from = (location.state as { from?: string } | null)?.from ?? '/';
-
-  const onEidSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setEidError(null);
-    setEidBusy(true);
-    try {
-      const whoami = await loginWithEid(eid, eidPassword);
-      navigate(landingFor(whoami, from), { replace: true });
-    } catch (err) {
-      setEidError(err instanceof Error ? err.message : 'Sign-in failed');
-    } finally {
-      setEidBusy(false);
-    }
-  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -125,317 +287,160 @@ export function Login() {
     setError(null);
   };
 
-  const tab = (value: Method, label: string) => (
-    <button
-      type="button"
-      role="tab"
-      id={`tab-${value}`}
-      aria-selected={method === value}
-      aria-controls={`pane-${value}`}
-      onClick={() => setMethod(value)}
-      className={`flex-1 cursor-pointer rounded-[10px] border-0 py-[11px] font-body text-[15px] leading-[1.2] font-extrabold ${
-        method === value
-          ? 'bg-gdb-ink text-white shadow-[0_2px_6px_-1px_rgba(15,23,42,0.16)]'
-          : 'bg-transparent text-gdb-ink/55'
-      }`}
-    >
-      {label}
-    </button>
-  );
-
-  const fieldLabel = 'block text-[14px] leading-[1.4] font-extrabold text-gdb-ink';
-  const fieldHelp = 'mt-2 text-[13px] leading-[1.5] text-gdb-ink/55';
-  const textInput =
-    'mt-2 w-full rounded-xl border border-gdb-border bg-white px-[18px] py-[13px] font-body text-[16px] leading-[1.4] text-gdb-ink placeholder:text-gdb-ink/35 focus:border-transparent focus:outline-2 focus:outline-offset-1 focus:outline-gdb-indigo';
-  const errorBox =
-    'mb-4 rounded-xl bg-red-50 px-4 py-3 text-[14px] leading-[1.5] font-medium text-red-700';
-
   return (
-    <div className="gdb-public min-h-screen bg-gdb-paper font-body text-gdb-ink">
-      <FlagRibbon />
-
-      <div className="flex min-h-[calc(100vh-6px)] flex-col lg:flex-row">
-        {/* ---------- the invitation ---------- */}
-        <section className="flex w-full flex-none flex-col justify-center bg-[linear-gradient(135deg,#E7ECFA_0%,#EFF1FB_42%,#FCFCFA_100%)] px-7 py-14 sm:px-14 sm:py-18 lg:w-[52%] xl:w-[720px] xl:py-24 xl:pr-24 xl:pl-26">
-          <div className="flex items-center gap-4">
-            <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
-            <span className="font-code text-[13px] font-extrabold tracking-[0.12em] text-gdb-indigo sm:text-[14px]">
-              PROPOSED SME GROWTH PROGRAMME
-            </span>
-          </div>
-
-          <h1 className="mt-[34px] font-display text-[44px] leading-[1.06] font-extrabold tracking-[-0.025em] sm:text-[52px] xl:text-[64px]">
-            You build.
-            <br />
-            <span className="text-gdb-indigo">We clear the way.</span>
-          </h1>
-
-          <p className="mt-9 max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/80 sm:text-[18px]">
-            An invitation to the Guyanese who already carry this economy. The proposed terms remove
-            the usual barriers: <strong className="font-extrabold text-gdb-indigo">no collateral</strong>,
-            so property or family wealth is not a condition, and{' '}
-            <strong className="font-extrabold text-gdb-indigo">zero interest</strong>, so you repay
-            what you borrowed and nothing more. Up to{' '}
-            <strong className="font-extrabold text-gdb-indigo">G$3M</strong> a loan, with no
-            co-financing above the cap.
+    <AuthFrame
+      workspace="Staff workspace"
+      eyebrow="GDB STAFF WORKSPACE"
+      headline="Assess, disburse and service loans."
+      points={[
+        'Your role decides what you see and what you can approve.',
+        'Every action is recorded against your name.',
+        'Separation of duties is enforced at release.',
+      ]}
+      title={choosing ? 'Choose your password' : 'Staff sign-in'}
+      subtitle={
+        choosing
+          ? `The one-time password works once. Choose your own to finish signing in as ${email}.`
+          : 'For authorised Guyana Development Bank personnel.'
+      }
+      below={
+        <>
+          Applying for a loan?{' '}
+          <Link to="/login" className={switchLink}>
+            Go to the applicant sign-in
+          </Link>
+        </>
+      }
+    >
+      <form className="mt-6" onSubmit={(e) => void (choosing ? onChoose(e) : onSubmit(e))}>
+        {error && (
+          <p className={errorBox} role="alert">
+            {error}
           </p>
-
-          <p className="mt-[22px] max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/70 sm:text-[18px]">
-            You prepare your own application and a person makes every decision. Applying is free. No
-            one can move you up the queue, and nobody should be charging you a fee to apply.
-          </p>
-
-          <div className="mt-[34px] flex items-center gap-[11px] text-[16px] font-extrabold text-gdb-ink/85">
-            <NotOpenIcon />
-            The programme is not yet open.
-          </div>
-
-          <div className="mt-13 flex items-center gap-[18px] text-[15px] font-extrabold text-gdb-ink/60">
-            <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
-            Guyana, built forward
-          </div>
-        </section>
-
-        {/* ---------- the credentials ---------- */}
-        <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[22px] px-5 py-14 sm:px-16">
-          <div className="w-full max-w-[452px] rounded-[28px] bg-white px-[38px] pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.09)]">
-            <BankMark className="h-11 w-11 rounded-[14px]" />
-
-            <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
-              Welcome back.
-            </h2>
-            <p className="mt-1.5 text-[16px] leading-[1.5] text-gdb-ink/65">
-              Sign in to continue your application.
+        )}
+        {choosing ? (
+          <>
+            {/* Lets a password manager file the new password under this email. */}
+            <input
+              type="email"
+              autoComplete="username"
+              value={email}
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
+            <label className="block">
+              <span className={fieldLabel}>
+                New password
+                <RequiredMark />
+              </span>
+              <input
+                type="password"
+                required
+                autoComplete="new-password"
+                minLength={NEW_PASSWORD_MIN}
+                placeholder="Choose a password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={busy}
+                aria-describedby="new-password-help"
+                className={textInput}
+              />
+            </label>
+            <p id="new-password-help" className={fieldHelp}>
+              At least {NEW_PASSWORD_MIN} characters. Not the one-time password or your email.
+              {/* Live, so a greyed-out button is never a mystery. */}
+              {newPassword && newPassword.length < NEW_PASSWORD_MIN && (
+                <span className="mt-1 block font-semibold text-rose-600">
+                  {newPassword.length} of {NEW_PASSWORD_MIN} characters
+                </span>
+              )}
             </p>
 
-            <div
-              role="tablist"
-              aria-label="Choose how to sign in"
-              className="mt-[26px] flex gap-1 rounded-[13px] bg-gdb-rail p-1"
+            <label className="mt-4 block">
+              <span className={fieldLabel}>
+                Confirm new password
+                <RequiredMark />
+              </span>
+              <input
+                type="password"
+                required
+                autoComplete="new-password"
+                placeholder="Type it again"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={busy}
+                className={textInput}
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={busy || newPassword.length < NEW_PASSWORD_MIN || !confirmPassword}
+              className={primaryButton}
             >
-              {tab('eid', 'e-ID number')}
-              {tab('staff', 'GDB staff')}
-            </div>
-
-            {/* e-ID credential set */}
-            <form
-              id="pane-eid"
-              role="tabpanel"
-              aria-labelledby="tab-eid"
-              hidden={method !== 'eid'}
-              onSubmit={(e) => void onEidSubmit(e)}
+              {busy ? 'Saving…' : 'Save password and sign in'}
+            </button>
+            <button
+              type="button"
+              onClick={backToSignIn}
+              disabled={busy}
+              className="mt-3 w-full cursor-pointer border-0 bg-transparent py-2 text-[14px] font-bold text-gdb-ink/60 hover:text-gdb-ink"
             >
-              <div className="mt-[26px]">
-                {eidError && (
-                  <p className={errorBox} role="alert">
-                    {eidError}
-                  </p>
-                )}
-                <span className={fieldLabel}>e-ID number<RequiredMark /></span>
-                <div className="mt-2">
-                  <EidBoxes
-                    value={eid}
-                    onChange={setEid}
-                    disabled={eidBusy}
-                    invalid={!!eidError}
-                    describedBy="eid-hint"
-                    variant="public"
-                  />
-                </div>
-                <p id="eid-hint" className={fieldHelp}>
-                  The 11-digit number on your national e-ID card.
-                </p>
-              </div>
+              Back to sign in
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="block">
+              <span className={fieldLabel}>
+                Work email
+                <RequiredMark />
+              </span>
+              <input
+                type="email"
+                required
+                autoComplete="username"
+                placeholder="name@gdb.gov.gy"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={busy}
+                className={textInput}
+              />
+            </label>
 
-              <label className="mt-4 block">
-                <span className={fieldLabel}>Password<RequiredMark /></span>
-                <input
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  placeholder="Enter your password"
-                  value={eidPassword}
-                  onChange={(e) => setEidPassword(e.target.value)}
-                  disabled={eidBusy}
-                  className={textInput}
-                />
-              </label>
+            <label className="mt-4 block">
+              <span className={fieldLabel}>
+                Password
+                <RequiredMark />
+              </span>
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={busy}
+                className={textInput}
+              />
+            </label>
 
-              <button
-                type="submit"
-                disabled={eidBusy || !isCompleteEid(eid) || !eidPassword}
-                className={`mt-[22px] w-full ${goldActionClass('sm')} py-[17px] text-[17px]`}
-              >
-                {eidBusy ? 'Signing in…' : 'Sign in with e-ID'}
-                <ArrowRight size={19} />
-              </button>
-            </form>
+            <button type="submit" disabled={busy} className={primaryButton}>
+              {busy ? 'Signing in…' : 'Sign in'}
+            </button>
+            <p className="mt-3 text-center text-[13px] text-gdb-ink/55">
+              New to GDB? Use the one-time password you were given.
+            </p>
 
-            {/* staff credential set — sign in, or (after a one-time password)
-                choose your own */}
-            <form
-              id="pane-staff"
-              role="tabpanel"
-              aria-labelledby="tab-staff"
-              hidden={method !== 'staff'}
-              onSubmit={(e) => void (choosing ? onChoose(e) : onSubmit(e))}
-            >
-              {choosing ? (
-                <>
-                  <div className="mt-[26px]">
-                    {error && (
-                      <p className={errorBox} role="alert">
-                        {error}
-                      </p>
-                    )}
-                    <p className="text-[15px] leading-[1.55] text-gdb-ink/75">
-                      <strong className="font-extrabold text-gdb-ink">Choose your own password.</strong>{' '}
-                      The password GDB gave you works once. Choose one only you know to finish signing in
-                      as {email}.
-                    </p>
-                    {/* Lets a password manager file the new password under this email. */}
-                    <input
-                      type="email"
-                      autoComplete="username"
-                      value={email}
-                      readOnly
-                      tabIndex={-1}
-                      aria-hidden="true"
-                      className="sr-only"
-                    />
-                  </div>
-
-                  <label className="mt-4 block">
-                    <span className={fieldLabel}>New password<RequiredMark /></span>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      minLength={NEW_PASSWORD_MIN}
-                      placeholder="Choose a password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      disabled={busy}
-                      aria-describedby="new-password-help"
-                      className={textInput}
-                    />
-                  </label>
-                  <p id="new-password-help" className={fieldHelp}>
-                    At least {NEW_PASSWORD_MIN} characters. Not the one-time password, and not your
-                    email.
-                    {/* Live, so a greyed-out button is never a mystery. */}
-                    {newPassword && newPassword.length < NEW_PASSWORD_MIN && (
-                      <span className="mt-1 block font-semibold text-rose-600">
-                        {newPassword.length} of {NEW_PASSWORD_MIN} characters
-                      </span>
-                    )}
-                  </p>
-
-                  <label className="mt-4 block">
-                    <span className={fieldLabel}>Confirm new password<RequiredMark /></span>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      placeholder="Type it again"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      disabled={busy}
-                      className={textInput}
-                    />
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={busy || newPassword.length < NEW_PASSWORD_MIN || !confirmPassword}
-                    className={`mt-[22px] w-full ${goldActionClass('sm')} py-[17px] text-[17px]`}
-                  >
-                    {busy ? 'Saving…' : 'Save password and sign in'}
-                    <ArrowRight size={19} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={backToSignIn}
-                    disabled={busy}
-                    className="mt-3 w-full cursor-pointer border-0 bg-transparent py-2 text-[14px] font-extrabold text-gdb-ink/60 hover:text-gdb-ink"
-                  >
-                    Back to sign in
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="mt-[26px]">
-                    {error && (
-                      <p className={errorBox} role="alert">
-                        {error}
-                      </p>
-                    )}
-                    <label className="block">
-                      <span className={fieldLabel}>Work email<RequiredMark /></span>
-                      <input
-                        type="email"
-                        required
-                        autoComplete="username"
-                        placeholder="name@gdb.gov.gy"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        disabled={busy}
-                        className={textInput}
-                      />
-                    </label>
-                    <p className={fieldHelp}>
-                      Your GDB work email. New to GDB? Sign in with the one-time password GDB gave you —
-                      you will choose your own next.
-                    </p>
-                  </div>
-
-                  <label className="mt-4 block">
-                    <span className={fieldLabel}>Password<RequiredMark /></span>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="current-password"
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={busy}
-                      className={textInput}
-                    />
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className={`mt-[22px] w-full ${goldActionClass('sm')} py-[17px] text-[17px]`}
-                  >
-                    {busy ? 'Signing in…' : 'Sign in as GDB staff'}
-                    <ArrowRight size={19} />
-                  </button>
-                </>
-              )}
-            </form>
-
-            <footer className="mt-[22px]">
-              <hr className="h-px border-0 bg-gdb-line" />
-              <p className="mt-4 text-[16px] leading-[1.5] text-gdb-ink/70">
-                New applicant? Sign in with your e-ID — your account is opened the first time you
-                do.
-              </p>
-              <p className="mt-1.5 text-[13px] leading-[1.5] text-gdb-ink/50">
-                You will need a verified e-ID from My Guyana.
-              </p>
-            </footer>
-          </div>
-
-          {/* One card, two doors: the roles that open the review queue, the
-              disbursement desk, the ledger and the administration console are
-              a grant on the staff account, made by the platform administrator. */}
-          <p className="max-w-[452px] text-[15px] leading-[1.5] text-gdb-ink/55">
-            GDB team member? Choose <strong className="font-extrabold">GDB staff</strong> and sign in
-            with your work email — your workspace opens on the roles your account holds.
-          </p>
-        </section>
-      </div>
-    </div>
+            <hr className="mt-6 h-px border-0 bg-gdb-line" />
+            <p className="mt-4 text-[13px] leading-[1.5] text-gdb-ink/55">
+              Locked out? <strong className="font-bold text-gdb-ink">Contact the platform administrator.</strong>
+            </p>
+          </>
+        )}
+      </form>
+    </AuthFrame>
   );
 }

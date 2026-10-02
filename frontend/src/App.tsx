@@ -26,6 +26,7 @@ function page(load: () => Promise<{ default: ComponentType }>) {
 
 const Landing = page(() => import('./pages/Landing').then((m) => ({ default: m.Landing })));
 const Login = page(() => import('./pages/Login').then((m) => ({ default: m.Login })));
+const StaffLogin = page(() => import('./pages/Login').then((m) => ({ default: m.StaffLogin })));
 const Dashboard = page(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Applications = page(() => import('./pages/Applications').then((m) => ({ default: m.Applications })));
 const Apply = page(() => import('./pages/Apply').then((m) => ({ default: m.Apply })));
@@ -207,6 +208,7 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/staff/login" element={<StaffLogin />} />
           <Route element={<ApplicantShell />}>
             <Route index element={<Index />} />
             {/* The applications hub and the form behind it. `/apply` is the
