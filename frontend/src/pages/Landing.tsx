@@ -130,6 +130,10 @@ const FAQS = [
 ];
 
 export function Landing() {
+  // TEMPORARY — "Coming soon" until the public launch. Remove this line (and
+  // the ComingSoon component below) to release the full landing page.
+  return <ComingSoon />;
+
   return (
     <div
       className="gdb-public flex min-h-screen flex-col bg-[#faf8f4] text-[#17161d] antialiased"
@@ -149,6 +153,37 @@ export function Landing() {
         <ReadyBand />
       </main>
       <Footer />
+    </div>
+  );
+}
+
+/** TEMPORARY: the pre-launch page. Delete with the early return above. */
+function ComingSoon() {
+  return (
+    <div
+      className="gdb-public flex min-h-screen flex-col items-center justify-center gap-8 bg-[#faf8f4] px-4 text-center text-[#17161d] antialiased"
+      style={{ fontFamily: "'Hanken Grotesk', system-ui, sans-serif" }}
+    >
+      <div className="flex items-center">
+        <img
+          src={coatOfArms}
+          alt="Coat of Arms of Guyana"
+          className="block h-12 w-auto flex-none sm:h-16"
+        />
+        <span className="mx-4 h-12 w-px flex-none bg-[#e7e3da]" aria-hidden />
+        <img
+          src={gdbLogo}
+          alt="Guyana Development Bank"
+          className="block h-auto max-h-12 w-auto min-w-0 max-w-full sm:max-h-16"
+        />
+      </div>
+      <h1 className="m-0 text-[clamp(44px,7vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#0b2654]">
+        Coming soon
+      </h1>
+      <p className="m-0 max-w-[32em] text-[clamp(17px,1.5vw,20px)] leading-[1.5] text-[#3d3a4a]">
+        The Guyana Development Bank loan portal is almost ready. Please check
+        back soon.
+      </p>
     </div>
   );
 }
