@@ -2,11 +2,14 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  appointmentPhoto,
-  heroFarmer,
-  heroTrade,
-  heroVendor,
   coatOfArms,
+  stockBarber,
+  stockBasketWeaver,
+  stockCafeOwner,
+  stockMarketVendor,
+  stockPoultryFarmer,
+  stockSeamstress,
+  stockOnlineBusiness,
   gdbLogo,
   presidentPhoto,
 } from "../components/site/assets";
@@ -66,13 +69,13 @@ const ID_LINE =
   "One valid ID to create your account: National ID card, driver’s licence or e-ID";
 const NEED_QUICK = [
   ID_LINE,
-  "Phone number (required)",
+  "Phone number",
   "A short description of your business and what the loan is for",
   "Bank details, provided before loan disbursement",
 ];
 const NEED_SME = [
   ID_LINE,
-  "Phone number (required)",
+  "Phone number",
   "Business registration and TIN",
   "Business details and location",
   "Market, customers and financial information",
@@ -94,19 +97,19 @@ const STEPS = [
   {
     n: "3",
     title: "Accept your offer",
-    body: "Receive a letter of offer with the amount, term and installment. The letter of offer is accepted and signed online.",
+    body: "Receive a letter of offer with the amount, term and instalment. The letter of offer is accepted and signed online.",
   },
   {
     n: "4",
     title: "Loan disbursed",
-    body: "Your loan is paid into your bank account. Repay as per your installment cycle, with no interest.",
+    body: "Your loan is paid into your bank account. Repay as per your instalment cycle, with no interest.",
   },
 ];
 
 const FAQS = [
   {
     q: "Is it really 0% interest?",
-    a: "Yes. You repay only the amount you borrow — no interest is added. Your letter of offer shows the amount, term and monthly installment before you accept.",
+    a: "Yes. You repay only the amount you borrow — no interest is added. Your letter of offer shows the amount, term and monthly instalment before you accept.",
   },
   {
     q: "Do I have to pay the loan back?",
@@ -194,18 +197,18 @@ function Header() {
           aria-label="Guyana Development Bank — home"
         >
           <img
-            src={gdbLogo}
-            alt="Guyana Development Bank — Building Guyana’s next chapter"
-            className="block h-auto max-h-11 w-auto max-w-full sm:max-h-[52px]"
+            src={coatOfArms}
+            alt="Coat of Arms of Guyana"
+            className="block h-10 w-auto flex-none sm:h-12"
           />
           <span
             className="mx-3 h-9 w-px flex-none bg-[#e7e3da] sm:mx-4"
             aria-hidden
           />
           <img
-            src={coatOfArms}
-            alt="Coat of Arms of Guyana"
-            className="block h-10 w-auto flex-none sm:h-12"
+            src={gdbLogo}
+            alt="Guyana Development Bank"
+            className="block h-auto max-h-10 w-auto min-w-0 max-w-full sm:max-h-12"
           />
         </a>
 
@@ -331,18 +334,18 @@ function Hero() {
     <section className={`py-[clamp(40px,6vw,88px)] ${GUTTER}`}>
       <div className={`${WRAP} flex flex-col gap-[clamp(36px,5vw,64px)]`}>
         <div className="grid items-end gap-[clamp(24px,4vw,64px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))]">
-          <h1 className="m-0 text-[clamp(52px,7.6vw,112px)] font-extrabold leading-[0.92] tracking-[-0.045em] text-[#0b2654] [text-wrap:balance]">
-            Capital to{" "}
+          <h1 className="m-0 text-[clamp(44px,6vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#0b2654] [text-wrap:balance]">
+            Let us help you to{" "}
             <span className="bg-[linear-gradient(transparent_62%,#f2c14e_62%,#f2c14e_92%,transparent_92%)] px-[0.04em]">
               grow
             </span>{" "}
-            your business.
+            your business
           </h1>
           <div className="flex flex-col gap-6 pb-2.5">
             <p className="m-0 max-w-[30em] text-[clamp(18px,1.5vw,21px)] leading-[1.5] text-[#3d3a4a] [text-wrap:pretty]">
               The Guyana Development Bank gives small and medium businesses the
               capital to start up, sustain, scale and grow, with zero-interest
-              loans from G$50,000 to G$3,000,000.
+              loans up to G$3,000,000.
             </p>
             <div className="flex flex-wrap gap-3">
               <a
@@ -363,15 +366,18 @@ function Hero() {
         <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))]">
           <div className="grid min-h-[460px] grid-cols-[1.2fr_1fr] grid-rows-2 gap-5">
             <Photo
-              src={heroVendor}
-              alt="Market vendor serving a customer at her stall"
+              src={stockMarketVendor}
+              alt="A vendor at her produce stall in Stabroek Market, Georgetown"
               className="row-span-2"
             />
             <Photo
-              src={heroTrade}
-              alt="A mechanic, a barber and a seamstress at work"
+              src={stockBasketWeaver}
+              alt="A craftswoman weaving a basket by the river"
             />
-            <Photo src={heroFarmer} alt="A farmer with his produce" />
+            <Photo
+              src={stockBarber}
+              alt="A barber cutting a customer's hair in his shop"
+            />
           </div>
           <Estimator />
         </div>
@@ -482,7 +488,7 @@ function Estimator() {
         Apply for {quick ? "a Quick Loan" : "an SME Loan"}
       </Link>
       <p className="m-0 text-[12px] text-[#86a3d4]">
-        Illustrative only. Your final amount, term and installment are set in
+        Illustrative only. Your final amount, term and instalment are set in
         your letter of offer.
       </p>
     </div>
@@ -547,9 +553,7 @@ function Loans() {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div className="flex max-w-[640px] flex-col gap-3">
             <span className={EYEBROW}>Our loans</span>
-            <h2 className={H2}>
-              Two loans. Same terms. Pick the size that fits.
-            </h2>
+            <h2 className={H2}>Two loans. Similar conditions.</h2>
           </div>
           <p className="m-0 max-w-[26em] text-[17px] leading-[1.5] text-[#5e5b6b]">
             Both loans are zero-interest financing, so you repay only what you
@@ -583,7 +587,6 @@ function Loans() {
               tone="gold"
               items={[
                 "Short application you can finish on your phone",
-                "No business registration needed",
                 "Prefer help in person? Book an appointment with GDB",
               ]}
             />
@@ -717,6 +720,25 @@ function President() {
   );
 }
 
+/** Some of the businesses GDB lends to, as the About section shows them. */
+const SERVED = [
+  {
+    src: stockPoultryFarmer,
+    label: "Farmers and poultry",
+    alt: "A proud farmer holding a hen in his poultry house",
+  },
+  {
+    src: stockOnlineBusiness,
+    label: "Online and home businesses",
+    alt: "A woman running her small business from a laptop",
+  },
+  {
+    src: stockSeamstress,
+    label: "Tailors and seamstresses",
+    alt: "A smiling seamstress at her sewing machine in a colourful tailor shop",
+  },
+];
+
 function About() {
   const cards = [
     [
@@ -750,6 +772,16 @@ function About() {
             serving small and medium businesses from Region 1 to Region 10.
           </p>
         </div>
+        <ul className="m-0 grid list-none gap-5 p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">
+          {SERVED.map((s) => (
+            <li key={s.label} className="flex flex-col gap-3">
+              <Photo src={s.src} alt={s.alt} className="aspect-[4/3]" />
+              <span className="text-[17px] font-bold text-[#0b2654]">
+                {s.label}
+              </span>
+            </li>
+          ))}
+        </ul>
         <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">
           {cards.map(([title, body]) => (
             <div
@@ -842,9 +874,9 @@ function Appointment() {
           </p>
           <div className="relative aspect-video overflow-hidden rounded-[20px] bg-[#e4dfd2]">
             <img
-              src={appointmentPhoto}
-              alt="A GDB team member with a customer at a market stall"
-              className="absolute inset-0 h-full w-full object-cover"
+              src={stockCafeOwner}
+              alt="The owner of Guyana Flavours café smiling behind his counter"
+              className="absolute inset-0 h-full w-full object-cover object-[center_25%]"
             />
           </div>
         </div>

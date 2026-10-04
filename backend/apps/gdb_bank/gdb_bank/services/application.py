@@ -480,10 +480,10 @@ def _require_sme_details(doc) -> None:
 	"""What a single SME application must carry before it goes to GDB."""
 	from gdb_bank.utils.eid import EID_SHAPE, normalize_eid
 
+	# The e-ID is optional on an SME Loan (GDB, 2026-10-04); one given must be
+	# a real e-ID number.
 	eid = normalize_eid(doc.gdb_applicant_eid)
-	if not eid:
-		frappe.throw(_("Enter your E-ID."))
-	if not EID_SHAPE.match(eid):
+	if eid and not EID_SHAPE.match(eid):
 		frappe.throw(_("Enter your E-ID as its 11 digits, e.g. 592-2001-0101."))
 	doc.gdb_applicant_eid = eid
 	# A new business is not asked for a registration (GDB, 2026-10-04): only an

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../../api";
 import { EidBoxes } from "../../components/EidBoxes";
+import { BankAccountForm } from "../../components/profile/BankAccountForm";
 import { addDocument, docLabel } from "../../components/DocumentShelf";
 import {
   Field,
@@ -163,6 +164,18 @@ export function CompleteApplication({
           {saved}
         </p>
       )}
+
+      {/* Where the loan is paid: the same fields as the loan forms, and
+          changeable while GDB reviews — it is the person's account, not an
+          answer on the application. */}
+      <div>
+        <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          Bank account
+        </h3>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <BankAccountForm />
+        </div>
+      </div>
 
       {/* The checklist: every document, on file or not. Only missing ones
           take an upload. */}
@@ -367,7 +380,12 @@ function GapField({
       return <MoneyField label={gap.label} value={value} onChange={onChange} />;
     case "Date":
       return (
-        <TextField label={gap.label} value={value} onChange={onChange} type="date" />
+        <TextField
+          label={gap.label}
+          value={value}
+          onChange={onChange}
+          type="date"
+        />
       );
     case "Int":
     case "Percent":

@@ -1133,8 +1133,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       if (!profileAddress.trim()) return "Enter your residential address.";
       if (!profileRegion) return "Select the region you live in.";
       if (!profileEducation) return "Choose your qualification.";
-      if (!text("applicant_eid").trim()) return "Enter your E-ID.";
-      if (!isEid(text("applicant_eid")))
+      // Optional on an SME Loan; one given must be a whole e-ID number.
+      if (text("applicant_eid").trim() && !isEid(text("applicant_eid")))
         return "Enter your E-ID as its 11 digits, e.g. 592-2001-0101.";
       if (!text("public_service_employed"))
         return "Tell us whether you are employed in any public service.";
@@ -2366,9 +2366,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     <div className="mt-3 space-y-4 border-t border-emerald-100 pt-3">
                       <div className="sm:max-w-xs">
                         <span className="mb-1.5 block text-sm font-semibold text-slate-800">
-                          E-ID <span className="text-rose-600">*</span>
+                          E-ID{" "}
+                          <span className="text-xs font-normal text-slate-500">
+                            (optional)
+                          </span>
                         </span>
                         <EidBoxes
+                          required={false}
                           value={eidForBoxes(text("applicant_eid"))}
                           onChange={(v) =>
                             set("applicant_eid")(eidFromBoxes(v))

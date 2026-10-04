@@ -204,3 +204,18 @@ class TestTheLoanOfficersChecklist(RoadToPayment):
 		self.eid_card()
 		with self.set_user(UNDERWRITER), self.assertRaises(frappe.ValidationError):
 			documents.request_information(application=name, item=checklist.ASK["eid"][1], document_type="e-ID")
+
+	def test_the_e_id_card_answers_applicant_e_id_on_the_application(self):
+		from gdb_bank.services import application_edit
+
+		name = self.submitted()
+		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", None)
+		with self.set_user(TRADER):
+			keys = [g["fieldname"] for g in api.application_gaps(name=name)["fields"]]
+		self.assertIn("gdb_applicant_eid", keys)
+		self.eid_card()
+		with self.set_user(TRADER):
+			keys = [g["fieldname"] for g in api.application_gaps(name=name)["fields"]]
+		self.assertNotIn("gdb_applicant_eid", keys)
+		self.assertEqual(application_edit.fill_eid_from_card(TRADER), [name])
+		self.assertEqual(frappe.db.get_value("Loan Application", name, "gdb_applicant_eid"), "592-2001-0101")

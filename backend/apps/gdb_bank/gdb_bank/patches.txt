@@ -7,4 +7,4 @@ gdb_bank.patches.repair_use_of_funds_item_text
 [post_model_sync]
 gdb_bank.patches.disable_demo_users
 gdb_bank.patches.set_facilitated_banks
-gdb_bank.patches.answer_uploaded_eid_requests #2026-10-04b
+gdb_bank.patches.answer_uploaded_eid_requests #2026-10-04c

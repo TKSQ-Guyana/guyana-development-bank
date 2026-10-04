@@ -139,12 +139,12 @@ class TestSmeApplicationRules(TestSmeTerms):
 	def test_a_complete_sme_application_submits(self):
 		self.assertEqual(self.submits(self.ready())["status"], "Submitted")
 
-	def test_the_e_id_is_required_and_is_eleven_digits(self):
+	def test_the_e_id_is_optional_but_eleven_digits_when_given(self):
 		name = self.ready()
-		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "")
-		self.refused("Enter your E-ID", name)
 		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "12345")
 		self.refused("11 digits", name)
+		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "")
+		self.assertEqual(self.submits(name)["status"], "Submitted")
 
 	def test_an_existing_business_needs_its_dcra_number(self):
 		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")

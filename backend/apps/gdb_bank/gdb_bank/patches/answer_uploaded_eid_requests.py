@@ -39,7 +39,19 @@ def execute():
 		if not newer:
 			frappe.db.set_value(DOCTYPE, row.name, {"status": "Received", "superseded_by": None}, update_modified=False)
 
-	# Open requests whose answer is already on the shelf, uploaded after the ask.
+	# "Applicant e-ID" left blank where the e-ID card on file gives it.
+	from gdb_bank.services.application_edit import fill_eid_from_card
+
+	for applicant in set(
+		frappe.get_all(
+			DOCTYPE,
+			filters={"document_type": "Identity", "id_document_kind": "e-ID", "file_url": ["is", "set"]},
+			pluck="applicant",
+		)
+	):
+		fill_eid_from_card(applicant)
+
+	# Open requests whose answer is already on the shelf.
 	for request in frappe.get_all(
 		REQUEST_DOCTYPE, filters={"status": OPEN}, fields=["name", "applicant", "document_type", "requested_on"]
 	):

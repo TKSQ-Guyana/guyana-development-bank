@@ -120,8 +120,13 @@ def _applies(fieldname: str, doc) -> bool:
 		"gdb_co_applicants": structure == "Partnership",
 		"gdb_applicant_share": structure in ("Partnership", "Incorporated (Inc.)"),
 		"gdb_date_established": stage == "Existing",
-		"gdb_registration_date": stage == "New",
-		"gdb_mentor_details": doc.gdb_has_mentor == "Yes",
+		# A new business is no longer asked for its registration (2026-10-04).
+		"gdb_registration_date": False,
+		# The mentor is asked by first name, last name and phone now.
+		"gdb_mentor_details": False,
+		"gdb_mentor_first_name": doc.gdb_has_mentor == "Yes",
+		"gdb_mentor_last_name": doc.gdb_has_mentor == "Yes",
+		"gdb_mentor_phone": doc.gdb_has_mentor == "Yes",
 		"gdb_public_service_ministry": doc.gdb_public_service_employed == "Yes",
 		"gdb_public_service_under_250k": doc.gdb_public_service_employed == "Yes",
 	}
@@ -147,11 +152,55 @@ def _questions():
 	yield from TOP_LEVEL
 
 
+def eid_on_card(applicant: str) -> str | None:
+	"""The e-ID number on the applicant's uploaded e-ID card (not rejected, not
+	replaced), in its canonical form — or None."""
+	number = frappe.db.get_value(
+		evidence.DOCTYPE,
+		{
+			"applicant": applicant,
+			"document_type": "Identity",
+			"id_document_kind": evidence.EID_REQUEST,
+			"file_url": ["is", "set"],
+			"status": ["not in", ["Rejected", evidence.REPLACED]],
+		},
+		"id_document_number",
+		order_by="creation desc",
+	)
+	eid = normalize_eid(number)
+	return eid if EID_SHAPE.match(eid) else None
+
+
+def fill_eid_from_card(applicant: str) -> list[str]:
+	"""Write the uploaded e-ID card's number into "Applicant e-ID" where it is
+	still blank, on the applicant's applications not yet decided. The card is
+	the answer: asking for the same number again is what this prevents."""
+	eid = eid_on_card(applicant)
+	if not eid:
+		return []
+	names = frappe.get_all(
+		"Loan Application",
+		filters={"gdb_owner": applicant, "docstatus": ["<", 2], "status": "Open"},
+		fields=["name", "gdb_applicant_eid", "gdb_reviewed_on"],
+	)
+	filled = []
+	for row in names:
+		if row.gdb_reviewed_on or (row.gdb_applicant_eid or "").strip():
+			continue
+		frappe.db.set_value("Loan Application", row.name, "gdb_applicant_eid", eid, update_modified=False)
+		filled.append(row.name)
+	return filled
+
+
 def _gaps(doc) -> list[dict]:
 	"""The questions this application asks that were left blank."""
 	gaps = []
+	card_eid = eid_on_card(doc.gdb_owner)
 	for key, fieldname, label, fieldtype, options in _questions():
 		if not _applies(fieldname, doc) or not _blank(doc.get(fieldname), fieldtype):
+			continue
+		# Answered by the e-ID card on file.
+		if fieldname == "gdb_applicant_eid" and card_eid:
 			continue
 		gaps.append(
 			{

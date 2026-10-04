@@ -111,24 +111,24 @@ export function Sidebar({
     <aside className="sticky top-0 hidden h-screen w-[256px] flex-none flex-col border-r border-slate-200 bg-white shadow-[1px_0_12px_rgba(0,0,0,0.02)] md:flex">
       <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-5">
         <span className="flex items-center gap-3">
-          {/* The Bank's logo carries its name; the title stays for screen readers. */}
-          <img
-            src={gdbLogo}
-            alt={brand?.title ?? "Guyana Development Bank"}
-            className="h-11 w-auto min-w-0 max-w-[150px] object-contain"
-          />
-          {/* The national coat of arms beside the Bank's mark: a government
-              programme, and it should look like one. */}
+          {/* The national coat of arms first, then the Bank's mark: a
+              government programme, and it should look like one. */}
           {brand?.crest && (
             <>
-              <span className="h-8 w-px flex-none bg-slate-200" aria-hidden />
               <img
                 src={brand.crest}
                 alt="Coat of arms of Guyana"
                 className="h-11 w-auto flex-none object-contain"
               />
+              <span className="h-8 w-px flex-none bg-slate-200" aria-hidden />
             </>
           )}
+          {/* The Bank's logo carries its name; the title stays for screen readers. */}
+          <img
+            src={gdbLogo}
+            alt={brand?.title ?? "Guyana Development Bank"}
+            className="h-10 w-auto min-w-0 max-w-[150px] object-contain"
+          />
         </span>
         {brand && (brand.eyebrow || brand.subtitle) && (
           <span className="min-w-0 leading-tight">

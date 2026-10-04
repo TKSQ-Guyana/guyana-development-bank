@@ -389,6 +389,8 @@ def confirm_document(name: str, acting: str | None = None):
 		)
 	elif not acting:
 		satisfy_open_requests(doc)
+	if doc.document_type == "Identity" and doc.id_document_kind == EID_REQUEST:
+		application_edit.fill_eid_from_card(user)
 	frappe.db.commit()
 	_logger().info(
 		f"document {name} ({doc.document_type}) uploaded by {user} for "
