@@ -10,7 +10,7 @@ server {
     # Resolve the backend lazily via Docker's DNS (a variable in proxy_pass
     # defers resolution to request time) so nginx starts even when the backend
     # name is momentarily unresolvable instead of crash-looping on [emerg].
-    resolver 127.0.0.11 valid=10s ipv6=off;
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
 
     # Text compresses to a fraction of its size — the JS bundle, the CSS and
     # every JSON answer from the API. Images are already compressed.

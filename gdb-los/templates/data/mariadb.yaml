@@ -1,0 +1,125 @@
+{{- if .Values.mariadb.enabled -}}
+{{- $m := .Values.mariadb -}}
+{{- $mdb := include "gdb.mariadbName" . -}}
+{{- $s := include "gdb.secretName" . -}}
+# Primary + replicas with automatic primary failover (mariadb-operator).
+# Services created by the operator:  <name>-primary (writes - Frappe & Keycloak),
+# <name>-secondary (reads), <name> (all).
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: {{ $mdb }}
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mariadb
+spec:
+  image: {{ $m.image }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rootPasswordSecretKeyRef:
+    name: {{ $s }}
+    key: db-root-password
+  replicas: {{ $m.replicas }}
+  replication:
+    enabled: true
+  storage:
+    size: {{ $m.storageSize }}
+    storageClassName: {{ .Values.storage.blockClass }}
+  # Same character set as docker-compose (ERPNext requires utf8mb4).
+  myCnf: |
+    [mariadb]
+    bind-address=*
+    default_storage_engine=InnoDB
+    binlog_format=ROW
+    innodb_buffer_pool_size={{ $m.innodbBufferPoolSize }}
+    innodb_file_per_table=1
+    max_connections={{ $m.maxConnections }}
+    max_allowed_packet=256M
+    character-set-server=utf8mb4
+    collation-server=utf8mb4_unicode_ci
+    skip-character-set-client-handshake
+  resources:
+    {{- toYaml $m.resources | nindent 4 }}
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  # one database pod per worker node - required, not preferred
+  affinity:
+    antiAffinityEnabled: true
+  {{- with $m.podDisruptionBudget }}
+  podDisruptionBudget:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.keycloak.enabled }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: {{ $mdb }}-keycloak
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  mariaDbRef:
+    name: {{ $mdb }}
+  name: {{ .Values.keycloak.database.name }}
+  characterSet: utf8mb4
+  collate: utf8mb4_unicode_ci
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: User
+metadata:
+  name: {{ $mdb }}-keycloak
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  mariaDbRef:
+    name: {{ $mdb }}
+  name: {{ .Values.keycloak.database.user }}
+  host: "%"
+  passwordSecretKeyRef:
+    name: {{ $s }}
+    key: keycloak-db-password
+  maxUserConnections: 100
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $mdb }}-keycloak
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  mariaDbRef:
+    name: {{ $mdb }}
+  privileges: ["ALL PRIVILEGES"]
+  database: {{ .Values.keycloak.database.name }}
+  table: "*"
+  username: {{ .Values.keycloak.database.user }}
+  host: "%"
+{{- end }}
+{{- if $m.backup.enabled }}
+{{- if not $m.backup.storage }}{{ fail "mariadb.backup.storage is required when mariadb.backup.enabled=true" }}{{ end }}
+---
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Backup
+metadata:
+  name: {{ $mdb }}-scheduled
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  mariaDbRef:
+    name: {{ $mdb }}
+  schedule:
+    cron: {{ $m.backup.schedule | quote }}
+  maxRetention: {{ $m.backup.maxRetention }}
+  compression: gzip
+  storage:
+    {{- toYaml $m.backup.storage | nindent 4 }}
+{{- end }}
+{{- end }}

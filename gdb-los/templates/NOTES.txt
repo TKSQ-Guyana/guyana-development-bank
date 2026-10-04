@@ -1,0 +1,29 @@
+{{- $n := include "gdb.name" . -}}
+GDB Loan Origination System - release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+First install: the web pods create the Frappe site (ERPNext + lending + gdb_bank)
+and seed the masters. This takes several minutes. Watch it:
+
+  kubectl -n {{ .Release.Namespace }} get pods -w
+  kubectl -n {{ .Release.Namespace }} logs -f deploy/{{ $n }}-backend-web -c backend
+  kubectl -n {{ .Release.Namespace }} get mariadb,database,user,grant
+
+{{- if .Values.ingress.enabled }}
+
+Citizen portal : https://{{ .Values.ingress.portal.host }}
+{{- if .Values.ingress.desk.enabled }}
+ERPNext desk   : https://{{ .Values.ingress.desk.host }}   (Administrator = break-glass only)
+{{- end }}
+{{- end }}
+Keycloak admin : {{ if .Values.ingress.keycloakAdmin.enabled }}https://{{ .Values.ingress.keycloakAdmin.host }}{{ else }}kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $n }}-keycloak 8086:8080  ->  http://localhost:8086{{ end }}
+
+{{- if eq .Values.backend.sites.accessMode "ReadWriteOnce" }}
+
+NOTE: sites volume is ReadWriteOnce - all backend pods run on ONE node.
+Pod failures are healed; a node failure means a few minutes' outage while the
+volume moves. Switch to Nutanix Files (RWX) for full HA - see README.
+{{- end }}
+{{- if not .Values.mariadb.backup.enabled }}
+
+WARNING: mariadb.backup is disabled - no off-cluster database backups yet.
+{{- end }}

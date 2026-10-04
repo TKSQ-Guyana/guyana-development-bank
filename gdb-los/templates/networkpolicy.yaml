@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicy.enabled -}}
+{{- $n := include "gdb.name" . -}}
+# Complements gdb-los-bootstrap/01-namespace.yaml (default deny + same-namespace allow).
+{{- if .Values.mariadb.enabled }}
+# mariadb-operator must reach the database pods to configure replication and
+# perform failover (harmless duplicate of allow-same-namespace when it runs in gdb-los).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}-allow-mariadb-operator
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ include "gdb.mariadbName" . }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.mariadb.operatorNamespace }}
+{{- end }}
+{{- if and .Values.ingress.keycloakAdmin.enabled .Values.keycloak.enabled }}
+---
+# Admin console exposed: let the ingress controller reach Keycloak too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}-allow-ingress-keycloak
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" (dict "root" . "component" "keycloak") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+{{- end }}
+{{- end }}

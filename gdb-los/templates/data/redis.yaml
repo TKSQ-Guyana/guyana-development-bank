@@ -1,0 +1,80 @@
+{{- $n := include "gdb.name" . -}}
+{{- range $role := list "cache" "queue" }}
+{{- $r := index $.Values.redis $role }}
+{{- $sel := dict "root" $ "component" (printf "redis-%s" $role) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-redis-{{ $role }}
+  labels:
+    {{- include "gdb.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: redis-{{ $role }}
+spec:
+  selector:
+    {{- include "gdb.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - {name: redis, port: 6379, targetPort: redis}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $n }}-redis-{{ $role }}
+  labels:
+    {{- include "gdb.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: redis-{{ $role }}
+spec:
+  serviceName: {{ $n }}-redis-{{ $role }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gdb.selectorLabels" $sel | nindent 8 }}
+    spec:
+      {{- include "gdb.imagePullSecrets" $ | nindent 6 }}
+      {{- include "gdb.placement" $ | nindent 6 }}
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        runAsNonRoot: true
+      containers:
+        - name: redis
+          image: {{ include "gdb.image" (dict "img" $.Values.images.redis "key" "redis") }}
+          imagePullPolicy: {{ $.Values.images.redis.pullPolicy }}
+          args:
+            {{- toYaml $r.args | nindent 12 }}
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      {{- if not $r.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if $r.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ $.Values.storage.blockClass }}
+        resources:
+          requests:
+            storage: {{ $r.persistence.size }}
+  {{- end }}
+{{- end }}

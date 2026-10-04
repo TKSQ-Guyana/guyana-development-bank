@@ -1,0 +1,9 @@
+#!/bin/sh
+# Sourced by the nginx image entrypoint BEFORE templates are rendered, so the
+# variable reaches envsubst. Docker Compose -> 127.0.0.11, Kubernetes -> kube-dns.
+if [ -z "${NGINX_RESOLVER:-}" ]; then
+  NGINX_RESOLVER="$(awk '/^nameserver/ {print $2; exit}' /etc/resolv.conf)"
+  case "$NGINX_RESOLVER" in *:*) NGINX_RESOLVER="[$NGINX_RESOLVER]" ;; esac
+  export NGINX_RESOLVER
+fi
+echo "15-resolver.envsh: nginx resolver = ${NGINX_RESOLVER}"

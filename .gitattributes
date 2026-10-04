@@ -2,3 +2,5 @@
 # matter which OS checked it out. Shell scripts copied into Linux containers
 # (docker-entrypoint.sh, /docker-entrypoint.d hooks) break with CRLF.
 * text=auto eol=lf
+*.envsh text eol=lf
+*.sh    text eol=lf

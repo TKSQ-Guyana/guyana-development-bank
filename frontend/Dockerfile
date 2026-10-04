@@ -13,3 +13,6 @@ ENV BACKEND_URL=http://gdb-backend:8000 \
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
+
+# pick the DNS server at start-up (Compose and Kubernetes)
+COPY --chmod=755 15-resolver.envsh /docker-entrypoint.d/15-resolver.envsh
