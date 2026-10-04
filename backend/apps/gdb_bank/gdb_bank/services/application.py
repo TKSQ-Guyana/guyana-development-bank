@@ -360,10 +360,15 @@ def _validated(
 		business_name = (business_name or "").strip()
 		if business_stage == "Existing" and not dcra_number:
 			frappe.throw(_("Give the DCRA registration number of your existing business."))
-		if business_stage == "New":
-			# A start-up has no registration yet, so never carry one over.
+		if business_stage == "New" and cluster:
+			# A group's start-up has no registration yet, so never carry one over.
+			# A single SME names its DCRA number whether new or existing (it is
+			# required at submission).
 			dcra_number = ""
-		if business_stage and not business_name:
+		# A single SME is not asked its name: it comes from the business registry
+		# when the DCRA number is found there, and is blank otherwise. A group's
+		# facilitator still names the business it files for.
+		if business_stage and not business_name and cluster:
 			frappe.throw(_("Business name is required."))
 
 	loan_product = frappe.db.get_value("Loan Product", {"product_name": PORTAL_PRODUCTS[product]})
@@ -412,6 +417,9 @@ def _validated(
 				frappe.throw(_(message))
 	else:
 		values.update(_blanked(QUICK_ONLY))
+		if values.get("gdb_has_mentor") != "Yes":
+			values["gdb_mentor_details"] = ""
+	_public_service(values)
 	# The stage decides which financial block is meaningful, so switching it
 	# clears the other one. Same reasoning as dropping the DCRA number above:
 	# a start-up must never carry filed accounts, and a trading business must
@@ -425,6 +433,71 @@ def _validated(
 
 
 MORATORIUM_MESSAGE = "Choose when you want to start repaying: after {0} months."
+
+
+def _public_service(values: dict) -> None:
+	"""The public-service answers, kept consistent, and the review flag they set.
+
+	The follow-up questions belong to a "Yes", so a "No" clears them. A public
+	servant who does NOT earn under GYD 250,000 a month may still apply: the
+	case is routed to a Loan Officer, never refused. The flag is the server's
+	conclusion, so whatever the form sent for it is overwritten.
+	"""
+	for fieldname in ("gdb_applicant_eid", "gdb_public_service_ministry"):
+		values[fieldname] = (values.get(fieldname) or "").strip()
+	if values.get("gdb_public_service_employed") != "Yes":
+		values["gdb_public_service_ministry"] = ""
+		values["gdb_public_service_under_250k"] = ""
+	values["gdb_requires_loan_officer_review"] = int(
+		values.get("gdb_public_service_employed") == "Yes"
+		and values.get("gdb_public_service_under_250k") == "No"
+	)
+
+
+def _require_declarations(doc) -> None:
+	"""The applicant's yes/no declarations (both forms), answered before the
+	case goes to GDB. Asked at submission rather than on every save, so a draft
+	saved before the questions existed can still be opened and finished."""
+	if doc.gdb_public_service_employed not in ("Yes", "No"):
+		frappe.throw(_("Tell us whether you are employed in any public service."))
+	if doc.gdb_public_service_employed == "Yes":
+		if not (doc.gdb_public_service_ministry or "").strip():
+			frappe.throw(_("Tell us which Ministry or agency you work for."))
+		if doc.gdb_public_service_under_250k not in ("Yes", "No"):
+			frappe.throw(_("Tell us whether you are making less than $250,000 a month."))
+	if doc.gdb_related_to_gdb_employee not in ("Yes", "No"):
+		frappe.throw(_("Tell us whether you are related to an employee of Guyana Development Bank."))
+
+
+def _require_sme_details(doc) -> None:
+	"""What a single SME application must carry before it goes to GDB."""
+	from gdb_bank.utils.eid import EID_SHAPE, normalize_eid
+
+	eid = normalize_eid(doc.gdb_applicant_eid)
+	if not eid:
+		frappe.throw(_("Enter your E-ID."))
+	if not EID_SHAPE.match(eid):
+		frappe.throw(_("Enter your E-ID as its 11 digits, e.g. 592-2001-0101."))
+	doc.gdb_applicant_eid = eid
+	if not (doc.gdb_dcra_number or "").strip():
+		frappe.throw(_("Give the DCRA registration number of your business."))
+	# A new business gives its registration date; an existing one the date it
+	# was established (submit_application), which is all GDB asks of it.
+	if (doc.gdb_business_stage or "").title() == "New" and not doc.gdb_registration_date:
+		frappe.throw(_("Give the date of registration."))
+	if (doc.gdb_business_stage or "").title() == "New":
+		if doc.gdb_industrial_training not in ("Yes", "No"):
+			frappe.throw(_("Tell us whether you are part of an industrial training program."))
+		if doc.gdb_has_mentor not in ("Yes", "No"):
+			frappe.throw(_("Tell us whether you have a mentor."))
+		if doc.gdb_has_mentor == "Yes" and not (doc.gdb_mentor_details or "").strip():
+			frappe.throw(_("Give your mentor's details."))
+	profile = frappe.db.get_value(
+		"GDB Citizen Profile", {"user": doc.gdb_owner}, ["email", "verified_email"], as_dict=True
+	)
+	email = (profile and (profile.email or profile.verified_email)) or ""
+	if not email:
+		frappe.throw(_("Add your email address."))
 
 
 def _own_draft(name: str, user: str):
@@ -573,7 +646,10 @@ def submit_application(
 				frappe.throw(_("Choose the status of each existing debt."))
 		if (doc.gdb_business_stage or "").title() == "Existing" and not doc.gdb_date_established:
 			frappe.throw(_("Give the date your business was established."))
+		_require_sme_details(doc)
+		_require_declarations(doc)
 	if _portal_product(doc.loan_product) == QUICK_PRODUCT:
+		_require_declarations(doc)
 		if not cint(accept_terms):
 			frappe.throw(_("Accept the terms to submit."))
 		if not cint(credit_check_consent):

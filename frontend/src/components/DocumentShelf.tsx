@@ -115,6 +115,7 @@ export function DocumentShelf({
   title = "Documents",
   compact = false,
   viewOnly = false,
+  listOnly = false,
 }: {
   /** Omit for a personal shelf (identity, proof of address). */
   application?: string;
@@ -132,6 +133,9 @@ export function DocumentShelf({
   /** Show what is on file without asking for it again (the identity document
    *  from registration). Only when nothing is on file can one be added. */
   viewOnly?: boolean;
+  /** List what is on file and take nothing: a submitted application, whose
+   *  missing documents are added from its checklist (CompleteApplication). */
+  listOnly?: boolean;
 }) {
   const { user } = useAuth();
   const [shelf, setShelf] = useState<Shelf | null>(null);
@@ -240,7 +244,7 @@ export function DocumentShelf({
   // registration) is shown, not asked for again. Only when there is none can
   // one be added here.
   const onFile = viewOnly && live.length > 0;
-  const canUpload = shelf.can_upload && !onFile;
+  const canUpload = shelf.can_upload && !onFile && !listOnly;
   const replaced = documents.filter((d) => d.status === "Replaced");
   const accepts = acceptsFor(shelf.settings, type);
 

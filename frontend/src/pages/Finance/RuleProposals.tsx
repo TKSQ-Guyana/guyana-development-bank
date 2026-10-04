@@ -207,12 +207,12 @@ export function RuleProposals() {
                 </p>
                 <p className="mt-1 text-sm text-slate-500">{p.justification}</p>
                 <p className="mt-2 text-xs text-slate-400">
-                  Effective {formatDate(p.effective_date)} · proposed by {p.proposed_by} on{' '}
+                  Effective {formatDate(p.effective_date)} · proposed by <span className="normal-case">{p.proposed_by}</span> on{' '}
                   {formatDate(p.proposed_on)}
                   {p.decided_by && (
                     <>
                       {' '}
-                      · decided by {p.decided_by} on {formatDate(p.decided_on ?? '')}
+                      · decided by <span className="normal-case">{p.decided_by}</span> on {formatDate(p.decided_on ?? '')}
                     </>
                   )}
                 </p>

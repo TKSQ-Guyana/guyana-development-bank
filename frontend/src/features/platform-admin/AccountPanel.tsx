@@ -145,7 +145,7 @@ export function AccountPanel({
         <Avatar name={account.full_name} size="lg" muted={!account.enabled} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-bold text-slate-900">{account.full_name}</p>
-          <p className="truncate text-sm text-slate-500">{account.email}</p>
+          <p className="truncate text-sm text-slate-500 normal-case">{account.email}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <StatusPill enabled={account.enabled} />
             {account.roles.map((r) => (

@@ -150,7 +150,7 @@ export function Conditions({
               </p>
               {c.verified_by && (
                 <p className="mt-1 text-xs text-slate-400">
-                  {c.status} by {c.verified_by} · {formatDate(c.verified_on)}
+                  {c.status} by <span className="normal-case">{c.verified_by}</span> · {formatDate(c.verified_on)}
                 </p>
               )}
               {mayVerify && (

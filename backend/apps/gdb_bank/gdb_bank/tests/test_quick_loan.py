@@ -67,6 +67,16 @@ TRADE = {
 	"trade_longitude": -58.1551,
 	"trade_address": "Stabroek Market, Georgetown",
 	"moratorium_months": 1,
+	"public_service_employed": "No",
+	"related_to_gdb_employee": "No",
+}
+
+# A public servant's answers, on top of TRADE.
+PUBLIC_SERVANT = {
+	**TRADE,
+	"public_service_employed": "Yes",
+	"public_service_ministry": "Ministry of Health",
+	"public_service_under_250k": "Yes",
 }
 
 
@@ -380,15 +390,72 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		super().setUp()
 		_user(UNDERWRITER, "Loan Underwriter")
 
-	def submitted(self) -> str:
-		name = self.save()["name"]
+	def submitted(self, **sections) -> str:
+		name = self.save(sections={**TRADE, **sections})["name"]
 		with self.set_user(TRADER):
 			api.submit_application(name=name, accept_terms=1, credit_check_consent=1)
 		return name
 
-	def in_queue(self, name: str) -> dict:
+	def in_queue(self, name: str, **filters) -> dict | None:
 		with self.set_user(UNDERWRITER):
-			return next(case for case in api.all_loans()["rows"] if case["name"] == name)
+			return next((case for case in api.all_loans(**filters)["rows"] if case["name"] == name), None)
+
+	def refused_at_submission(self, message: str, **sections) -> None:
+		name = self.save(sections={**TRADE, **sections})["name"]
+		with self.set_user(TRADER), self.assertRaisesRegex(frappe.ValidationError, message):
+			api.submit_application(name=name, accept_terms=1, credit_check_consent=1)
+
+	def test_a_public_servant_earning_250k_or_more_is_routed_to_a_loan_officer_not_refused(self):
+		name = self.submitted(**{**PUBLIC_SERVANT, "public_service_under_250k": "No"})
+		case = self.in_queue(name)
+		self.assertEqual(case["status"], "Submitted")
+		self.assertEqual(case["sections"]["requires_loan_officer_review"], 1)
+		self.assertIsNotNone(self.in_queue(name, officer_review=1))
+
+	def test_a_public_servant_earning_under_250k_is_not_flagged(self):
+		name = self.submitted(**PUBLIC_SERVANT)
+		self.assertEqual(self.in_queue(name)["sections"]["requires_loan_officer_review"], 0)
+		self.assertIsNone(self.in_queue(name, officer_review=1))
+
+	def test_the_review_flag_is_the_servers_conclusion_not_the_forms(self):
+		draft = self.save(sections={**TRADE, "requires_loan_officer_review": 1})
+		self.assertEqual(draft["sections"]["requires_loan_officer_review"], 0)
+
+	def test_a_no_to_public_service_clears_its_follow_up_answers(self):
+		draft = self.save(sections={**PUBLIC_SERVANT, "public_service_employed": "No"})
+		self.assertFalse(draft["sections"]["public_service_ministry"])
+		self.assertFalse(draft["sections"]["public_service_under_250k"])
+
+	def test_the_declarations_are_kept_on_the_application(self):
+		draft = self.save(sections={**PUBLIC_SERVANT, "applicant_eid": " 592-2001-0101 ", "related_to_gdb_employee": "Yes"})
+		self.assertEqual(draft["sections"]["applicant_eid"], "592-2001-0101")
+		self.assertEqual(draft["sections"]["public_service_ministry"], "Ministry of Health")
+		self.assertEqual(draft["sections"]["related_to_gdb_employee"], "Yes")
+
+	def test_submission_asks_whether_the_applicant_is_a_public_servant(self):
+		self.refused_at_submission("public service", public_service_employed="")
+
+	def test_a_public_servant_names_their_ministry(self):
+		self.refused_at_submission("Ministry or agency", **{**PUBLIC_SERVANT, "public_service_ministry": ""})
+
+	def test_a_public_servant_answers_the_income_question(self):
+		self.refused_at_submission("250,000", **{**PUBLIC_SERVANT, "public_service_under_250k": ""})
+
+	def test_submission_asks_whether_the_applicant_is_related_to_a_gdb_employee(self):
+		self.refused_at_submission("related to an employee", related_to_gdb_employee="")
+
+	def test_an_applicant_without_a_bank_account_may_submit(self):
+		name = self.submitted(no_bank_account=1)
+		self.assertEqual(self.in_queue(name)["sections"]["no_bank_account"], 1)
+
+	def test_the_facilitated_banks_are_the_desks_list(self):
+		install.ensure_banks()
+		frappe.db.set_value("Bank", "GBTI", "gdb_facilitated", 0)
+		frappe.db.set_value("Bank", "Republic Bank", "gdb_facilitated", 1)
+		with self.set_user(TRADER):
+			banks = api.facilitated_banks()
+		self.assertIn("Republic Bank", banks)
+		self.assertNotIn("GBTI", banks)
 
 	def test_a_submitted_quick_loan_reaches_the_review_queue_as_a_quick_loan(self):
 		case = self.in_queue(self.submitted())
@@ -396,8 +463,8 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		self.assertEqual(case["status"], "Submitted")
 		self.assertEqual(case["applicant_eid"], TRADER_EID)
 
-	def test_the_bank_expects_identity_and_photos_of_the_business_not_accounts(self):
-		self.assertEqual(self.in_queue(self.submitted())["evidence_missing"], ["Identity", "Business Photo"])
+	def test_the_bank_expects_no_identity_document_and_no_photos(self):
+		self.assertEqual(self.in_queue(self.submitted())["evidence_missing"], [])
 
 
 class TestTradingEvidence(QuickLoanCase):
@@ -457,6 +524,7 @@ class TestTradingEvidence(QuickLoanCase):
 			accepts = documents.document_settings()["accepts_by_type"]
 		self.assertEqual(accepts["Trading Photo"], ".jpg,.jpeg,.png,.webp,.heic,.heif")
 		self.assertEqual(accepts["Identity"], ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif")
+		self.assertEqual(accepts["Payslip"], ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif")
 
 
 DISBURSER = "test-gdb-quick-disburser@example.gy"

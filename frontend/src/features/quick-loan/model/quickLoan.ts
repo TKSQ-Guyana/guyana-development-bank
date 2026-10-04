@@ -28,15 +28,21 @@ export interface QuickLoanTerms {
 }
 
 /** `confirm` is the separate submit page after Review — not a step on the rail.
- *  There is no "About you" step: who is applying is already known (their
- *  account and profile) and shown as a card, and their identity document is
- *  the one on file. Business photos replace a separate proof step. */
-export type QuickStepId = 'eligibility' | 'business' | 'loan' | 'bank' | 'review' | 'confirm';
+ *  "About you" shows who is applying (their account and profile) and asks what
+ *  the account cannot know: their E-ID, public-service employment and any tie
+ *  to a GDB employee. No identity document and no business photos are asked
+ *  for anywhere in the journey. */
+export type QuickStepId = 'eligibility' | 'about' | 'business' | 'loan' | 'bank' | 'review' | 'confirm';
 
 /** The server opens a draft only once there is an amount, term and purpose, so
- *  business photos picked before Loan details wait in the page until it saves. */
+ *  the answers before Loan details are first saved with it. */
 export const QUICK_STEPS: { id: QuickStepId; title: string; blurb: string }[] = [
   { id: 'eligibility', title: 'Before you start', blurb: 'For small businesses' },
+  {
+    id: 'about',
+    title: 'About you',
+    blurb: 'Your E-ID, your employment, and whether you are related to anyone who works at GDB.',
+  },
   { id: 'business', title: 'Business description', blurb: 'What your business does, where it is, and two people who know it.' },
   { id: 'loan', title: 'Loan details', blurb: 'GDB decides the approved amount.' },
   {
@@ -65,14 +71,27 @@ export interface SupportContact {
 export const ACCOUNT_TYPES = ['Checking', 'Savings'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
+/** The answer to each yes/no declaration — '' until chosen. */
+export const YES_NO = ['Yes', 'No'] as const;
+export type YesNo = (typeof YES_NO)[number] | '';
+
 const EMPTY_CONTACT: SupportContact = { name: '', relationship: '', phone: '' };
 
 export interface QuickAnswers {
   /** "How would you like to apply?" — null until chosen. */
   how: 'self' | 'help' | null;
-  /** From the profile; asked on the business step only when it is missing. */
+  /** From the profile; asked on About you only when it is missing. */
   dob: string;
   phone: string;
+  /** Typed by the applicant; prefilled from an account opened by e-ID. */
+  eid: string;
+  publicService: YesNo;
+  /** Asked when `publicService` is Yes. */
+  ministry: string;
+  /** "Are you making less than $250,000 a month?" — asked when `publicService`
+   *  is Yes. A No never blocks: the case goes to a Loan Officer. */
+  under250k: YesNo;
+  relatedToGdb: YesNo;
   businessName: string;
   tradeActivity: string;
   region: string;
@@ -83,8 +102,6 @@ export interface QuickAnswers {
   lng: number | null;
   /** What the map search named, or the applicant's own description. */
   place: string;
-  /** Business photos held — waiting to upload, or already on file. */
-  photos: number;
   /** Exactly two, asked on the business step. */
   contacts: [SupportContact, SupportContact];
   amount: string;
@@ -103,6 +120,9 @@ export interface QuickAnswers {
   manualAccount: boolean;
   holder: string;
   confirmNo: string;
+  /** "I don't have a bank account" — the Help Desk and the facilitated banks
+   *  instead of the account fields; never a reason to stop. */
+  noBankAccount: boolean;
   /** Review's two statements (shared/consent.ts): the consent to collect and
    *  share information, credit bureaus included, and the false-information
    *  warning. Both are ticked before anything is submitted. */
@@ -114,6 +134,11 @@ export const EMPTY_ANSWERS: QuickAnswers = {
   how: null,
   dob: '',
   phone: '',
+  eid: '',
+  publicService: '',
+  ministry: '',
+  under250k: '',
+  relatedToGdb: '',
   businessName: '',
   tradeActivity: '',
   region: '',
@@ -122,7 +147,6 @@ export const EMPTY_ANSWERS: QuickAnswers = {
   lat: null,
   lng: null,
   place: '',
-  photos: 0,
   contacts: [EMPTY_CONTACT, EMPTY_CONTACT],
   amount: '',
   purpose: '',
@@ -136,6 +160,7 @@ export const EMPTY_ANSWERS: QuickAnswers = {
   manualAccount: false,
   holder: '',
   confirmNo: '',
+  noBankAccount: false,
   consentGiven: false,
   warningAcknowledged: false,
 };
@@ -149,14 +174,21 @@ export function blockerFor(step: QuickStepId, a: QuickAnswers, terms: QuickLoanT
     case 'eligibility':
       if (!a.how) return 'Choose how you would like to apply.';
       return null;
-    case 'business':
+    case 'about':
       if (!a.dob) return 'Enter your date of birth.';
+      if (!a.publicService) return 'Tell us whether you are employed in any public service.';
+      if (a.publicService === 'Yes') {
+        if (!a.ministry.trim()) return 'Enter the Ministry or agency you work for.';
+        if (!a.under250k) return 'Tell us whether you are making less than $250,000 a month.';
+      }
+      if (!a.relatedToGdb) return 'Tell us whether you are related to an employee of Guyana Development Bank.';
+      return null;
+    case 'business':
       if (!a.tradeActivity.trim()) return 'Tell us what your business sells or does.';
       if (!a.region) return 'Choose the region you do business in.';
       if (!a.tradingSince) return 'Tell us how long you have been in business.';
       if (!a.tradeLocation) return 'Choose your business location.';
       if (a.lat == null || a.lng == null) return 'Pin your business on the map.';
-      if (a.photos < 1) return 'Add at least one photo of your business.';
       for (const [i, c] of a.contacts.entries()) {
         const which = i === 0 ? 'first' : 'second';
         if (!c.name.trim()) return `Enter the name of your ${which} supporting contact.`;
@@ -179,6 +211,7 @@ export function blockerFor(step: QuickStepId, a: QuickAnswers, terms: QuickLoanT
       return null;
     }
     case 'bank':
+      if (a.noBankAccount) return null;
       if (!a.bank || !a.accountNo.trim()) return 'Tell us the bank account GDB should pay you into.';
       if (!a.accountType) return 'Choose the type of account — Checking or Savings.';
       if (a.manualAccount) {
@@ -203,6 +236,10 @@ export function confirmErrors(a: QuickAnswers): Partial<Record<'consentGiven' | 
     ...(a.warningAcknowledged ? {} : { warningAcknowledged: 'Confirm that you have read this statement.' }),
   };
 }
+
+/** A public servant who does not earn under $250,000 a month: their case is
+ *  routed to a Loan Officer (the server sets the flag; this only says so). */
+export const needsOfficerReview = (a: QuickAnswers) => a.publicService === 'Yes' && a.under250k === 'No';
 
 /** "6, 12, 18 or 24" — the allowed terms as a sentence fragment. */
 export function termList(options: number[]): string {
@@ -235,9 +272,18 @@ export function toSavePayload(a: QuickAnswers, name?: string) {
       support_2_phone: a.contacts[1].phone.trim(),
       resides_in_guyana: a.residesInGuyana ? 1 : 0,
       moratorium_months: Number(a.moratorium) || 0,
+      applicant_eid: a.eid.trim(),
+      public_service_employed: a.publicService,
+      // The follow-ups belong to a Yes; the server clears them on a No too.
+      public_service_ministry: a.publicService === 'Yes' ? a.ministry.trim() : '',
+      public_service_under_250k: a.publicService === 'Yes' ? a.under250k : '',
+      related_to_gdb_employee: a.relatedToGdb,
+      no_bank_account: a.noBankAccount ? 1 : 0,
     },
   };
 }
+
+const yesNo = (value: string): YesNo => (value === 'Yes' || value === 'No' ? value : '');
 
 /** A saved draft's answers, for resuming it. A draft exists only for someone
  *  who chose to apply themselves. */
@@ -263,6 +309,12 @@ export function fromDraft(loan: LoanApplication): Partial<QuickAnswers> {
       phone: text(`support_${n}_phone`),
     })) as [SupportContact, SupportContact],
     residesInGuyana: Number(loan.sections?.resides_in_guyana ?? 0) === 1,
+    eid: text('applicant_eid'),
+    publicService: yesNo(text('public_service_employed')),
+    ministry: text('public_service_ministry'),
+    under250k: yesNo(text('public_service_under_250k')),
+    relatedToGdb: yesNo(text('related_to_gdb_employee')),
+    noBankAccount: Number(loan.sections?.no_bank_account ?? 0) === 1,
     amount: loan.loan_amount ? String(loan.loan_amount) : '',
     purpose: loan.purpose ?? '',
     term: loan.term_months ? String(loan.term_months) : EMPTY_ANSWERS.term,

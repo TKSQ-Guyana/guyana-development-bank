@@ -4,12 +4,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useOneAtATime } from "../../components/apply/OneAtATime";
 import { call } from "../../api";
 import { useAuth } from "../../auth";
-import {
-  addDocument,
-  DocumentShelf,
-  docLabel,
-  formatsLabel,
-} from "../../components/DocumentShelf";
+import { DocumentShelf, docLabel } from "../../components/DocumentShelf";
+import { FacilitatedBanks } from "../../components/apply/FacilitatedBanks";
 import { REGIONS } from "../../components/apply/cluster";
 import { LocationPicker } from "../../components/LocationPicker";
 import { formatPhone, PhoneInput } from "../../components/PhoneInput";
@@ -28,7 +24,6 @@ import { CONSENT_TEXT, FALSE_INFORMATION_WARNING } from "../../shared/consent";
 import type {
   BankAccountRecord,
   CitizenProfile,
-  DocumentSettings,
   LoanApplication,
 } from "../../types";
 import {
@@ -38,6 +33,7 @@ import {
   EMPTY_ANSWERS,
   fromDraft,
   gyd,
+  needsOfficerReview,
   QUICK_STEPS,
   RAIL_STEPS,
   termList,
@@ -46,6 +42,7 @@ import {
   type QuickLoanTerms,
   type QuickStepId,
   type SupportContact,
+  YES_NO,
 } from "./model/quickLoan";
 import {
   Banner,
@@ -75,8 +72,8 @@ import {
 /** The Quick Loan application — an informal trader's own short form.
  *
  *  Deliberately NOT a branch of the SME wizard: no TIN, no DCRA, no accounts, no
- *  business plan. Identity, what they do and where, a photo of the trade, how
- *  much and what for, and where to pay them. The rules live in
+ *  business plan. Who they are, what they do and where, how much and what
+ *  for, and where to pay them. No identity document and no photos are asked for. The rules live in
  *  model/quickLoan.ts; the enforcement lives on the server. The screens follow
  *  the approved prototype (gdb-quick-loan-flow), drawn from ./ui.
  *
@@ -86,18 +83,12 @@ import {
  */
 
 /** Where each document type is filed, for the Documents tab. */
-const DOC_SLOTS: [type: string, title: string, help: string][] = [
-  [
-    "Business Photo",
-    "Business photos",
-    "Required. Added in Business description.",
-  ],
-  [
-    "Identity",
-    "Identity document",
-    "The document on your account, shown in Your details.",
-  ],
-];
+const DOC_SLOTS: [
+  type: string,
+  title: string,
+  help: string,
+  step: QuickStepId,
+][] = [["Payslip", "Payslip", "Optional. Added in About you.", "about"]];
 
 const clock = (d: Date) =>
   d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -106,7 +97,7 @@ const stamp = (d: Date) =>
 const regionShort = (r: string) => r.split(" — ")[0];
 
 /** The steps whose answers every draft save carries and the server checks. */
-const DRAFT_STEPS: QuickStepId[] = ["business", "loan"];
+const DRAFT_STEPS: QuickStepId[] = ["about", "business", "loan"];
 
 /** Who the Quick Loan is for — the eligibility screen's list, as chips. */
 const FOR_WHOM = [
@@ -118,6 +109,7 @@ const FOR_WHOM = [
 
 /** Each step's icon, on its heading and on its Review card. */
 const STEP_ICON: Partial<Record<QuickStepId, ReactNode>> = {
+  about: <UsersIcon />,
   business: <PulseIcon />,
   loan: <PaymentsIcon />,
   bank: <BankIcon />,
@@ -140,16 +132,8 @@ export function QuickApplyPage() {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [profile, setProfile] = useState<CitizenProfile | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
-  // Whether `missing` is the server's answer yet — until it is, an empty list
-  // must not read as "every photo is on file".
-  const [shelfLoaded, setShelfLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Business photos chosen before a draft exists — there is nothing to file
-  // them against until Loan details is saved, so they wait here (in memory,
-  // never browser storage) and go up the moment it is.
-  const [photos, setPhotos] = useState<File[]>([]);
-  const [docSettings, setDocSettings] = useState<DocumentSettings | null>(null);
   const [submitted, setSubmitted] = useState<LoanApplication | null>(null);
   const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -178,9 +162,6 @@ export function QuickApplyPage() {
     call<QuickLoanTerms>("gdb_bank.api.quick_loan_terms")
       .then(setTerms)
       .catch((err: Error) => setError(err.message));
-    call<DocumentSettings>("gdb_bank.documents.document_settings")
-      .then(setDocSettings)
-      .catch(() => setDocSettings(null));
     call<CitizenProfile>("gdb_bank.profiles.my_profile")
       .then((p) => {
         setProfile(p);
@@ -194,6 +175,8 @@ export function QuickApplyPage() {
             a.region ||
             (p.region && REGIONS.includes(p.region) ? p.region : ""),
           holder: a.holder || user?.full_name || "",
+          // An account opened by e-ID already knows it; still theirs to type.
+          eid: a.eid || user?.eid || "",
         }));
       })
       .catch(() => {});
@@ -214,7 +197,10 @@ export function QuickApplyPage() {
           return;
         }
         setDraft(loan);
-        setAnswers((a) => ({ ...a, ...fromDraft(loan) }));
+        setAnswers((a) => {
+          const saved = fromDraft(loan);
+          return { ...a, ...saved, eid: saved.eid || a.eid };
+        });
         setStep("bank");
         resumed.current = true;
       })
@@ -222,31 +208,15 @@ export function QuickApplyPage() {
       .finally(() => setBusy(false));
   }, [routeName, navigate]);
 
-  // What is still not on file. Every step reads it once a draft exists: the
-  // business photos are a requirement every later save is checked against.
+  // What is still not on file, for Review's "Not on file yet" note.
   const refreshShelf = (application: string) =>
     call<{ missing: string[] }>("gdb_bank.documents.list_documents", {
       application,
-    }).then((shelf) => {
-      setMissing(shelf.missing);
-      setShelfLoaded(true);
-    });
+    }).then((shelf) => setMissing(shelf.missing));
   useEffect(() => {
     if (!draft?.name) return;
     refreshShelf(draft.name).catch((err: Error) => setError(err.message));
   }, [draft?.name, step, tab]);
-
-  // How many business photos the applicant has given: waiting to upload, or on
-  // file (Business Photo is one of the Quick Loan's expected documents, so
-  // `missing` says whether any is).
-  const photoCount =
-    photos.length +
-    (draft && shelfLoaded && !missing.includes("Business Photo") ? 1 : 0);
-  useEffect(() => {
-    setAnswers((a) =>
-      a.photos === photoCount ? a : { ...a, photos: photoCount },
-    );
-  }, [photoCount]);
 
   // A date of birth the account does not hold is asked in Your details.
   const dobOnFile = Boolean(
@@ -305,19 +275,6 @@ export function QuickApplyPage() {
     if (routeName !== saved.name)
       navigate(`/apply/quick/${saved.name}`, { replace: true });
     return saved;
-  };
-
-  /** File the waiting business photos on the draft. Each one that arrives
-   *  leaves the queue, so a retry sends only what did not. */
-  const uploadPhotos = async (application: string) => {
-    if (!photos.length) return;
-    const settings =
-      docSettings ??
-      (await call<DocumentSettings>("gdb_bank.documents.document_settings"));
-    for (const file of photos) {
-      await addDocument(file, "Business Photo", settings, application);
-      setPhotos((queue) => queue.filter((f) => f !== file));
-    }
   };
 
   const setContact =
@@ -393,7 +350,7 @@ export function QuickApplyPage() {
     }
     // A date of birth asked here is the person's, so it goes on the profile.
     if (
-      step === "business" &&
+      step === "about" &&
       !dobOnFile &&
       !(await run(async () => {
         setProfile(
@@ -410,21 +367,22 @@ export function QuickApplyPage() {
       step === "loan" &&
       !(await run(async () => {
         const saved = await saveDraft();
-        await uploadPhotos(saved.name);
         await refreshShelf(saved.name);
       }))
     )
       return false;
     if (step === "bank") {
       const saved = await run(async () => {
-        await call("gdb_bank.api.save_bank_details", {
+        // No account yet: nothing to nominate — the draft records the answer.
+        if (!answers.noBankAccount)
+          await call("gdb_bank.api.save_bank_details", {
           bank: answers.bank,
           bank_account_no: answers.accountNo,
           branch_code: branchCode,
           branch: answers.manualAccount ? answers.branch : undefined,
           account_name: answers.holder,
           account_type: answers.accountType,
-        });
+          });
         await saveDraft();
       });
       if (!saved) return false;
@@ -866,14 +824,14 @@ export function QuickApplyPage() {
           />
           {error && <Banner kind="error" title={error} />}
           {draft ? (
-            DOC_SLOTS.map(([type, title, help]) => (
+            DOC_SLOTS.map(([type, title, help, slotStep]) => (
               <Card key={type}>
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <b className="font-semibold">{title}</b>
                     <div className="text-[13px] text-ql-muted">{help}</div>
                   </div>
-                  <LinkButton onClick={() => goTo("business")}>
+                  <LinkButton onClick={() => goTo(slotStep)}>
                     Open section
                   </LinkButton>
                 </div>
@@ -956,6 +914,30 @@ export function QuickApplyPage() {
           <YourDetails user={user} profile={profile} dob={answers.dob} />
           <div className="grid gap-3 md:grid-cols-2">
             {summary(
+              "about",
+              "About you",
+              <>
+                E-ID: {answers.eid.trim() || "—"}
+                <br />
+                Public service: {answers.publicService || "—"}
+                {answers.publicService === "Yes" && (
+                  <>
+                    {" "}
+                    · {answers.ministry || "—"}
+                    <br />
+                    Under $250,000 a month: {answers.under250k || "—"}
+                    {needsOfficerReview(answers) && (
+                      <span className="block font-semibold text-amber-700">
+                        A Loan Officer will review your application.
+                      </span>
+                    )}
+                  </>
+                )}
+                <br />
+                Related to a GDB employee: {answers.relatedToGdb || "—"}
+              </>,
+            )}
+            {summary(
               "business",
               "Business description",
               <>
@@ -972,12 +954,6 @@ export function QuickApplyPage() {
                     ? answers.place ||
                       `${answers.lat.toFixed(4)}, ${answers.lng?.toFixed(4)}`
                     : "—"}
-                </span>
-                <span className="block">
-                  Photos:{" "}
-                  {missing.includes("Business Photo")
-                    ? "not on file yet"
-                    : "on file"}
                 </span>
                 {answers.contacts.map((c, i) => (
                   <span key={i} className="block">
@@ -1005,6 +981,9 @@ export function QuickApplyPage() {
             {summary(
               "bank",
               "Bank information",
+              answers.noBankAccount ? (
+                <>No bank account — please reach out to the Help Desk.</>
+              ) : (
               <>
                 {answers.bank || "—"}
                 {answers.accountType ? ` · ${answers.accountType}` : ""}
@@ -1018,7 +997,8 @@ export function QuickApplyPage() {
                     Account holder: {answers.holder}
                   </>
                 )}
-              </>,
+              </>
+              ),
             )}
           </div>
           <section
@@ -1082,7 +1062,7 @@ export function QuickApplyPage() {
           {notice && !error && <Banner kind="info" title={notice} />}
           {error && <Banner kind="error" title={error} />}
 
-          {step === "business" && (
+          {step === "about" && (
             <>
               <YourDetails
                 user={user}
@@ -1091,6 +1071,86 @@ export function QuickApplyPage() {
                 askDob={!dobOnFile}
                 onDob={set("dob")}
               />
+              <QField label="E-ID" help="The number on your e-ID card, if you have one.">
+                <input
+                  value={answers.eid}
+                  onChange={(e) => set("eid")(e.target.value)}
+                  placeholder="Enter your E-ID"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={20}
+                  className={inputClass()}
+                />
+              </QField>
+
+              <QField label="Are you employed in any public service?" required>
+                <Chips
+                  label="Are you employed in any public service?"
+                  options={[...YES_NO]}
+                  value={answers.publicService}
+                  onChange={(v) =>
+                    set("publicService")(v as QuickAnswers["publicService"])
+                  }
+                />
+              </QField>
+              {answers.publicService === "Yes" && (
+                <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                  <QField label="Which Ministry or agency do you work for?" required>
+                    <input
+                      value={answers.ministry}
+                      onChange={(e) => set("ministry")(e.target.value)}
+                      placeholder="For example: Ministry of Health"
+                      className={inputClass()}
+                    />
+                  </QField>
+                  <QField label="Are you making less than $250,000 a month?" required>
+                    <Chips
+                      label="Are you making less than $250,000 a month?"
+                      options={[...YES_NO]}
+                      value={answers.under250k}
+                      onChange={(v) =>
+                        set("under250k")(v as QuickAnswers["under250k"])
+                      }
+                    />
+                  </QField>
+                  {answers.under250k === "Yes" && (
+                    <QField
+                      label="Please upload your payslip."
+                      tag={<Pill tone="grey">Optional</Pill>}
+                      help="Optional — you can continue without it. A PDF or a clear photo."
+                    >
+                      <DocumentShelf only="Payslip" title="Payslip" />
+                    </QField>
+                  )}
+                  {answers.under250k === "No" && (
+                    <Banner
+                      kind="info"
+                      title="You can continue with your application."
+                    >
+                      A Loan Officer will review it before a decision is made.
+                    </Banner>
+                  )}
+                </div>
+              )}
+
+              <QField
+                label="Are you related to an employee of Guyana Development Bank?"
+                required
+              >
+                <Chips
+                  label="Are you related to an employee of Guyana Development Bank?"
+                  options={[...YES_NO]}
+                  value={answers.relatedToGdb}
+                  onChange={(v) =>
+                    set("relatedToGdb")(v as QuickAnswers["relatedToGdb"])
+                  }
+                />
+              </QField>
+            </>
+          )}
+
+          {step === "business" && (
+            <>
               <div className="grid gap-4 md:grid-cols-2">
                 <QField label="Business name (optional)">
                   <input
@@ -1170,32 +1230,6 @@ export function QuickApplyPage() {
                   aria-label="Directions or landmark"
                   className={inputClass()}
                 />
-              </QField>
-
-              <QField
-                label="Photos of your business"
-                required
-                helpFirst
-                help="Your stall, shop, goods or tools — at least one. JPG or PNG."
-              >
-                {draft ? (
-                  <DocumentShelf
-                    application={draft.name}
-                    only="Business Photo"
-                    title="Business photos"
-                    onChange={(m) => {
-                      setMissing(m);
-                      setShelfLoaded(true);
-                    }}
-                  />
-                ) : (
-                  <PhotoQueue
-                    files={photos}
-                    onChange={setPhotos}
-                    settings={docSettings}
-                    onError={setError}
-                  />
-                )}
               </QField>
 
               <div className="flex flex-col gap-2">
@@ -1436,6 +1470,18 @@ export function QuickApplyPage() {
 
           {step === "bank" && (
             <>
+              <Check
+                checked={answers.noBankAccount}
+                onChange={set("noBankAccount")}
+              >
+                <b className="font-bold text-slate-900">
+                  I don't have a bank account
+                </b>
+              </Check>
+              {answers.noBankAccount ? (
+                <FacilitatedBanks />
+              ) : (
+              <>
               <PayoutAccount
                 value={{
                   bank: answers.bank,
@@ -1478,6 +1524,8 @@ export function QuickApplyPage() {
               <p className="text-[12.5px] text-ql-muted">
                 GDB checks the account before any payment is released.
               </p>
+              </>
+              )}
             </>
           )}
 
@@ -1642,92 +1690,10 @@ export function QuickApplyPage() {
   return <>{blocked ?? screen()}</>;
 }
 
-/** Business photos picked before the draft exists: checked against the
- *  server's published rules now, uploaded when Loan details is saved. */
-function PhotoQueue({
-  files,
-  onChange,
-  settings,
-  onError,
-}: {
-  files: File[];
-  onChange: (next: File[]) => void;
-  settings: DocumentSettings | null;
-  onError: (message: string | null) => void;
-}) {
-  const accepts =
-    settings?.accepts_by_type?.["Business Photo"] ?? ".jpg,.jpeg,.png";
-  const allowed = accepts.split(",").map((e) => e.trim().toLowerCase());
-  const add = (picked: FileList | null) => {
-    if (!picked) return;
-    const next = [...files];
-    for (const f of Array.from(picked)) {
-      const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
-      if (!allowed.includes(ext)) {
-        onError(`${f.name}: use ${formatsLabel(accepts)}.`);
-        continue;
-      }
-      if (settings && f.size > settings.max_bytes) {
-        onError(
-          `${f.name} is too large. The limit is ${Math.round(settings.max_bytes / 1024 / 1024)} MB.`,
-        );
-        continue;
-      }
-      next.push(f);
-    }
-    onChange(next);
-  };
-  return (
-    <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/40 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-brand-dark px-3.5 py-2 text-xs font-bold text-white hover:bg-[#022c19]">
-          <input
-            type="file"
-            accept={accepts}
-            multiple
-            className="sr-only"
-            onChange={(e) => {
-              add(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          + Add photos
-        </label>
-        <span className="text-[11px] text-slate-500">
-          {formatsLabel(accepts)} · uploaded to GDB when you save Loan details
-        </span>
-      </div>
-      {files.length > 0 && (
-        <ul
-          className="mt-2.5 flex flex-wrap gap-1.5"
-          aria-label="Photos waiting to upload"
-        >
-          {files.map((f, i) => (
-            <li
-              key={`${f.name}-${i}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pr-1 pl-2.5 text-xs font-medium text-slate-700"
-            >
-              {f.name}
-              <button
-                type="button"
-                aria-label={`Remove ${f.name}`}
-                onClick={() => onChange(files.filter((x) => x !== f))}
-                className="grid h-5 w-5 place-items-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 /** Who is applying — already known, so shown rather than asked: their name,
- *  e-ID or TIN, phone and date of birth from their account and profile, and the
- *  identity document on file. A date of birth the account lacks is the one
- *  thing asked here (`askDob`). */
+ *  National ID or TIN, phone and date of birth from their account and profile.
+ *  A date of birth the account lacks is the one thing asked here (`askDob`).
+ *  The E-ID is typed beside it, as its own field. */
 function YourDetails({
   user,
   profile,
@@ -1750,9 +1716,9 @@ function YourDetails({
   const facts: [string, ReactNode][] = [
     ["Name", user?.full_name || "—"],
     [
-      user?.eid ? "e-ID" : user?.national_id ? "National ID" : "TIN",
+      user?.national_id ? "National ID" : "TIN",
       <span className="font-mono">
-        {user?.eid || user?.national_id || user?.tin || "—"}
+        {user?.national_id || user?.tin || "—"}
       </span>,
     ],
     ["Phone", phone ? formatPhone(phone) : "—"],
@@ -1804,9 +1770,6 @@ function YourDetails({
           )}
         </div>
       </dl>
-      <div className="mt-3 border-t border-emerald-200/70 pt-3">
-        <DocumentShelf only="Identity" title="Identity document" viewOnly />
-      </div>
     </section>
   );
 }

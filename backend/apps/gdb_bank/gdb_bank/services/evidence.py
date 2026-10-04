@@ -35,18 +35,32 @@ DOCUMENT_TYPES = (
 	# Pictures of the business itself — the stall, the shop, the goods — taken
 	# while describing it. Advisory, like every Quick Loan photo.
 	"Business Photo",
+	# A public servant's payslip: optional, asked when they say they earn under
+	# GYD 250,000 a month. About the person, so it follows them (PERSONAL_TYPES).
+	"Payslip",
+	# The DCRA certificate: required of every SME application.
+	"Certificate of Registration",
 	"Other",
 )
 
 # About the person, not the venture: held with no application, so they follow
 # the person across cases (ask once). `Financials` is the BUSINESS's accounts and
 # stays on the case; `Personal Financials` follows the person.
-PERSONAL_TYPES = ("Identity", "Proof of Address", "Personal Financials")
+PERSONAL_TYPES = ("Identity", "Proof of Address", "Personal Financials", "Payslip")
 
 # Which identity document a file is, and the number printed on it — asked with
 # every Identity upload so the officer verifying it can check the number on the
 # page against what the applicant typed, and against the KYC register.
 ID_DOCUMENT_KINDS = ("National ID Card", "Passport", "Driver's Licence", "e-ID")
+
+# What an underwriter may ask for: every document type but Identity, plus the
+# e-ID itself — asked of an applicant with no e-ID on their account (they signed
+# up by National ID) and answered with an Identity document of kind e-ID. Not a
+# shelf type: the answer is filed as Identity. Identity is not asked for on its
+# own: its answer needs a document kind and number the request never names.
+# Every type here must be a document_type option in gdb_information_request.json.
+EID_REQUEST = "e-ID"
+REQUEST_TYPES = tuple(t for t in DOCUMENT_TYPES if t != "Identity") + (EID_REQUEST,)
 
 
 NATIONAL_ID_CARD = "National ID Card"
@@ -83,8 +97,12 @@ def clean_id_number(kind: str | None, number: str | None) -> tuple[str, str]:
 		frappe.throw(_("Enter the {0} number as printed on it — letters and digits only.").format(kind))
 	return kind, compact
 
+CERTIFICATE_OF_REGISTRATION = "Certificate of Registration"
+
 # What every individual on a group's case is asked for — the head and each member.
-PERSONAL_EVIDENCE = ("Identity", "Personal Financials")
+# No identity document: the application journey does not ask for one (the one
+# filed at sign-up stays on the person's record).
+PERSONAL_EVIDENCE = ("Personal Financials",)
 
 # PDF, and small enough for a phone connection in Region 9. Enforced on
 # Frappe's own upload path (documents.validate_attachment).
@@ -102,6 +120,8 @@ ACCEPTED_BY_TYPE = {
 	"Identity": ALLOWED_EXTENSIONS + PHOTO_EXTENSIONS,
 	"Trading Photo": PHOTO_EXTENSIONS,
 	"Business Photo": PHOTO_EXTENSIONS,
+	"Payslip": ALLOWED_EXTENSIONS + PHOTO_EXTENSIONS,
+	"Certificate of Registration": ALLOWED_EXTENSIONS + PHOTO_EXTENSIONS,
 	"Receipts or Records": PHOTO_EXTENSIONS + ALLOWED_EXTENSIONS,
 }
 
@@ -153,16 +173,20 @@ REVIEWED = ("Accepted", "Rejected")
 def required_types(business_stage: str | None, cluster: bool = False, quick: bool = False) -> tuple:
 	"""What the Bank expects from the applicant of an application.
 
-	Identity always — plus, on a group's case, the head's own personal
-	financials. Beyond that an existing business owes its three statements (a
-	12-month cash-flow projection, its income and expenditure, its balance
-	sheet) and a start-up its business plan and cash-flow projection. A Quick Loan owes a photograph of the trade and
-	nothing else: receipts are welcome and never expected.
+	No identity document and no business photos: neither is asked for in the
+	application journey. A single SME owes nothing (GDB, 2026-10-04): its
+	Certificate of Registration, business plan and financial statements are all
+	welcome and optional, whether the business is new or already trading. On a
+	group's case, the head's own personal financials, and an existing business's
+	three statements or a start-up's plan and cash-flow projection. A Quick Loan
+	owes nothing: photos, receipts and a payslip are welcome and never expected.
 	"""
 	if quick:
-		return ("Identity", "Business Photo")
-	base = PERSONAL_EVIDENCE if cluster else ("Identity",)
+		return ()
+	if not cluster:
+		return ()
 	stage = (business_stage or "").strip().title()
+	base = PERSONAL_EVIDENCE
 	if stage == "Existing":
 		return base + ("Cash Flow Projection", "Income Statement", "Balance Sheet")
 	if stage == "New":

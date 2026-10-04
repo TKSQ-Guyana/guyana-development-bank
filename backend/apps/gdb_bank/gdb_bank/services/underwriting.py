@@ -45,7 +45,13 @@ _QUEUE_FIELDS = [
 	"applicant_name",
 	"gdb_business_name",
 	"gdb_submitted_on",
+	"gdb_requires_loan_officer_review",
+	"gdb_public_service_employed",
 ]
+
+
+# The review queue's Employment filter -> the applicant's public-service answer.
+EMPLOYMENT = {"public": "Yes", "private": "No"}
 
 
 def _queue_facts() -> dict:
@@ -101,6 +107,8 @@ def all_loans(
 	max_amount=None,
 	from_date: str | None = None,
 	to_date: str | None = None,
+	officer_review=None,
+	employment: str | None = None,
 ) -> dict:
 	"""One page of the SUBMITTED applications, with the counts for all of them.
 
@@ -113,6 +121,10 @@ def all_loans(
 	  min/max_amount  the amount asked for, inclusive
 	  from/to_date    when it was submitted, inclusive
 	  evidence        "complete" or "missing" documents
+	  officer_review  1: only the cases flagged for a Loan Officer's review
+	  employment      "public" or "private": the applicant's declaration of
+	                  employment in the public service (Yes / No). A case
+	                  that never answered it matches neither.
 
 	Drafts are never before the Bank, so they are never in the queue.
 
@@ -144,6 +156,10 @@ def all_loans(
 		from_date,
 		to_date,
 	)
+	if cint(officer_review):
+		light = [r for r in light if cint(r.gdb_requires_loan_officer_review)]
+	if employment in EMPLOYMENT:
+		light = [r for r in light if r.gdb_public_service_employed == EMPLOYMENT[employment]]
 	if evidence in ("complete", "missing"):
 		gaps = missing_by_application(light)
 		light = [r for r in light if bool(gaps.get(r.name)) == (evidence == "missing")]

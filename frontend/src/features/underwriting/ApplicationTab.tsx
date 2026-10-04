@@ -91,9 +91,7 @@ function Figures({ rows }: { rows: [string, string | null][] }) {
 
 export function ApplicationTab({ loan }: { loan: LoanApplication }) {
   const s: Sections = loan.sections ?? {};
-  const sector =
-    [text(s, "sector"), text(s, "sub_sector")].filter(Boolean).join(" · ") ||
-    null;
+  const isNew = loan.business_stage === "New";
   const funds = loan.use_of_funds ?? [];
 
   const plan: [string, string | null, boolean?][] = [
@@ -130,7 +128,26 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               "Repayments start",
               moratoriumValue(Number(text(s, "moratorium_months") ?? 0)),
             ],
-            ["Sector", sector],
+            ["New business", loan.business_stage ? (isNew ? "Yes" : "No") : null],
+            ["DCRA #", loan.dcra_number || null],
+            [
+              "Date of registration",
+              text(s, "registration_date")
+                ? formatDate(text(s, "registration_date")!)
+                : null,
+            ],
+            ...(isNew
+              ? ([
+                  ["Industrial training program", text(s, "industrial_training")],
+                  [
+                    "Mentor",
+                    text(s, "has_mentor") === "Yes"
+                      ? `Yes — ${text(s, "mentor_details") ?? ""}`
+                      : text(s, "has_mentor"),
+                  ],
+                  ["Institution", text(s, "institution")],
+                ] as [string, string | null][])
+              : []),
             [
               "Established",
               text(s, "date_established")
@@ -146,6 +163,38 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
         />
       </Card>
 
+      <Card>
+        <CardHead title="Applicant" tag="Declared" />
+        <Fields
+          rows={[
+            ["E-ID", text(s, "applicant_eid")],
+            ["Employed in public service", text(s, "public_service_employed")],
+            ...(text(s, "public_service_employed") === "Yes"
+              ? ([
+                  ["Ministry or agency", text(s, "public_service_ministry")],
+                  [
+                    "Making less than $250,000 a month",
+                    text(s, "public_service_under_250k"),
+                  ],
+                ] as [string, string | null][])
+              : []),
+            [
+              "Loan Officer review",
+              Number(s.requires_loan_officer_review ?? 0) === 1
+                ? "Required — public servant earning $250,000 or more a month"
+                : "Not required",
+            ],
+            ["Related to a GDB employee", text(s, "related_to_gdb_employee")],
+            [
+              "Bank account",
+              Number(s.no_bank_account ?? 0) === 1
+                ? "None — referred to the Help Desk"
+                : "Nominated (see Disbursement)",
+            ],
+          ]}
+        />
+      </Card>
+
       {loan.business_stage === "New" ? (
         <Card>
           <CardHead title="Projections" tag="Forecast" />
@@ -157,7 +206,6 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               ["Monthly cash", money(s, "expected_cash_position")],
               ["Sales volume", text(s, "expected_sales_volume")],
               ["Total assets", money(s, "total_assets")],
-              ["Total debt", money(s, "total_debt")],
               ["Total equity", money(s, "total_equity")],
             ]}
           />
@@ -178,7 +226,6 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               ["Loan obligations", money(s, "existing_obligations")],
               ["Cash position", money(s, "cash_position")],
               ["Total assets", money(s, "total_assets")],
-              ["Total debt", money(s, "total_debt")],
               ["Total equity", money(s, "total_equity")],
             ]}
           />

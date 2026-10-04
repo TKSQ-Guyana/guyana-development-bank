@@ -6,6 +6,8 @@
 from unittest.mock import patch
 
 import frappe
+
+from gdb_bank.tests.sme_fixture import complete_sme
 from frappe.tests import IntegrationTestCase
 
 from gdb_bank import api, offers
@@ -72,6 +74,7 @@ class TestDebtsAndBalanceSheet(TestSmeTerms):
 
 	def submit(self, **sections):
 		name = self.save(sections={"moratorium_months": 1, **sections})["name"]
+		complete_sme(CITIZEN, name)
 		with self.set_user(CITIZEN):
 			return api.submit_application(name=name)
 
@@ -114,3 +117,140 @@ class TestDebtsAndBalanceSheet(TestSmeTerms):
 	def test_an_odd_debt_status_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
 			self.save(sections={"existing_debts": [{"lender": "Bank", "amount": 1, "status": "Forgotten"}]})
+
+
+class TestSmeApplicationRules(TestSmeTerms):
+	"""What a single SME application must carry before it goes to GDB."""
+
+	def ready(self, **kwargs) -> str:
+		sections = {"moratorium_months": 1, "has_existing_debts": "No", **kwargs.pop("sections", {})}
+		name = self.save(sections=sections, **kwargs)["name"]
+		complete_sme(CITIZEN, name)
+		return name
+
+	def refused(self, message: str, name: str) -> None:
+		with self.set_user(CITIZEN), self.assertRaisesRegex(frappe.ValidationError, message):
+			api.submit_application(name=name)
+
+	def submits(self, name: str) -> dict:
+		with self.set_user(CITIZEN):
+			return api.submit_application(name=name)
+
+	def test_a_complete_sme_application_submits(self):
+		self.assertEqual(self.submits(self.ready())["status"], "Submitted")
+
+	def test_the_e_id_is_required_and_is_eleven_digits(self):
+		name = self.ready()
+		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "")
+		self.refused("Enter your E-ID", name)
+		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "12345")
+		self.refused("11 digits", name)
+
+	def test_the_dcra_number_and_a_new_business_registration_date_are_required(self):
+		name = self.ready(
+			business_stage="New",
+			business_name="Oven Co",
+			dcra_number="BN-2026-1",
+			sections={"industrial_training": "No", "has_mentor": "No"},
+		)
+		frappe.db.set_value("Loan Application", name, "gdb_registration_date", None)
+		self.refused("date of registration", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_registration_date": "2024-01-15", "gdb_dcra_number": ""})
+		self.refused("DCRA", name)
+
+	def test_an_existing_business_needs_no_registration_date(self):
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		frappe.db.set_value(
+			"Loan Application", name, {"gdb_registration_date": None, "gdb_date_established": "2020-01-01"}
+		)
+		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_an_existing_business_submits_without_its_certificate(self):
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		frappe.db.set_value("Loan Application", name, "gdb_date_established", "2020-01-01")
+		frappe.db.set_value(
+			"GDB Applicant Document",
+			{"application": name, "document_type": "Certificate of Registration"},
+			"status",
+			"Replaced",
+		)
+		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_a_new_business_submits_without_its_certificate(self):
+		name = self.ready(
+			business_stage="New",
+			business_name="Oven Co",
+			dcra_number="BN-2026-1",
+			sections={"industrial_training": "No", "has_mentor": "No"},
+		)
+		frappe.db.set_value(
+			"GDB Applicant Document",
+			{"application": name, "document_type": "Certificate of Registration"},
+			"status",
+			"Replaced",
+		)
+		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_a_new_business_keeps_its_dcra_number(self):
+		saved = self.save(
+			business_stage="New", business_name="Oven Co", dcra_number="bn-2026-1", sections={"moratorium_months": 1}
+		)
+		self.assertEqual(saved["dcra_number"], "BN-2026-1")
+
+	def test_a_new_business_answers_the_training_and_mentor_questions(self):
+		name = self.ready(business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1")
+		self.refused("industrial training", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_industrial_training": "Yes", "gdb_has_mentor": "Yes"})
+		self.refused("mentor's details", name)
+		frappe.db.set_value("Loan Application", name, "gdb_mentor_details", "Ms Persaud, 600 1234")
+		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_mentor_details_go_with_a_no(self):
+		saved = self.save(
+			business_stage="New",
+			business_name="Oven Co",
+			dcra_number="BN-2026-1",
+			sections={"moratorium_months": 1, "has_mentor": "No", "mentor_details": "Ms Persaud"},
+		)
+		self.assertFalse(saved["sections"]["mentor_details"])
+
+	def test_an_existing_business_carries_no_new_business_answers(self):
+		saved = self.save(
+			business_stage="Existing",
+			business_name="Oven Co",
+			dcra_number="BN-2020-1",
+			sections={"moratorium_months": 1, "industrial_training": "Yes", "institution": "UG"},
+		)
+		self.assertFalse(saved["sections"]["industrial_training"])
+		self.assertFalse(saved["sections"]["institution"])
+
+	def test_a_public_servant_earning_250k_or_more_is_flagged_not_refused(self):
+		name = self.ready(
+			sections={
+				"public_service_employed": "Yes",
+				"public_service_ministry": "Ministry of Health",
+				"public_service_under_250k": "No",
+			}
+		)
+		loan = self.submits(name)
+		self.assertEqual(loan["status"], "Submitted")
+		self.assertEqual(loan["sections"]["requires_loan_officer_review"], 1)
+
+	def test_an_applicant_without_a_bank_account_may_submit(self):
+		name = self.ready(sections={"no_bank_account": 1})
+		self.assertEqual(self.submits(name)["sections"]["no_bank_account"], 1)
+
+	def test_an_invalid_email_address_is_refused(self):
+		from gdb_bank import profiles
+
+		with self.set_user(CITIZEN), self.assertRaisesRegex(frappe.ValidationError, "valid email"):
+			profiles.save_profile(email="not-an-email")
+
+	def test_no_document_is_expected_of_a_single_sme(self):
+		from gdb_bank.services.evidence import missing_evidence
+
+		for stage, expected in (("Existing", []), ("New", [])):
+			name = self.save(
+				business_stage=stage, business_name="Oven Co", dcra_number="BN-2026-1", sections={"moratorium_months": 1}
+			)["name"]
+			self.assertEqual(missing_evidence(name), expected)

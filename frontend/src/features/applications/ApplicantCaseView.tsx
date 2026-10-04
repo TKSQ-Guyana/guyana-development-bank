@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { moratoriumValue } from "../../shared/moratorium";
 import { formatPhone } from "../../components/PhoneInput";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { call } from "../../api";
 import { useAuth } from "../../auth";
 import { ApplicationSections } from "../../components/ApplicationSections";
@@ -17,6 +17,7 @@ import { StageBadge, Stepper } from "../../components/ui/Stepper";
 import type { LoanApplication } from "../../types";
 import { formatDate, formatGyd } from "../../utils";
 import { YourPartCard } from "../personal-financials/YourPartCard";
+import { CompleteApplication } from "./CompleteApplication";
 
 /** The applicant's own case — or a group member's view of the head's — laid
  *  out by stage: what to act on now comes first, and once the application is
@@ -36,11 +37,16 @@ export function ApplicantCaseView({
   const [missing, setMissing] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Opened from the list's Edit button: start in the edit panel.
+  const [searchParams] = useSearchParams();
+  const [editing, setEditing] = useState(searchParams.get("edit") === "1");
 
   const mine = loan.applicant === user?.user;
   const groupMember = Boolean(loan.cluster) && !mine;
   const { stage } = loan;
   const decided = stage === "Approved" || stage === "Rejected";
+  // Submitted, with GDB and not yet decided: what was left out may be added.
+  const canComplete = mine && !loan.cluster && stage === "Review";
 
   const refresh = () => {
     setAccountKey((k) => k + 1);
@@ -66,6 +72,7 @@ export function ApplicantCaseView({
       application={loan.name}
       onChange={setMissing}
       title="Documents on this application"
+      listOnly={stage !== "Draft"}
     />
   );
   const offer = (
@@ -104,9 +111,20 @@ export function ApplicantCaseView({
               {loan.applicant_name}
             </p>
           </div>
-          <span className="rounded-full bg-white/95 px-1 py-0.5 shadow-sm">
-            <StageBadge stage={stage} />
-          </span>
+          <div className="flex items-center gap-2">
+            {canComplete && !editing && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="rounded-full border border-white/40 bg-white/10 px-4 py-1.5 text-xs font-bold text-white hover:bg-white/20"
+              >
+                Edit
+              </button>
+            )}
+            <span className="rounded-full bg-white/95 px-1 py-0.5 shadow-sm">
+              <StageBadge stage={stage} />
+            </span>
+          </div>
         </div>
         <dl className="relative grid grid-cols-2 border-t border-white/10 bg-black/20 sm:grid-cols-4 sm:divide-x sm:divide-white/10">
           {[
@@ -169,7 +187,22 @@ export function ApplicantCaseView({
         <div className="min-w-0 space-y-5">
           {groupMember && <YourPartCard application={loan.name} />}
 
-          {stage === "Draft" ? (
+          {canComplete && editing ? (
+            <>
+              <CompleteApplication
+                application={loan.name}
+                onSaved={refresh}
+                onClose={() => setEditing(false)}
+              />
+              <div>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  As submitted — read only
+                </p>
+                <ApplicationDetails loan={loan} />
+                {shelf}
+              </div>
+            </>
+          ) : stage === "Draft" ? (
             <>
               {mine && (
                 <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white px-5 py-4">
@@ -369,12 +402,6 @@ function ApplicationDetails({ loan }: { loan: LoanApplication }) {
             <Row
               label="Monthly repayment"
               value={formatGyd(loan.monthly_repayment)}
-            />
-          )}
-          {!loan.cluster && loan.monthly_income > 0 && (
-            <Row
-              label="Monthly income"
-              value={formatGyd(loan.monthly_income)}
             />
           )}
           {loan.phone && <Row label="Phone" value={formatPhone(loan.phone)} />}

@@ -73,7 +73,7 @@
    "fieldname": "document_type",
    "fieldtype": "Select",
    "label": "Document Type",
-   "options": "Identity\nProof of Address\nPersonal Financials\nFinancials\nCash Flow Projection\nIncome Statement\nBalance Sheet\nBusiness Plan\nBank Statement\nQuotation\nTrading Photo\nReceipts or Records\nBusiness Photo\nOther",
+   "options": "Identity\nProof of Address\nPersonal Financials\nFinancials\nCash Flow Projection\nIncome Statement\nBalance Sheet\nBusiness Plan\nBank Statement\nQuotation\nTrading Photo\nReceipts or Records\nBusiness Photo\nPayslip\nCertificate of Registration\nOther",
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1

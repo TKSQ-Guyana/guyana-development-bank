@@ -230,7 +230,7 @@ class TestClusterFlow(IntegrationTestCase):
 
 		with self.set_user(UNDERWRITER):
 			row = next(r for r in api.all_loans()["rows"] if r["name"] == application)
-		self.assertEqual(row["evidence_missing"], ["Identity", "Personal Financials"])
+		self.assertEqual(row["evidence_missing"], ["Personal Financials"])
 
 	# -- notifications -----------------------------------------------------------
 
@@ -304,8 +304,8 @@ class TestClusterFlow(IntegrationTestCase):
 
 		head, member = self.shelf(HEAD, application), self.shelf(MEMBER, application)
 
-		self.assertEqual(head["missing"], ["Identity", "Personal Financials"])
-		self.assertEqual(member["missing"], ["Identity", "Personal Financials"])
+		self.assertEqual(head["missing"], ["Personal Financials"])
+		self.assertEqual(member["missing"], ["Personal Financials"])
 		self.assertEqual(member["settings"]["types"], list(documents.PERSONAL_TYPES))
 		self.assertTrue(head["can_upload"] and member["can_upload"])
 

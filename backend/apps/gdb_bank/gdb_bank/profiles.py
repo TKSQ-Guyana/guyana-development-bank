@@ -325,6 +325,10 @@ def save_profile(**kwargs):
 
 	if not values:
 		frappe.throw(_("Nothing to save."))
+	if values.get("email"):
+		values["email"] = values["email"].lower()
+		if not frappe.utils.validate_email_address(values["email"]):
+			frappe.throw(_("Enter a valid email address, e.g. name@example.com."))
 	if assisted:
 		declared = frappe.db.get_value(DOCTYPE, name, list(values), as_dict=True)
 		changed = [

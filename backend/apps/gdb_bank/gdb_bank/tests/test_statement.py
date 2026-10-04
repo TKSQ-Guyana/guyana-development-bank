@@ -15,6 +15,8 @@ each test is rolled back: nothing stays on the site.
 from unittest.mock import patch
 
 import frappe
+
+from gdb_bank.tests.sme_fixture import complete_sme
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, nowdate
 
@@ -57,6 +59,7 @@ class TestStatement(IntegrationTestCase):
 			application = api.save_application(
 				loan_amount=120000, purpose="Statement test", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
 			)["name"]
+			complete_sme(BORROWER, application)
 			api.submit_application(name=application)
 		with self.set_user(UNDERWRITER):
 			api.review_loan(name=application, action="approve")

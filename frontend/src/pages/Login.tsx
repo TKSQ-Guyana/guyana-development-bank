@@ -409,7 +409,8 @@ export function Login({
                             Choose your own password.
                           </strong>{" "}
                           The password GDB gave you works once. Choose one only
-                          you know to finish signing in as {email}.
+                          you know to finish signing in as{" "}
+                          <span className="normal-case">{email}</span>.
                         </p>
                         {/* Lets a password manager file the new password under this email. */}
                         <input

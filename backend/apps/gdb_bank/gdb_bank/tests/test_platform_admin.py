@@ -12,6 +12,8 @@ import inspect
 from unittest.mock import patch
 
 import frappe
+
+from gdb_bank.tests.sme_fixture import complete_sme
 from frappe.tests import IntegrationTestCase
 
 from gdb_bank import api, identity, platform_admin
@@ -370,6 +372,7 @@ class TestPlatformAdmin(IntegrationTestCase):
 			application = api.save_application(
 				loan_amount=500000, purpose="Cold store", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
 			)["name"]
+			complete_sme(CITIZEN, application)
 			api.submit_application(name=application)
 		with self.set_user(UNDERWRITER), self.assertRaises(frappe.PermissionError):
 			api.review_loan(name=application, action="approve")

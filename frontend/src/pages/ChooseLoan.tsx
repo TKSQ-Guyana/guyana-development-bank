@@ -99,7 +99,10 @@ function options(
         { label: "Term", value: "Up to 24 months" },
         { label: "Application", value: `${QUICK_STEP_COUNT} short steps` },
       ],
-      needs: ["Photo of your business", "Bank account in your name"],
+      needs: [
+        "A short description of your business",
+        "Bank account in your name, if you have one",
+      ],
       to: "/apply/quick",
     },
     {

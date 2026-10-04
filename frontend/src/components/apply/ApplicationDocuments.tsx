@@ -26,6 +26,9 @@ export interface DocRow {
   type: string;
   title: string;
   hint: string;
+  /** Required to submit (an existing business's certificate): badged as such
+   *  even before the draft exists and the server's `missing` list can say so. */
+  required?: boolean;
 }
 
 /** Files picked before the draft existed, by document type. */
@@ -35,6 +38,7 @@ const PERSONAL = new Set([
   "Identity",
   "Proof of Address",
   "Personal Financials",
+  "Payslip",
 ]);
 
 const STATUS_TONE: Record<string, string> = {
@@ -226,7 +230,7 @@ export function ApplicationDocuments({
             accept={acceptsFor(shelf.settings, r.type)}
             files={filesFor(r.type)}
             queued={queued?.[r.type] ?? []}
-            expected={shelf.missing.includes(r.type)}
+            expected={Boolean(r.required) || shelf.missing.includes(r.type)}
             canUpload={shelf.can_upload}
             busy={busyType === r.type}
             locked={busyType !== null}
@@ -288,7 +292,7 @@ function DocTile({
         ? { label: "Ready", tone: "bg-sky-50 text-sky-700 ring-sky-200" }
         : expected
           ? {
-              label: "Expected",
+              label: row.required ? "Required" : "Expected",
               tone: "bg-amber-50 text-amber-700 ring-amber-200",
             }
           : {

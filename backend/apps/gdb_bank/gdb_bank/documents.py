@@ -26,6 +26,7 @@ Endpoints: POST /api/method/gdb_bank.documents.<name>
 """
 
 import os
+import re
 
 import frappe
 from frappe import _
@@ -36,6 +37,7 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	ALLOWED_EXTENSIONS,
 	DOCTYPE,
 	DOCUMENT_TYPES,
+	EID_REQUEST,
 	MAX_FILE_BYTES,
 	OPEN,
 	PERSONAL_EVIDENCE,
@@ -43,6 +45,7 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	RECEIVED,
 	REPLACED,
 	REQUEST_DOCTYPE,
+	REQUEST_TYPES,
 	REVIEWED,
 	ID_DOCUMENT_KINDS,
 	accepted_extensions,
@@ -53,7 +56,9 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	required_types,
 )
 from gdb_bank.security.assist import officer_for, subject_for
+from gdb_bank.services import application_edit
 from gdb_bank.services.evidence import PHOTO_EXTENSIONS
+from gdb_bank.utils.eid import EID_FIELD, EID_PART_LENGTHS
 from gdb_bank.utils.session import _is_staff, _logger, _require_underwriter, _session_user
 
 # Officer-observed evidence: a site visit's photographs, attached to the task
@@ -137,6 +142,9 @@ def _settings(types: tuple = DOCUMENT_TYPES) -> dict:
 		"max_bytes": MAX_FILE_BYTES,
 		# An Identity upload says which document it is and its number.
 		"id_document_kinds": list(ID_DOCUMENT_KINDS),
+		# What an underwriter may ask for (request_information): the types, and
+		# the e-ID itself.
+		"request_types": list(REQUEST_TYPES),
 	}
 
 
@@ -171,6 +179,16 @@ def _own_application(application: str, user: str):
 	return row
 
 
+def _require_eid_answer(document_type: str, id_fields: dict) -> None:
+	"""An e-ID request is answered with the e-ID card and its number: an
+	Identity document of kind e-ID, eleven digits. Anything else would close
+	the ask without the thing that was asked for."""
+	if document_type != "Identity" or id_fields.get("id_document_kind") != EID_REQUEST:
+		frappe.throw(_("Answer this request with your e-ID card."))
+	if not re.fullmatch(r"\d{%d}" % sum(EID_PART_LENGTHS), id_fields.get("id_document_number") or ""):
+		frappe.throw(_("Enter your e-ID number as printed on the card, e.g. 123-4567-8901."))
+
+
 @frappe.whitelist()
 def new_document(
 	document_type: str,
@@ -202,6 +220,11 @@ def new_document(
 		require_national_id_match(kind, number, frappe.db.get_value("User", user, "gdb_national_id"))
 		id_fields = {"id_document_kind": kind, "id_document_number": number}
 
+	# Once the case is with the Bank, what was filed stays filed: a type already
+	# on file is replaced only in answer to GDB's own request.
+	if not request and application_edit.is_with_bank(application):
+		application_edit.refuse_if_on_file(user, application, document_type, id_fields.get("id_document_kind"))
+
 	if document_type in PERSONAL_TYPES:
 		# About the person, so it follows them rather than one case — which is
 		# also how a group's member files theirs from the head's application.
@@ -215,12 +238,14 @@ def new_document(
 
 	if request:
 		ask = frappe.db.get_value(
-			REQUEST_DOCTYPE, request, ["application", "applicant", "status"], as_dict=True
+			REQUEST_DOCTYPE, request, ["application", "applicant", "status", "document_type"], as_dict=True
 		)
 		if not ask or ask.applicant != user:
 			frappe.throw(_("Information request {0} not found.").format(request))
 		if ask.status != OPEN:
 			frappe.throw(_("That request is already {0}.").format((ask.status or "").lower()))
+		if ask.document_type == EID_REQUEST:
+			_require_eid_answer(document_type, id_fields)
 		application = application or ask.application
 
 	doc = frappe.get_doc(
@@ -463,13 +488,18 @@ def review_document(name: str, status: str, note: str | None = None):
 
 @frappe.whitelist()
 def request_information(application: str, item: str, document_type: str | None = None):
-	"""Ask the applicant for something, itemised. Underwriter only."""
+	"""Ask the applicant for something, itemised. Underwriter only.
+
+	`document_type` "e-ID" asks an applicant with no e-ID on their account to
+	get one: refused when they already have one, or when one is already being
+	asked for on this case.
+	"""
 	staff = _require_underwriter()
 	item = (item or "").strip()
 	if not item:
 		frappe.throw(_("Say what you are asking the applicant for."))
 	document_type = (document_type or "").strip()
-	if document_type and document_type not in DOCUMENT_TYPES:
+	if document_type and document_type not in REQUEST_TYPES:
 		frappe.throw(_("{0} is not a document type GDB accepts.").format(document_type))
 
 	row = frappe.db.get_value(
@@ -479,6 +509,13 @@ def request_information(application: str, item: str, document_type: str | None =
 		frappe.throw(_("Loan Application {0} not found.").format(application))
 	if cint(row.docstatus) != 1:
 		frappe.throw(_("That application has not been submitted to GDB yet."))
+	if document_type == EID_REQUEST:
+		if frappe.db.get_value("User", row.gdb_owner, EID_FIELD):
+			frappe.throw(_("This applicant already has an e-ID on their account."))
+		if frappe.db.exists(
+			REQUEST_DOCTYPE, {"application": application, "document_type": EID_REQUEST, "status": OPEN}
+		):
+			frappe.throw(_("An e-ID request is already open on this case."))
 
 	doc = frappe.get_doc(
 		{

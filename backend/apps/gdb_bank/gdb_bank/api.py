@@ -135,6 +135,43 @@ def discard_application(name: str):
 
 
 @frappe.whitelist()
+def sector_options():
+	"""The sectors and sub-sectors a case is classified under. Staff only."""
+	from gdb_bank.services import credit_classification
+
+	_require_staff()
+	return credit_classification.sector_options()
+
+
+@frappe.whitelist()
+def set_credit_sector(application: str, sector: str, sub_sector: str):
+	"""The underwriter classifies a case still in review (Credit risk tab)."""
+	from gdb_bank.services import credit_classification
+
+	return credit_classification.set_credit_sector(_require_underwriter(), application, sector, sub_sector)
+
+
+@frappe.whitelist()
+def application_gaps(name: str):
+	"""A submitted application still in review: the answers left blank, and the
+	document checklist with what is on file. The applicant's own only."""
+	from gdb_bank.services import application_edit
+
+	return application_edit.application_gaps(_session_user(), name)
+
+
+@frappe.whitelist()
+def complete_application(name: str, sections=None):
+	"""Fill ONLY answers left blank on a submitted application still in review.
+	An answer already given is refused, never overwritten."""
+	from gdb_bank.services import application_edit
+
+	user = _session_user()
+	written = application_edit.complete_application(user, name, sections)
+	return {"written": written, "loan": application_service.loan_detail(user, name)}
+
+
+@frappe.whitelist()
 def apply_loan(
 	loan_amount,
 	purpose: str,
@@ -206,6 +243,8 @@ def all_loans(
 	max_amount=None,
 	from_date: str | None = None,
 	to_date: str | None = None,
+	officer_review=None,
+	employment: str | None = None,
 ):
 	"""One page of the Bank's queue, with the counts for the whole of it.
 
@@ -228,6 +267,8 @@ def all_loans(
 		max_amount=max_amount,
 		from_date=from_date,
 		to_date=to_date,
+		officer_review=officer_review,
+		employment=employment,
 	)
 
 
@@ -738,6 +779,14 @@ def bank_options():
 	"""Banks a citizen may nominate. Names only — nothing else is theirs to see."""
 	_session_user()
 	return frappe.get_all("Bank", filters={"gdb_enabled": 1}, fields=["name"], order_by="name asc", pluck="name")
+
+
+@frappe.whitelist()
+def facilitated_banks():
+	"""The banks the Help Desk can help an applicant without an account open one
+	with: the desk's list (Bank > Facilitated for Applicants Without an Account)."""
+	_session_user()
+	return frappe.get_all("Bank", filters={"gdb_facilitated": 1}, order_by="name asc", pluck="name")
 
 
 @frappe.whitelist()

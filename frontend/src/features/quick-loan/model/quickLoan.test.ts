@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockerFor, EMPTY_ANSWERS, fromDraft, termList, toSavePayload, type QuickAnswers } from './quickLoan';
+import { blockerFor, EMPTY_ANSWERS, fromDraft, needsOfficerReview, termList, toSavePayload, type QuickAnswers } from './quickLoan';
 import type { QuickLoanTerms } from './quickLoan';
 import type { LoanApplication } from '../../../types';
 
@@ -20,6 +20,9 @@ const VENDOR: QuickAnswers = {
   how: 'self',
   dob: '1988-04-09',
   phone: '600 1234',
+  eid: '592-2001-0101',
+  publicService: 'No',
+  relatedToGdb: 'No',
   businessName: 'Singh Fresh Greens',
   tradeActivity: 'Sell vegetables',
   region: 'Region 3 — Essequibo Islands-West Demerara',
@@ -28,7 +31,6 @@ const VENDOR: QuickAnswers = {
   lat: 6.8013,
   lng: -58.1551,
   place: 'Stabroek Market, Georgetown',
-  photos: 2,
   contacts: [
     { name: 'Asha Persaud', relationship: 'Neighbour', phone: '+592 600 1111' },
     { name: 'Devon Baksh', relationship: 'Supplier', phone: '600 2222' },
@@ -51,7 +53,7 @@ const VENDOR: QuickAnswers = {
 
 describe('what stops each step', () => {
   test('a vendor who has answered everything is never stopped', () => {
-    for (const step of ['eligibility', 'business', 'loan', 'bank', 'review', 'confirm'] as const) {
+    for (const step of ['eligibility', 'about', 'business', 'loan', 'bank', 'review', 'confirm'] as const) {
       expect(blockerFor(step, VENDOR, TERMS)).toBeNull();
     }
   });
@@ -61,13 +63,36 @@ describe('what stops each step', () => {
     expect(blockerFor('eligibility', { ...VENDOR, how: 'help' }, TERMS)).toBeNull();
   });
 
-  test('a date of birth must be on file — the business step asks only when it is missing', () => {
-    expect(blockerFor('business', { ...VENDOR, dob: '' }, TERMS)).toMatch(/date of birth/i);
+  test('a date of birth must be on file — About you asks only when it is missing', () => {
+    expect(blockerFor('about', { ...VENDOR, dob: '' }, TERMS)).toMatch(/date of birth/i);
   });
 
-  test('the business must be pinned on the map and photographed', () => {
+  test('the E-ID is optional', () => {
+    expect(blockerFor('about', { ...VENDOR, eid: '' }, TERMS)).toBeNull();
+  });
+
+  test('public service: a Yes asks for the Ministry and the $250,000 question', () => {
+    expect(blockerFor('about', { ...VENDOR, publicService: '' }, TERMS)).toMatch(/public service/i);
+    const servant = { ...VENDOR, publicService: 'Yes' as const };
+    expect(blockerFor('about', servant, TERMS)).toMatch(/Ministry or agency/);
+    expect(blockerFor('about', { ...servant, ministry: 'Ministry of Health' }, TERMS)).toMatch(/\$250,000/);
+    expect(blockerFor('about', { ...servant, ministry: 'Ministry of Health', under250k: 'Yes' }, TERMS)).toBeNull();
+  });
+
+  test('earning $250,000 or more never blocks — it routes the case to a Loan Officer', () => {
+    const highEarner = { ...VENDOR, publicService: 'Yes' as const, ministry: 'Ministry of Health', under250k: 'No' as const };
+    expect(blockerFor('about', highEarner, TERMS)).toBeNull();
+    expect(needsOfficerReview(highEarner)).toBe(true);
+    expect(needsOfficerReview({ ...highEarner, under250k: 'Yes' })).toBe(false);
+    expect(needsOfficerReview(VENDOR)).toBe(false);
+  });
+
+  test('whether the applicant is related to a GDB employee is asked', () => {
+    expect(blockerFor('about', { ...VENDOR, relatedToGdb: '' }, TERMS)).toMatch(/related to an employee/i);
+  });
+
+  test('the business must be pinned on the map; no photos are asked for', () => {
     expect(blockerFor('business', { ...VENDOR, lat: null }, TERMS)).toBe('Pin your business on the map.');
-    expect(blockerFor('business', { ...VENDOR, photos: 0 }, TERMS)).toBe('Add at least one photo of your business.');
   });
 
   test('what, region, how long and where are required; the business name is not', () => {
@@ -126,6 +151,10 @@ describe('what stops each step', () => {
     expect(blockerFor('loan', { ...VENDOR, residesInGuyana: false }, TERMS)).toBe('Confirm you have been residing in Guyana for the last 12 months or more.');
   });
 
+  test('an applicant without a bank account is never stopped at the bank step', () => {
+    expect(blockerFor('bank', { ...VENDOR, noBankAccount: true, bank: '', accountNo: '', accountType: '' }, TERMS)).toBeNull();
+  });
+
   test('the bank step needs the type of account', () => {
     expect(blockerFor('bank', { ...VENDOR, accountType: '' }, TERMS)).toMatch(/Checking or Savings/);
   });
@@ -181,8 +210,23 @@ describe('what is sent and read back', () => {
         trade_latitude: 6.8013,
         trade_longitude: -58.1551,
         trade_address: 'Stabroek Market, Georgetown',
+        applicant_eid: '592-2001-0101',
+        public_service_employed: 'No',
+        public_service_ministry: '',
+        public_service_under_250k: '',
+        related_to_gdb_employee: 'No',
+        no_bank_account: 0,
       },
     });
+  });
+
+  test('the public-service follow-ups are sent only with a Yes', () => {
+    const no = toSavePayload({ ...VENDOR, ministry: 'Ministry of Health', under250k: 'No' }).sections;
+    expect(no.public_service_ministry).toBe('');
+    expect(no.public_service_under_250k).toBe('');
+    const yes = toSavePayload({ ...VENDOR, publicService: 'Yes', ministry: ' Ministry of Health ', under250k: 'No' }).sections;
+    expect(yes.public_service_ministry).toBe('Ministry of Health');
+    expect(yes.public_service_under_250k).toBe('No');
   });
 
   test('a first save opens a draft rather than naming one', () => {
@@ -209,6 +253,12 @@ describe('what is sent and read back', () => {
         support_1_phone: '+5926001111',
         moratorium_months: 2,
         resides_in_guyana: 1,
+        applicant_eid: '592-2001-0101',
+        public_service_employed: 'Yes',
+        public_service_ministry: 'Ministry of Health',
+        public_service_under_250k: 'No',
+        related_to_gdb_employee: 'Yes',
+        no_bank_account: 1,
       },
     } as unknown as LoanApplication;
     expect(fromDraft(draft)).toMatchObject({
@@ -221,6 +271,12 @@ describe('what is sent and read back', () => {
       term: '6',
       moratorium: '2',
       residesInGuyana: true,
+      eid: '592-2001-0101',
+      publicService: 'Yes',
+      ministry: 'Ministry of Health',
+      under250k: 'No',
+      relatedToGdb: 'Yes',
+      noBankAccount: true,
       contacts: [
         { name: 'Asha Persaud', relationship: 'Neighbour', phone: '+5926001111' },
         { name: '', relationship: '', phone: '' },

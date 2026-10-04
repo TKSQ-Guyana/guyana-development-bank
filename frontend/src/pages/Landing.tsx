@@ -62,12 +62,11 @@ const SME_TERMS = [12, 24, 36, 48];
 
 // The identity documents sign-up accepts (tin_auth.DOCUMENT_KINDS).
 const ID_LINE =
-  "One valid ID: National ID card, passport, driver’s licence or e-ID";
+  "One valid ID to create your account: National ID card, driver’s licence or e-ID";
 const NEED_QUICK = [
   ID_LINE,
   "Phone number (required)",
-  "Photos of your business",
-  "A short description of what the loan is for",
+  "A short description of your business and what the loan is for",
   "Bank details, provided before loan disbursement",
 ];
 const NEED_SME = [
@@ -165,7 +164,7 @@ function GovStrip() {
         rel="noopener noreferrer"
         className="font-semibold tracking-[0.02em] text-[#f2c14e] underline hover:text-[#f5cd6a]"
       >
-        finance.gov.gy · Ministry of Finance ↗
+        <span className="normal-case">finance.gov.gy</span> · Ministry of Finance ↗
       </a>
     </div>
   );
@@ -410,7 +409,7 @@ function Estimator() {
       </div>
       <p className="m-0 text-[14px] leading-[1.5] text-[#c9d6ec]">
         {quick
-          ? "Short application for small businesses. Apply online with photos of your business."
+          ? "Short application for small businesses. Apply online in a few short steps."
           : "For registered businesses ready to scale. You will list how you will use the funds."}
       </p>
       <Link
@@ -514,14 +513,14 @@ function Loans() {
             </div>
             <p className="m-0 text-[18px] leading-[1.5] text-[#2c2a38] [text-wrap:pretty]">
               For small businesses — market vendors, salons, barbershops, food
-              sellers, seamstresses, mechanics and more. Apply with photos of
-              your business and a short description of what the loan is for.
+              sellers, seamstresses, mechanics and more. Apply with a short
+              description of your business and what the loan is for.
             </p>
             <Dashes
               tone="gold"
               items={[
                 "Short application you can finish on your phone",
-                "Photos of your business as proof of trading",
+                "No business registration needed",
                 "Prefer help in person? Book an appointment with GDB",
               ]}
             />
@@ -836,8 +835,7 @@ function Appointment() {
             </Link>
           </div>
           <p className="m-0 text-[13px] leading-[1.5] text-[#6b6878]">
-            Please bring a valid ID and a few photos of your business to your
-            appointment.
+            Please bring a valid ID to your appointment.
           </p>
         </div>
       </div>

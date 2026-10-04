@@ -104,6 +104,34 @@
 body {
   @apply text-slate-900 antialiased;
   background: #f8fafc;
+  /* House style: every visible word starts with a capital ("Sign In With Your
+   * National ID") — including server messages and data shown on the page. An
+   * element that needs its text as written opts out with `normal-case`. */
+  text-transform: capitalize;
+}
+
+/* In the base layer so a `normal-case`/`uppercase` utility still wins. */
+@layer base {
+  /* Browsers reset these to `none`; they follow the house style instead. */
+  button,
+  select,
+  optgroup,
+  option {
+    text-transform: inherit;
+  }
+  /* What a person types is shown exactly as typed; only the hint is styled. */
+  input,
+  textarea,
+  [contenteditable='true'] {
+    text-transform: none;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    text-transform: capitalize;
+  }
+  input[type='email']::placeholder {
+    text-transform: none;
+  }
 }
 
 /* The public pages paint their own background over the app's gradient, and

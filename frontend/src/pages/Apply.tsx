@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RecordAccountOffer } from "../components/apply/RecordAccount";
+import { FacilitatedBanks } from "../components/apply/FacilitatedBanks";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { call } from "../api";
 import { useAuth } from "../auth";
@@ -22,7 +23,6 @@ import {
   MoneyField,
   Notice,
   PhoneField,
-  ReadOnlyField,
   Section,
   SelectField,
   TextAreaField,
@@ -54,7 +54,7 @@ import {
   type ExistingDebt,
 } from "../shared/education";
 import { firstRepaymentLine, moratoriumChoice } from "../shared/moratorium";
-import { addDocument, DocumentShelf } from "../components/DocumentShelf";
+import { addDocument } from "../components/DocumentShelf";
 import { useOneAtATime } from "../components/apply/OneAtATime";
 import type { DocumentShelf as Shelf } from "../types";
 
@@ -72,29 +72,6 @@ import type { DocumentShelf as Shelf } from "../types";
  *  Section letters match the programme specification, so an applicant on the
  *  phone to GDB and the officer reading the case are naming the same thing.
  */
-
-// TODO: these belong in active configuration, not in the bundle — the
-// specification is explicit that policy values must not be hard-coded in the
-// frontend. There is no sector endpoint yet, so this list is the stand-in and
-// the one place to change when there is.
-const SECTORS = [
-  "Agriculture",
-  "Agro-processing",
-  "Fishing and aquaculture",
-  "Forestry",
-  "Mining and quarrying",
-  "Manufacturing",
-  "Construction",
-  "Retail and wholesale trade",
-  "Transport and logistics",
-  "Tourism and hospitality",
-  "Information technology",
-  "Creative industries",
-  "Education and training",
-  "Health services",
-  "Professional services",
-  "Other — value creation",
-];
 
 /** How the applicant is applying. Asked AFTER existing-vs-new: whether the
  *  business already trades decides which questions the form may ask at all,
@@ -182,7 +159,7 @@ const STEPS: { id: StepId; title: string; blurb: string }[] = [
 /** Which section an expected document belongs to, so the review flags it
  *  against the right row. Anything else is shown under Documents only. */
 const DOC_SECTION: Record<string, StepId> = {
-  Identity: "route",
+  "Certificate of Registration": "route",
   "Proof of Address": "route",
   Financials: "finances",
   "Cash Flow Projection": "finances",
@@ -199,41 +176,59 @@ const FINANCIAL_DOCS = (stage: "" | "Existing" | "New"): DocRow[] =>
         {
           type: "Business Plan",
           title: "Business plan",
-          hint: "With your financial projections",
+          hint: "Optional · With your financial projections",
         },
         {
           type: "Cash Flow Projection",
           title: "12-month cash flow projection",
-          hint: "Money in and out, month by month, for your first year",
+          hint: "Optional · Money in and out, month by month, for your first year",
         },
         {
           type: "Income Statement",
           title: "Projected income & expenditure",
-          hint: "Expected sales and costs for the first year",
+          hint: "Optional · Expected sales and costs for the first year",
         },
         {
           type: "Balance Sheet",
           title: "Opening balance sheet",
-          hint: "What the venture owns and owes at the start · if you have one",
+          hint: "Optional · What the venture owns and owes at the start · if you have one",
         },
       ]
     : [
         {
           type: "Cash Flow Projection",
           title: "12-month cash flow projection",
-          hint: "Money in and out, month by month, for the next 12 months",
+          hint: "Optional · Money in and out, month by month, for the next 12 months",
         },
         {
           type: "Income Statement",
           title: "Income & expenditure statement",
-          hint: "Sales, costs and profit for the last financial year",
+          hint: "Optional · Sales, costs and profit for the last financial year",
         },
         {
           type: "Balance Sheet",
           title: "Balance sheet",
-          hint: "Assets, liabilities and equity at the last year end",
+          hint: "Optional · Assets, liabilities and equity at the last year end",
         },
       ];
+
+/** The DCRA certificate: welcome, never required, new business or existing
+ *  (gdb_bank.services.evidence.required_types). No upload blocks submission. */
+const CERTIFICATE_ROW: DocRow = {
+  type: "Certificate of Registration",
+  title: "Certificate of Registration",
+  hint: "Optional · The DCRA certificate of your business",
+};
+const PAYSLIP_ROW: DocRow = {
+  type: "Payslip",
+  title: "Payslip (Optional)",
+  hint: "Optional · Your latest payslip — you can continue without it",
+};
+
+/** An email address as the form accepts it; the server checks it again. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** The 11 digits of an e-ID, however they are typed (dashes, spaces). */
+const isEid = (v: string) => v.replace(/\D/g, "").length === 11;
 
 const OTHER_DOC: DocRow = {
   type: "Other",
@@ -269,7 +264,7 @@ interface Saved {
   coApplicants: string[];
   amount: string;
   term: string;
-  income: string;
+  income?: string;
   purpose: string;
   dcra: string;
   businessName: string;
@@ -361,7 +356,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   ]);
   const [smeRate, setSmeRate] = useState<number | null>(null);
   const [term, setTerm] = useState("12");
-  const [income, setIncome] = useState("");
   const [purpose, setPurpose] = useState("");
   const [dcra, setDcra] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -415,7 +409,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const [dcraNote, setDcraNote] = useState<string | null>(null);
   const [dcraRecord, setDcraRecord] = useState<DcraRecord | null>(null);
   const [myBusinesses, setMyBusinesses] = useState<DcraRecord[] | null>(null);
-  const [manualEntry, setManualEntry] = useState(false);
   // "Do you have a DCRA registration number?" — asked of an existing business.
   // A restored draft that already carries a number has answered it.
   const [hasDcra, setHasDcra] = useState<"yes" | "no" | null>(null);
@@ -504,12 +497,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     stage === "Existing"
       ? ["jobs_created", "staff_count", "employment_impact"]
       : ["jobs_created", "employment_impact"];
-  const identityTotal = stage === "Existing" ? 3 : 2;
-  const identityAnswered = [
-    businessName,
-    stage === "Existing" ? dcra : "n/a",
-    text("sector"),
-  ].filter((v) => v.trim() && v !== "n/a").length;
+  // "Do you have a bank account?" — kept with the answers, sent as
+  // no_bank_account; a resumed draft answers it from what it holds.
+  const hasBank = text("has_bank_account");
 
   // --- resume -------------------------------------------------------------
   /** Load a draft back from GDB. This is the resume path: the server holds the
@@ -559,12 +549,15 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       setStructure(filedAs);
       setAmount(loan.loan_amount ? String(loan.loan_amount) : "");
       setTerm(loan.term_months ? String(loan.term_months) : "12");
-      setIncome(loan.monthly_income ? String(loan.monthly_income) : "");
       setProfilePhone((cur) => cur || loan.phone || "");
       setPurpose(loan.purpose ?? "");
       setDcra(loan.dcra_number ?? "");
       setBusinessName(loan.business_name ?? "");
-      setSections((loan.sections ?? {}) as Sections);
+      setSections({
+        ...((loan.sections ?? {}) as Sections),
+        has_bank_account:
+          Number(loan.sections?.no_bank_account ?? 0) === 1 ? "No" : "Yes",
+      } as Sections);
       setUseOfFunds(
         loan.use_of_funds?.length
           ? loan.use_of_funds
@@ -623,7 +616,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     setCoApplicants(s.coApplicants?.length ? s.coApplicants : [EMPTY_EID]);
     setAmount(s.amount ?? "");
     setTerm(s.term ?? "12");
-    setIncome(s.income ?? "");
     setPurpose(s.purpose ?? "");
     setDcra(s.dcra ?? "");
     setBusinessName(s.businessName ?? "");
@@ -713,7 +705,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     coApplicants,
     amount,
     term,
-    income,
     purpose,
     dcra,
     businessName,
@@ -796,6 +787,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         setProfileCode((cur) => cur || p.address_code || "");
         setProfileEducation((cur) => cur || p.education_level || "");
         setProfileSkills((cur) => cur || p.skills_qualifications || "");
+        // An account opened by e-ID already knows it; still theirs to type.
+        const knownEid = user?.eid || p.eid || "";
+        if (knownEid)
+          setSections((sec) => ({
+            ...sec,
+            applicant_eid: sec.applicant_eid || knownEid,
+          }));
       })
       .catch(() => {});
   }, []);
@@ -916,14 +914,12 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       else if (found?.length === 1)
         selectBusiness(found[0], { keepStructure: true });
       if (!found?.length) {
-        setManualEntry(true);
         setDcraNote(
           "No business registration found for your e-ID. Enter the details; GDB will verify them.",
         );
       }
     } catch {
       setMyBusinesses([]);
-      setManualEntry(true);
       setDcraNote(
         "The business registry is unavailable. Enter the details; GDB will verify them.",
       );
@@ -1003,7 +999,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
    *  is answered — the server refuses an application with no amount, term or
    *  purpose, and it is right to. */
   const saveDraft = async (): Promise<LoanApplication> => {
-    if (!bank || !accountNo) {
+    const noAccount = hasBank === "No";
+    if (!noAccount && (!bank || !accountNo)) {
       throw new Error(
         (myAccounts?.length ?? 0) > 0 && !manualAccount
           ? "Select the disbursement account."
@@ -1011,17 +1008,21 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       );
     }
     // The payout destination first: if this fails the applicant should fix it
-    // and retry, not end up with a loan nobody can pay.
-    await call("gdb_bank.api.save_bank_details", {
-      bank,
-      bank_account_no: accountNo,
-      branch_code: branchCode,
-    });
+    // and retry, not end up with a loan nobody can pay. No account yet: there
+    // is nothing to nominate, and the draft records the answer.
+    if (!noAccount)
+      await call("gdb_bank.api.save_bank_details", {
+        bank,
+        bank_account_no: accountNo,
+        branch_code: branchCode,
+        ...(manualAccount && text("account_holder").trim()
+          ? { account_name: text("account_holder").trim() }
+          : {}),
+      });
     const saved = await call<LoanApplication>("gdb_bank.api.save_application", {
       loan_amount: Number(amount),
       purpose,
       term_months: Number(term),
-      monthly_income: income ? Number(income) : 0,
       // Asked once, under "About you" — the same number goes on the application.
       phone: profilePhone,
       business_stage: stage,
@@ -1031,6 +1032,16 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       cluster: "",
       sections: {
         ...sections,
+        no_bank_account: noAccount ? 1 : 0,
+        // The follow-ups belong to a Yes; the server clears them on a No too.
+        public_service_ministry:
+          text("public_service_employed") === "Yes"
+            ? text("public_service_ministry").trim()
+            : "",
+        public_service_under_250k:
+          text("public_service_employed") === "Yes"
+            ? text("public_service_under_250k")
+            : "",
         legal_structure: structure,
         // Only complete e-IDs travel. A half-typed one is not a partner.
         // Kept in step with the ownership rows, which are now where partners
@@ -1118,11 +1129,20 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
    *  one on screen. */
   const blockerFor = (step: StepId): string | null => {
     if (step === "route") {
-      if (!stage) return "Select the application type.";
-      // The server refuses an existing business without its DCRA number
-      // (services/application.py), so "No" cannot go on as one.
-      if (stage === "Existing" && !dcra.trim())
-        return "Enter the business registration number.";
+      if (!stage) return "Tell us whether this is a new business.";
+      if (stage === "New") {
+        if (!text("industrial_training"))
+          return "Tell us whether you are part of an industrial training program.";
+        if (!text("has_mentor")) return "Tell us whether you have a mentor.";
+        if (text("has_mentor") === "Yes" && !text("mentor_details").trim())
+          return "Enter your mentor's details.";
+      }
+      // Every SME names its DCRA registration; a new one its registration
+      // date, an existing one the date it was established (below) — the
+      // server refuses to submit without them (services/application.py).
+      if (!dcra.trim()) return "Enter the DCRA number.";
+      if (stage === "New" && !text("registration_date"))
+        return "Enter the date of registration.";
       if (stage === "Existing" && !text("date_established"))
         return "Give the date your business was established.";
       if (registryPending && looking) return "Checking the register…";
@@ -1164,9 +1184,24 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         return "Enter a valid phone number, e.g. 600 1234.";
       }
       if (!profileEmail.trim()) return "Enter your email address.";
+      if (!EMAIL.test(profileEmail.trim()))
+        return "Enter a valid email address, e.g. name@example.com.";
       if (!profileAddress.trim()) return "Enter your residential address.";
       if (!profileRegion) return "Select the region you live in.";
-      if (!profileEducation) return "Choose your highest level of education.";
+      if (!profileEducation) return "Choose your qualification.";
+      if (!text("applicant_eid").trim()) return "Enter your E-ID.";
+      if (!isEid(text("applicant_eid")))
+        return "Enter your E-ID as its 11 digits, e.g. 592-2001-0101.";
+      if (!text("public_service_employed"))
+        return "Tell us whether you are employed in any public service.";
+      if (text("public_service_employed") === "Yes") {
+        if (!text("public_service_ministry").trim())
+          return "Enter the Ministry or agency you work for.";
+        if (!text("public_service_under_250k"))
+          return "Tell us whether you are making less than $250,000 a month.";
+      }
+      if (!text("related_to_gdb_employee"))
+        return "Tell us whether you are related to an employee of Guyana Development Bank.";
     }
     if (step === "business") {
       if (!text("executive_summary").trim())
@@ -1175,10 +1210,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         return "Enter the products and services.";
       if (!text("unique_selling_point").trim())
         return "Enter the marketing strategy.";
-      if (!businessName.trim()) return "Enter the business name.";
-      if (stage === "Existing" && !dcra.trim())
-        return "Enter the business registration number.";
-      if (!text("sector").trim()) return "Select the sector.";
     }
     if (step === "finances") {
       const has = text("has_existing_debts");
@@ -1202,7 +1233,12 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       if (!moratoriumOptions.includes(moratorium))
         return "Choose when you want to start repaying.";
       if (!purpose.trim()) return "Enter the purpose of the loan.";
-      if (!bank || !accountNo) return "Enter the disbursement account.";
+      if (!hasBank) return "Tell us whether you have a bank account.";
+      if (hasBank === "Yes") {
+        if (!bank || !accountNo) return "Enter the disbursement account.";
+        if (manualAccount && !text("account_holder").trim())
+          return "Enter the account holder name.";
+      }
     }
     return null;
   };
@@ -1215,8 +1251,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     const blocker = blockerFor(step);
     if (blocker) {
       setError(blocker);
-      if (step === "business")
-        setOpenGroup(BRIEF_KEYS.some((k) => !text(k).trim()) ? 1 : 5);
+      if (step === "business") setOpenGroup(1);
       return false;
     }
     setError(null);
@@ -1417,6 +1452,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // them. Financial evidence follows the route: accounts for a trading
   // business, a plan for a new one.
   const docRows: DocRow[] = [
+    CERTIFICATE_ROW,
     ...(stage
       ? FINANCIAL_DOCS(stage).map((r) => ({
           ...r,
@@ -1438,6 +1474,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       title: "Proof of address",
       hint: "Utility bill or bank letter · Your details",
     },
+    PAYSLIP_ROW,
     OTHER_DOC,
   ];
   const docTitle = (type: string) =>
@@ -1469,6 +1506,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     go: () => setTab("documents"),
   }));
   const issues = [...fieldIssues, ...docIssues];
+  // What stops submission: an unanswered question. No document does.
+  const blockingCount = fieldIssues.length;
   // Unanswered questions only. Expected documents are counted apart: they are
   // optional at submission, and showing them as "missing" reads as a question
   // left blank.
@@ -1515,7 +1554,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           profileAddress,
         );
       case "business":
-        return join(businessName, dcra, val("sector"));
+        return join(businessName);
       case "operations":
         return `Optional · ${OPERATIONS_KEYS.filter((k) => val(k).trim()).length} of ${OPERATIONS_KEYS.length} answered`;
       case "finances":
@@ -1535,15 +1574,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     }
   };
 
-  const assetsN = Number(sections.total_assets || 0);
-  const debtN = Number(sections.total_debt || 0);
-  const equityN = Number(sections.total_equity || 0);
-  const equityHint =
-    assetsN > 0 || debtN > 0
-      ? equityN && Math.abs(equityN - (assetsN - debtN)) > 1
-        ? `Assets minus debt is ${formatGyd(assetsN - debtN)} — check your figures.`
-        : `Assets minus debt: ${formatGyd(assetsN - debtN)}.`
-      : "What the business owns, less what it owes.";
+  const equityHint = "What the business owns, less what it owes.";
 
   const debtAnswers = (): [string, string][] => {
     const has = text("has_existing_debts");
@@ -1567,7 +1598,33 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       case "route":
         return [
           ...answersFor("about"),
-          ["Application type", show(stageLabel)],
+          ["New business", stage ? (stage === "New" ? "Yes" : "No") : "—"],
+          ...(stage === "New"
+            ? ([
+                [
+                  "Part of an industrial training program",
+                  show(text("industrial_training")),
+                ],
+                [
+                  "Mentor",
+                  text("has_mentor") === "Yes"
+                    ? `Yes — ${text("mentor_details")}`
+                    : show(text("has_mentor")),
+                ],
+                ["Institution", show(text("institution"))],
+              ] as [string, string][])
+            : []),
+          ["DCRA #", show(dcra)],
+          ...(stage === "New"
+            ? ([
+                [
+                  "Date of registration",
+                  text("registration_date")
+                    ? formatDate(text("registration_date"))
+                    : "—",
+                ],
+              ] as [string, string][])
+            : []),
           ...(stage === "Existing"
             ? ([
                 [
@@ -1606,7 +1663,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       case "about":
         return [
           ["Full name", show(profile?.verified_full_name || user?.full_name)],
-          ["e-ID", show(user?.eid || profile?.eid)],
+          ["E-ID", show(text("applicant_eid"))],
           ["Date of birth", profileDob ? formatDate(profileDob) : "—"],
           ["Phone number", show(profilePhone)],
           ["Email address", show(profileEmail)],
@@ -1620,17 +1677,26 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           ],
           ["Zone", show(profileZone)],
           ["Address code", show(profileCode)],
-          ["Highest level of education", show(profileEducation)],
-          ["Skills, qualifications and education", show(profileSkills)],
+          ["Qualification", show(profileEducation)],
+          ["Skills", show(profileSkills)],
+          ["Employed in public service", show(text("public_service_employed"))],
+          ...(text("public_service_employed") === "Yes"
+            ? ([
+                ["Ministry or agency", show(text("public_service_ministry"))],
+                [
+                  "Making less than $250,000 a month",
+                  show(text("public_service_under_250k")),
+                ],
+              ] as [string, string][])
+            : []),
+          [
+            "Related to a GDB employee",
+            show(text("related_to_gdb_employee")),
+          ],
         ];
       case "business":
         return [
           ["Business name", show(businessName)],
-          ...(stage === "Existing"
-            ? [["Business registration number", show(dcra)] as [string, string]]
-            : []),
-          ["Sector", show(text("sector"))],
-          ["Sub-sector", show(text("sub_sector"))],
           ["Executive summary", show(text("executive_summary"))],
           ["Products and services", show(text("products_services"))],
           ["Marketing strategy", show(text("unique_selling_point"))],
@@ -1663,7 +1729,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
               ["Annual debt service", money("existing_obligations")],
               ["Cash and bank balances", money("cash_position")],
               ["Total assets", money("total_assets")],
-              ["Total debt", money("total_debt")],
               ["Total equity", money("total_equity")],
               ...debtAnswers(),
             ]
@@ -1679,8 +1744,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 ],
                 ["Key assumptions", show(val("assumptions"))],
                 ["Total assets", money("total_assets")],
-                ["Total debt", money("total_debt")],
-                ["Total equity", money("total_equity")],
+                  ["Total equity", money("total_equity")],
                 ...debtAnswers(),
               ]
             : [];
@@ -1700,10 +1764,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 .join("\n"),
             ),
           ],
-          ["Personal monthly income", income ? formatGyd(Number(income)) : "—"],
           [
             "Disbursement account",
-            bank ? `${bank} ••••${accountNo.slice(-4)}` : "—",
+            hasBank === "No"
+              ? "No bank account — referred to the Help Desk"
+              : bank
+                ? `${bank} ••••${accountNo.slice(-4)}`
+                : "—",
           ],
         ];
       default:
@@ -1787,6 +1854,208 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   );
 
   if (blocked) return <>{blocked}</>;
+
+  // The route step's registration and legal-structure sections, rendered in
+  // the order the business stage asks for (see the route step below).
+  const registrationSection = (
+    <>
+                  {stage && (
+                    <Section
+                      letter="3"
+                      title="Business registration"
+                      blurb="GDB checks it with the business registry."
+                    >
+                      {(stage === "New" || dcraAnswer === "yes") && (
+                        <>
+                          {looking && (
+                            <p className="text-sm text-slate-500">
+                              Retrieving business registrations…
+                            </p>
+                          )}
+                          {!looking && (myBusinesses?.length ?? 0) > 0 && (
+                            <SelectField
+                              label="Registered to your e-ID"
+                              value={
+                                myBusinesses?.find(
+                                  (b) => b.registration_number === dcra,
+                                )
+                                  ? businessOption(
+                                      myBusinesses.find(
+                                        (b) => b.registration_number === dcra,
+                                      )!,
+                                    )
+                                  : ""
+                              }
+                              onChange={(v) => {
+                                const chosen = myBusinesses?.find(
+                                  (b) => businessOption(b) === v,
+                                );
+                                if (chosen) selectBusiness(chosen);
+                              }}
+                              options={(myBusinesses ?? []).map(businessOption)}
+                              placeholder="Choose, or type the number below"
+                            />
+                          )}
+                          <div onBlur={() => void checkTypedDcra()}>
+                            <TextField
+                              label="DCRA #"
+                              required
+                              value={dcra}
+                              onChange={onDcraChange}
+                              placeholder="Enter DCRA number"
+                            />
+                          </div>
+                          {/* A new business gives its registration date; an
+                          existing one the date it was established, which is
+                          all GDB needs of it. */}
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            {stage === "New" && (
+                              <TextField
+                                label="Date of Registration"
+                                required
+                                type="date"
+                                value={text("registration_date")}
+                                onChange={set("registration_date")}
+                                hint="As on your Certificate of Registration."
+                              />
+                            )}
+                            {stage === "Existing" && (
+                              <TextField
+                                label="Date business established"
+                                required
+                                type="date"
+                                value={text("date_established")}
+                                onChange={set("date_established")}
+                                hint="When the business started trading."
+                              />
+                            )}
+                          </div>
+                          <ApplicationDocuments
+                            application={draft?.name ?? null}
+                            rows={[CERTIFICATE_ROW]}
+                            onChange={setMissing}
+                            queued={queued}
+                            onQueue={setQueued}
+                            summary={false}
+                          />
+                          {dcraChecking && (
+                            <p className="text-sm text-slate-500">
+                              Checking the business registry…
+                            </p>
+                          )}
+                          {dcraRecord?.business_name && (
+                            <Notice tone="good">
+                              {dcraRecord.business_name} · {dcraRecord.status} ·{" "}
+                              {dcraSourceLabel}
+                            </Notice>
+                          )}
+                          {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
+                        </>
+                      )}
+                    </Section>
+                  )}
+    </>
+  );
+  const structureSection = (
+    <>
+                  {/* Asked of BOTH routes once the stage is answered — for an existing
+                  business BEFORE its registration, for a new one after it. How a
+                  business is owned is a fact about it whether or not it is
+                  already trading, and an underwriter deciding a development
+                  loan needs to know whether they are lending to one person or
+                  to their share of something larger.
+
+                  Where DCRA has already said which it is, it is STATED rather
+                  than asked — and the only thing left on this screen is the
+                  one question the register cannot answer. */}
+                  {stage && (
+                    <Section
+                      letter={stage === "Existing" ? "2" : "4"}
+                      title="Legal structure"
+                      blurb={
+                        registryAnswers
+                          ? "From the business registry."
+                          : undefined
+                      }
+                    >
+                      {registryPending ? (
+                        <p className="text-sm text-slate-500">
+                          {looking
+                            ? "Retrieving business registrations…"
+                            : "Select the registered business under Business registration."}
+                        </p>
+                      ) : registryAnswers ? (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+                          <p className="text-sm text-slate-700">
+                            <span className="font-bold text-slate-900">
+                              {dcraRecord?.business_name ?? dcra}
+                            </span>{" "}
+                            — filed as {STRUCTURE_PROSE[registryStructure]}.
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Corrections are made at the business registry.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          <ChoiceCard
+                            title="Sole proprietorship"
+                            selected={structure === "Sole Trader"}
+                            onSelect={() => setStructure("Sole Trader")}
+                          />
+                          <ChoiceCard
+                            title="Incorporated (Inc.)"
+                            selected={structure === "Incorporated (Inc.)"}
+                            onSelect={() => setStructure("Incorporated (Inc.)")}
+                          />
+                          <ChoiceCard
+                            title="Partnership"
+                            selected={structure === "Partnership"}
+                            onSelect={() => setStructure("Partnership")}
+                          />
+                          <ChoiceCard
+                            title="Other"
+                            body="A co-operative, society or trust."
+                            selected={structure === "Other"}
+                            onSelect={() => setStructure("Other")}
+                          />
+                        </div>
+                      )}
+                      {structure === "Other" && !registryAnswers && (
+                        <TextField
+                          label="What is the legal structure?"
+                          required
+                          value={text("legal_structure_other")}
+                          onChange={set("legal_structure_other")}
+                          placeholder="e.g. Co-operative society"
+                        />
+                      )}
+
+                      {/* A partnership and an incorporated company ask the same
+                      two things — what the applicant owns, and who owns the
+                      rest — so they share one block. Only the wording differs,
+                      because a partner and a shareholder are not the same word
+                      to the person filling this in. Co-owners are named by
+                      e-ID, never by mailbox: the e-ID is how GDB identifies a
+                      person everywhere else in the bank.
+
+                      Not asked of a registered business: DCRA already names
+                      who owns it, and the record itself is shown on the
+                      business step. */}
+                      {askOwnership && (
+                        <OwnershipBlock
+                          structure={structure}
+                          applicantShare={applicantShare}
+                          onApplicantShare={setApplicantShare}
+                          owners={owners}
+                          onOwners={setOwners}
+                          declared={sharesDeclared}
+                        />
+                      )}
+                    </Section>
+                  )}
+    </>
+  );
 
   return (
     <div className="space-y-4">
@@ -1897,7 +2166,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   <p className="mt-0.5 text-[13px] text-slate-500">
                     {draft
                       ? "Everything for this application in one place. Drop a file on any card."
-                      : "Add them now — your identity documents upload straight away, the rest when you save Funding."}
+                      : "Add them now — your personal documents upload straight away, the rest when you save Funding."}
                   </p>
                 </div>
               </header>
@@ -2052,17 +2321,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       ))}
                     </dl>
 
-                    {/* The identity document from registration — shown, not
-                        asked for again. */}
-                    <div className="mt-3 border-t border-emerald-100 pt-3">
-                      <DocumentShelf
-                        only="Identity"
-                        title="Identity document"
-                        compact
-                        viewOnly
-                      />
-                    </div>
-
                     {(!profileHas.dob ||
                       !profileHas.phone ||
                       !profileHas.email) && (
@@ -2086,12 +2344,18 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         )}
                         {!profileHas.email && (
                           <TextField
-                            label="Email address"
+                            label="Email ID"
                             type="email"
                             value={profileEmail}
                             onChange={setProfileEmail}
                             required
-                            placeholder="you@example.gy"
+                            placeholder="Enter your email address"
+                            hint={
+                              profileEmail.trim() &&
+                              !EMAIL.test(profileEmail.trim())
+                                ? "Enter a valid email address, e.g. name@example.com."
+                                : undefined
+                            }
                           />
                         )}
                       </div>
@@ -2149,40 +2413,106 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     </div>
                     <div className="mt-3 border-t border-emerald-100 pt-3">
                       <p className="mb-2 text-[13px] font-extrabold text-slate-900">
-                        Education and skills
+                        Skills and qualification
                       </p>
                       <div className="grid gap-4 lg:grid-cols-2">
                         <SelectField
-                          label="Highest level of education"
+                          label="Qualification"
                           required
                           value={profileEducation}
                           onChange={setProfileEducation}
                           options={EDUCATION_LEVELS}
-                          placeholder="Choose one"
+                          placeholder="Select qualification"
                         />
                         <TextAreaField
-                          label="Skills, qualifications and education"
+                          label="Skills"
+                          hint="Separate several skills with commas."
                           value={profileSkills}
                           onChange={setProfileSkills}
                           rows={2}
                           max={1000}
-                          placeholder="Certificates, trades, courses, experience — in your own words"
+                          placeholder="Enter your skills"
                         />
                       </div>
                     </div>
+                    <div className="mt-3 space-y-4 border-t border-emerald-100 pt-3">
+                      <div className="sm:max-w-xs">
+                        <TextField
+                          label="E-ID"
+                          required
+                          value={text("applicant_eid")}
+                          onChange={set("applicant_eid")}
+                          placeholder="Enter your E-ID"
+                          hint={
+                            text("applicant_eid").trim() &&
+                            !isEid(text("applicant_eid"))
+                              ? "11 digits, e.g. 592-2001-0101."
+                              : undefined
+                          }
+                        />
+                      </div>
+                      <YesNo
+                        label="Are you employed in any public service?"
+                        value={text("public_service_employed")}
+                        onChange={set("public_service_employed")}
+                      />
+                      {text("public_service_employed") === "Yes" && (
+                        <div className="space-y-4 rounded-lg border border-slate-200 bg-white/70 p-3">
+                          <TextField
+                            label="Which Ministry or agency do you work for?"
+                            required
+                            value={text("public_service_ministry")}
+                            onChange={set("public_service_ministry")}
+                            placeholder="For example: Ministry of Health"
+                          />
+                          <YesNo
+                            label="Are you making less than $250,000 a month?"
+                            value={text("public_service_under_250k")}
+                            onChange={set("public_service_under_250k")}
+                          />
+                          {text("public_service_under_250k") === "Yes" && (
+                            <ApplicationDocuments
+                              application={draft?.name ?? null}
+                              rows={[PAYSLIP_ROW]}
+                              summary={false}
+                            />
+                          )}
+                          {text("public_service_under_250k") === "No" && (
+                            <Notice tone="info">
+                              You can continue with your application. A Loan
+                              Officer will review it before a decision is made.
+                            </Notice>
+                          )}
+                        </div>
+                      )}
+                      <YesNo
+                        label="Are you related to an employee of Guyana Development Bank?"
+                        value={text("related_to_gdb_employee")}
+                        onChange={set("related_to_gdb_employee")}
+                      />
+                    </div>
                   </section>
-                  <Section letter="1" title="Application type">
+                  <Section letter="1" title="Is this a new business?">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <ChoiceCard
-                        title="Existing business"
-                        body="Already trading."
+                        title="Yes"
+                        body="A start-up, or a business about to begin trading."
+                        selected={stage === "New"}
+                        onSelect={() => {
+                          setStage("New");
+                          setDcraRecord(null);
+                          setDcraNote(null);
+                        }}
+                      />
+                      <ChoiceCard
+                        title="No"
+                        body="An existing business, already trading."
                         selected={stage === "Existing"}
                         onSelect={() => {
                           setStage("Existing");
                           setHasDcra("yes");
                           setDcraNote(null);
                           setDcraRecord(null);
-                          setManualEntry(true);
                           // The structure question is asked of an existing
                           // business too, below. It used to be forced to Sole
                           // Trader here, which meant a trading company or
@@ -2190,17 +2520,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                           // already has a DCRA registration — had no way to say
                           // what it was, and every one of them reached the Bank
                           // filed as a sole trader.
-                        }}
-                      />
-                      <ChoiceCard
-                        title="New venture"
-                        body="A start-up, or a business about to begin trading."
-                        selected={stage === "New"}
-                        onSelect={() => {
-                          setStage("New");
-                          setDcra("");
-                          setDcraRecord(null);
-                          setDcraNote(null);
                         }}
                       />
                       {/* The Quick Loan is chosen before this form, on "Choose
@@ -2215,173 +2534,48 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   continue as an existing business: the server requires the
                   number (services/application.py), so it is offered the
                   new-venture form instead, by the applicant's own choice. */}
-                  {stage === "Existing" && (
-                    <Section
-                      letter="2"
-                      title="Business registration number"
-                      blurb="GDB checks it with the business registry."
-                    >
-                      {dcraAnswer === "yes" && (
-                        <>
-                          {looking && (
-                            <p className="text-sm text-slate-500">
-                              Retrieving business registrations…
-                            </p>
-                          )}
-                          {!looking && (myBusinesses?.length ?? 0) > 0 && (
-                            <SelectField
-                              label="Registered to your e-ID"
-                              value={
-                                myBusinesses?.find(
-                                  (b) => b.registration_number === dcra,
-                                )
-                                  ? businessOption(
-                                      myBusinesses.find(
-                                        (b) => b.registration_number === dcra,
-                                      )!,
-                                    )
-                                  : ""
-                              }
-                              onChange={(v) => {
-                                const chosen = myBusinesses?.find(
-                                  (b) => businessOption(b) === v,
-                                );
-                                if (chosen) selectBusiness(chosen);
-                              }}
-                              options={(myBusinesses ?? []).map(businessOption)}
-                              placeholder="Choose, or type the number below"
-                            />
-                          )}
-                          <div onBlur={() => void checkTypedDcra()}>
-                            <TextField
-                              label="Business registration number"
-                              required
-                              value={dcra}
-                              onChange={onDcraChange}
-                              placeholder="BN-2024-004512"
-                            />
-                          </div>
-                          <div className="sm:max-w-xs">
-                            <TextField
-                              label="Date business established"
-                              required
-                              type="date"
-                              value={text("date_established")}
-                              onChange={set("date_established")}
-                              hint="When the business started trading."
-                            />
-                          </div>
-                          {dcraChecking && (
-                            <p className="text-sm text-slate-500">
-                              Checking the business registry…
-                            </p>
-                          )}
-                          {dcraRecord?.business_name && (
-                            <Notice tone="good">
-                              {dcraRecord.business_name} · {dcraRecord.status} ·{" "}
-                              {dcraSourceLabel}
-                            </Notice>
-                          )}
-                          {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
-                        </>
+                  {stage === "New" && (
+                    <Section letter="2" title="New business">
+                      <YesNo
+                        label="Are you part of an industrial training program?"
+                        value={text("industrial_training")}
+                        onChange={set("industrial_training")}
+                      />
+                      <YesNo
+                        label="Do you have a mentor?"
+                        value={text("has_mentor")}
+                        onChange={set("has_mentor")}
+                      />
+                      {text("has_mentor") === "Yes" && (
+                        <TextField
+                          label="Mentor details"
+                          required
+                          value={text("mentor_details")}
+                          onChange={set("mentor_details")}
+                          placeholder="Name, and how to reach them"
+                        />
                       )}
+                      <TextField
+                        label="Institution"
+                        value={text("institution")}
+                        onChange={set("institution")}
+                        placeholder="The institution associated with you or your business"
+                      />
                     </Section>
                   )}
 
-                  {/* Asked of BOTH routes once the stage is answered. How a
-                  business is owned is a fact about it whether or not it is
-                  already trading, and an underwriter deciding a development
-                  loan needs to know whether they are lending to one person or
-                  to their share of something larger.
-
-                  Where DCRA has already said which it is, it is STATED rather
-                  than asked — and the only thing left on this screen is the
-                  one question the register cannot answer. */}
-                  {stage && (
-                    <Section
-                      letter={stage === "Existing" ? "3" : "2"}
-                      title="Legal structure"
-                      blurb={
-                        registryAnswers
-                          ? "From the business registry."
-                          : undefined
-                      }
-                    >
-                      {registryPending ? (
-                        <p className="text-sm text-slate-500">
-                          {looking
-                            ? "Retrieving business registrations…"
-                            : "Select the registered business above."}
-                        </p>
-                      ) : registryAnswers ? (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-                          <p className="text-sm text-slate-700">
-                            <span className="font-bold text-slate-900">
-                              {dcraRecord?.business_name ?? dcra}
-                            </span>{" "}
-                            — filed as {STRUCTURE_PROSE[registryStructure]}.
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Corrections are made at the business registry.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                          <ChoiceCard
-                            title="Sole proprietorship"
-                            selected={structure === "Sole Trader"}
-                            onSelect={() => setStructure("Sole Trader")}
-                          />
-                          <ChoiceCard
-                            title="Incorporated (Inc.)"
-                            selected={structure === "Incorporated (Inc.)"}
-                            onSelect={() => setStructure("Incorporated (Inc.)")}
-                          />
-                          <ChoiceCard
-                            title="Partnership"
-                            selected={structure === "Partnership"}
-                            onSelect={() => setStructure("Partnership")}
-                          />
-                          <ChoiceCard
-                            title="Other"
-                            body="A co-operative, society or trust."
-                            selected={structure === "Other"}
-                            onSelect={() => setStructure("Other")}
-                          />
-                        </div>
-                      )}
-                      {structure === "Other" && !registryAnswers && (
-                        <TextField
-                          label="What is the legal structure?"
-                          required
-                          value={text("legal_structure_other")}
-                          onChange={set("legal_structure_other")}
-                          placeholder="e.g. Co-operative society"
-                        />
-                      )}
-
-                      {/* A partnership and an incorporated company ask the same
-                      two things — what the applicant owns, and who owns the
-                      rest — so they share one block. Only the wording differs,
-                      because a partner and a shareholder are not the same word
-                      to the person filling this in. Co-owners are named by
-                      e-ID, never by mailbox: the e-ID is how GDB identifies a
-                      person everywhere else in the bank.
-
-                      Not asked of a registered business: DCRA already names
-                      who owns it, and the record itself is shown on the
-                      business step. */}
-                      {askOwnership && (
-                        <OwnershipBlock
-                          structure={structure}
-                          applicantShare={applicantShare}
-                          onApplicantShare={setApplicantShare}
-                          owners={owners}
-                          onOwners={setOwners}
-                          declared={sharesDeclared}
-                        />
-                      )}
-                    </Section>
+                  {/* An existing business says how it is owned first, then
+                  gives its registration; a new venture the other way round. */}
+                  {stage === "Existing" ? (
+                    <>
+                      {structureSection}
+                      {registrationSection}
+                    </>
+                  ) : (
+                    <>
+                      {registrationSection}
+                      {structureSection}
+                    </>
                   )}
                 </>
               )}
@@ -2547,172 +2741,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       onChange={set("goals")}
                     />
                   </QuestionGroup>
-
-                  <QuestionGroup
-                    n={5}
-                    title="Registration and sector"
-                    hint={
-                      stage === "Existing"
-                        ? "Verified against the business registry."
-                        : "Trading name and sector."
-                    }
-                    answered={identityAnswered}
-                    total={identityTotal}
-                    open={openGroup === 5}
-                    onToggle={() => toggleGroup(5)}
-                  >
-                    {stage === "Existing" && (
-                      <>
-                        {looking && (
-                          <p className="text-sm text-slate-500">
-                            Retrieving business registrations…
-                          </p>
-                        )}
-
-                        {manualEntry && (
-                          <div onBlur={() => void checkTypedDcra()}>
-                            <TextField
-                              label="Business registration number"
-                              required
-                              value={dcra}
-                              onChange={onDcraChange}
-                              placeholder="BN-2024-004512"
-                            />
-                          </div>
-                        )}
-                        {dcraChecking && (
-                          <p className="text-sm text-slate-500">
-                            Checking the business registry…
-                          </p>
-                        )}
-
-                        {dcraRecord?.business_name && (
-                          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                            <div className="mb-2 flex items-start justify-between gap-2">
-                              <div>
-                                <p className="font-bold text-slate-900">
-                                  {dcraRecord.business_name}
-                                </p>
-                                <p className="font-mono text-xs text-slate-500">
-                                  {dcraRecord.registration_number}
-                                </p>
-                              </div>
-                              <span
-                                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                  dcraRecord.status === "Active"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-rose-50 text-rose-700"
-                                }`}
-                              >
-                                {dcraRecord.status}
-                              </span>
-                            </div>
-                            {/* Grey, not white: the register's values, never
-                            fields the applicant may answer — each attributed to
-                            whoever GDB heard it from. */}
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <ReadOnlyField
-                                label="Registered business name"
-                                value={dcraRecord.business_name}
-                                source={dcraSourceLabel}
-                              />
-                              <ReadOnlyField
-                                label="Registration number"
-                                value={dcraRecord.registration_number}
-                                source={dcraSourceLabel}
-                              />
-                              {dcraRecord.business_type && (
-                                <ReadOnlyField
-                                  label="Structure on the register"
-                                  // DCRA's "Business Name" is a sole proprietorship
-                                  // in the applicant's words; the raw value shows
-                                  // where the portal has no word for it.
-                                  value={
-                                    STRUCTURE_LABEL[
-                                      deriveStructure(dcraRecord)
-                                    ] ?? dcraRecord.business_type
-                                  }
-                                  source={dcraSourceLabel}
-                                />
-                              )}
-                              {dcraRecord.registered_on && (
-                                <ReadOnlyField
-                                  label="Registered on"
-                                  value={dcraRecord.registered_on}
-                                  source={dcraSourceLabel}
-                                />
-                              )}
-                              {dcraRecord.region && (
-                                <ReadOnlyField
-                                  label="Region"
-                                  value={dcraRecord.region}
-                                  source={dcraSourceLabel}
-                                />
-                              )}
-                              {dcraRecord.proprietors?.length ? (
-                                <ReadOnlyField
-                                  label="Proprietors"
-                                  value={dcraRecord.proprietors.join(", ")}
-                                  source={dcraSourceLabel}
-                                />
-                              ) : null}
-                            </div>
-                            {dcraRecord.status &&
-                              dcraRecord.status !== "Active" && (
-                                <div className="mt-2">
-                                  <Notice tone="warn">
-                                    Registration inactive. Reinstatement may be
-                                    required before disbursement.
-                                  </Notice>
-                                </div>
-                              )}
-                          </div>
-                        )}
-
-                        {manualEntry && !dcraRecord?.business_name && (
-                          <TextField
-                            label="Registered business name"
-                            required
-                            value={businessName}
-                            onChange={setBusinessName}
-                            placeholder="As on the certificate"
-                          />
-                        )}
-                        {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
-                      </>
-                    )}
-
-                    {stage === "New" && (
-                      <>
-                        <TextField
-                          label="Proposed trading name"
-                          required
-                          value={businessName}
-                          onChange={setBusinessName}
-                        />
-                        <Notice tone="info">
-                          Business registration is required before disbursement.
-                        </Notice>
-                      </>
-                    )}
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <SelectField
-                        label="Sector"
-                        required
-                        value={text("sector")}
-                        onChange={set("sector")}
-                        options={SECTORS}
-                        placeholder="Select sector…"
-                      />
-                      <TextField
-                        label="Sub-sector"
-                        value={text("sub_sector")}
-                        onChange={set("sub_sector")}
-                        placeholder="e.g. Poultry"
-                      />
-                    </div>
-                  </QuestionGroup>
                 </div>
               )}
 
@@ -2787,11 +2815,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       onChange={set("total_assets")}
                     />
                     <MoneyField
-                      label="Total debt"
-                      value={val("total_debt")}
-                      onChange={set("total_debt")}
-                    />
-                    <MoneyField
                       label="Total equity"
                       value={val("total_equity")}
                       onChange={set("total_equity")}
@@ -2841,11 +2864,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       label="Total assets"
                       value={val("total_assets")}
                       onChange={set("total_assets")}
-                    />
-                    <MoneyField
-                      label="Total debt"
-                      value={val("total_debt")}
-                      onChange={set("total_debt")}
                     />
                     <MoneyField
                       label="Total equity"
@@ -3172,21 +3190,35 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       </button>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <MoneyField
-                        label="Personal monthly income"
-                        value={income}
-                        onChange={setIncome}
-                        tag="Optional"
-                      />
-                    </div>
                   </Section>
 
                   <Section
                     letter="J"
-                    title="Disbursement account"
-                    blurb="Must be held in your name."
+                    title="Bank information"
+                    blurb="The disbursement account. Must be held in your name."
                   >
+                    <fieldset>
+                      <legend className="mb-2 text-sm font-semibold text-slate-800">
+                        Do you have a bank account?
+                        <span className="ml-0.5 text-rose-500">*</span>
+                      </legend>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <ChoiceCard
+                          title="Yes"
+                          selected={hasBank === "Yes"}
+                          onSelect={() => set("has_bank_account")("Yes")}
+                        />
+                        <ChoiceCard
+                          title="No"
+                          body="I don't have a bank account."
+                          selected={hasBank === "No"}
+                          onSelect={() => set("has_bank_account")("No")}
+                        />
+                      </div>
+                    </fieldset>
+                    {hasBank === "No" && <FacilitatedBanks />}
+                    {hasBank === "Yes" && (
+                    <>
                     <RecordAccountOffer
                       currentAccountNo={accountNo}
                       onUse={(a) => {
@@ -3276,6 +3308,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                           />
                         </div>
                         <TextField
+                          label="Account holder name"
+                          required
+                          value={text("account_holder")}
+                          onChange={set("account_holder")}
+                          placeholder="As the bank holds it"
+                        />
+                        <TextField
                           label="Branch code"
                           value={branchCode}
                           onChange={setBranchCode}
@@ -3331,6 +3370,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         )}
                       </>
                     )}
+                    </>
+                    )}
                   </Section>
                 </>
               )}
@@ -3355,7 +3396,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
 
                   <AttentionList
                     issues={issues}
-                    blocking={fieldIssues.length > 0}
+                    blocking={blockingCount > 0}
                   />
                   <ReviewSections
                     sections={reviewSections}
@@ -3423,7 +3464,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       {assist && (
                         <button
                           type="button"
-                          disabled={busy || fieldIssues.length > 0}
+                          disabled={busy || blockingCount > 0}
                           onClick={() => void finishAssisted(false)}
                           className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                         >
@@ -3434,7 +3475,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         type="button"
                         disabled={
                           busy ||
-                          fieldIssues.length > 0 ||
+                          blockingCount > 0 ||
                           (!assist && !(declConsent && declWarning))
                         }
                         onClick={() =>
@@ -3783,6 +3824,38 @@ function TermSlider({
       <p className="mt-1.5 text-xs text-slate-500">
         How long you will take to repay — up to 5 years.
       </p>
+    </fieldset>
+  );
+}
+
+/** A required Yes/No question, answered with the form's own choice cards. */
+function YesNo({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <fieldset>
+      <legend className="mb-2 text-sm font-semibold text-slate-800">
+        {label}
+        <span className="ml-0.5 text-rose-500">*</span>
+      </legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ChoiceCard
+          title="Yes"
+          selected={value === "Yes"}
+          onSelect={() => onChange("Yes")}
+        />
+        <ChoiceCard
+          title="No"
+          selected={value === "No"}
+          onSelect={() => onChange("No")}
+        />
+      </div>
     </fieldset>
   );
 }

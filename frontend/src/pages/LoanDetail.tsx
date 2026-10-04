@@ -16,6 +16,7 @@ import { LoanAccount } from "../components/LoanAccount";
 import { OfferPanel } from "../components/OfferPanel";
 import { ApplicantCaseView } from "../features/applications/ApplicantCaseView";
 import { ApplicationTab } from "../features/underwriting/ApplicationTab";
+import { SectorClassification } from "../features/underwriting/SectorClassification";
 import {
   DecisionDrawer,
   FieldTaskDrawer,
@@ -530,13 +531,7 @@ export function LoanDetail() {
               ) : (
                 <>
                   <Row label="Business" value={loan.business_stage || "—"} />
-                  <Row label="Registration" value={loan.dcra_number || "—"} />
-                  <Row
-                    label="Monthly income"
-                    value={
-                      loan.monthly_income ? formatGyd(loan.monthly_income) : "—"
-                    }
-                  />
+                  <Row label="DCRA #" value={loan.dcra_number || "—"} />
                 </>
               )}
               <Row
@@ -639,7 +634,7 @@ export function LoanDetail() {
                 </p>
               )}
               <p className="mt-2 text-xs text-slate-500">
-                {loan.reviewed_by} · {formatDate(loan.reviewed_on)}
+                <span className="normal-case">{loan.reviewed_by}</span> · {formatDate(loan.reviewed_on)}
               </p>
             </RailCard>
           )}
@@ -710,6 +705,44 @@ export function LoanDetail() {
                     }
                   />
                 ))}
+                <RailTitle>Applicant</RailTitle>
+                {Number(loan.sections?.requires_loan_officer_review ?? 0) === 1 && (
+                  <div className="my-2">
+                    <Badge tone="warning">
+                      Loan Officer review — public servant earning $250,000 or
+                      more a month
+                    </Badge>
+                  </div>
+                )}
+                <Row label="E-ID" value={trade("applicant_eid")} />
+                <Row
+                  label="Employed in public service"
+                  value={trade("public_service_employed")}
+                />
+                {loan.sections?.public_service_employed === "Yes" && (
+                  <>
+                    <Row
+                      label="Ministry or agency"
+                      value={trade("public_service_ministry")}
+                    />
+                    <Row
+                      label="Making less than $250,000 a month"
+                      value={trade("public_service_under_250k")}
+                    />
+                  </>
+                )}
+                <Row
+                  label="Related to a GDB employee"
+                  value={trade("related_to_gdb_employee")}
+                />
+                <Row
+                  label="Bank account"
+                  value={
+                    Number(loan.sections?.no_bank_account ?? 0) === 1
+                      ? "None — referred to the Help Desk"
+                      : "Nominated (see Disbursement)"
+                  }
+                />
               </Card>
             ) : (
               <ApplicationTab loan={loan} />
@@ -717,6 +750,9 @@ export function LoanDetail() {
           </Panel>
 
           <Panel active={tab === "checks"}>
+            {loan.status !== "Draft" && (
+              <SectorClassification loan={loan} onSaved={() => void load()} />
+            )}
             <ApplicantProfile user={loan.applicant} />
             {loan.cluster && name && (
               <ClusterMembers cluster={loan.cluster} application={name} />
@@ -733,6 +769,7 @@ export function LoanDetail() {
               <InformationRequests
                 key={`req-${accountKey}`}
                 application={name}
+                applicantEid={loan.applicant_eid}
                 onChange={bump}
               />
             )}
@@ -834,6 +871,7 @@ export function LoanDetail() {
       {name && (
         <RequestInfoDrawer
           application={name}
+          applicantEid={loan?.applicant_eid}
           open={asking}
           onClose={() => setAsking(false)}
           onSent={bump}

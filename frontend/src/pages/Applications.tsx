@@ -89,7 +89,13 @@ function InvitationCard({
   return (
     <Card className="border border-gdb-gold/60">
       <p className="text-base font-semibold text-slate-800">
-        {invite.invited_by ? `${invite.invited_by} invited you to join` : 'Invitation to join'}{' '}
+        {invite.invited_by ? (
+          <>
+            <span className="normal-case">{invite.invited_by}</span> invited you to join
+          </>
+        ) : (
+          'Invitation to join'
+        )}{' '}
         {invite.cluster_name || invite.name}
       </p>
       <p className="mt-1 text-sm text-slate-500">
@@ -157,6 +163,8 @@ interface Row {
   flag?: string;
   primary: { to: string; label: string };
   secondary?: { to: string; label: string };
+  /** A submitted case still in review: add what was left out. */
+  edit?: string;
   onDelete?: () => void;
 }
 
@@ -207,6 +215,14 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
             className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
           >
             {row.secondary.label}
+          </Link>
+        )}
+        {row.edit && (
+          <Link
+            to={row.edit}
+            className="rounded-full border border-brand px-4 py-1.5 text-xs font-semibold text-brand hover:bg-brand-light"
+          >
+            Edit
           </Link>
         )}
         <Link
@@ -338,6 +354,10 @@ export function Applications() {
           }
         : { to: `/loans/${loan.name}`, label: 'View' },
       secondary: !draft && attention?.action ? attention.action : undefined,
+      edit:
+        loan.stage === 'Review' && !loan.cluster && loan.applicant === user?.user
+          ? `/loans/${loan.name}?edit=1`
+          : undefined,
       // The head cannot delete a group's draft — its facilitator manages it.
       onDelete:
         draft && !loan.cluster

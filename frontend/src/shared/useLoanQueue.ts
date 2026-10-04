@@ -15,6 +15,9 @@ export interface LoanQueueFilter {
   max_amount?: string;
   from_date?: string;
   to_date?: string;
+  officer_review?: string;
+  /** "public" or "private": the applicant's public-service employment. */
+  employment?: string;
 }
 
 export const PAGE_LENGTH = 25;

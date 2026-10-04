@@ -11,6 +11,8 @@ commit is suppressed and each test is rolled back: nothing stays on the site.
 from unittest.mock import patch
 
 import frappe
+
+from gdb_bank.tests.sme_fixture import complete_sme
 from frappe.tests import IntegrationTestCase
 
 from gdb_bank import api, documents, field_officer, profiles
@@ -69,6 +71,7 @@ class TestFieldFlow(IntegrationTestCase):
 			name = api.save_application(
 				loan_amount=500000, purpose="New oven", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
 			)["name"]
+			complete_sme(CITIZEN, name)
 			api.submit_application(name=name)
 		return name
 
@@ -157,6 +160,7 @@ class TestFieldFlow(IntegrationTestCase):
 				api.loan_detail(name=draft["name"], acting=consent)
 			row = next(r for r in field_officer.desk(tab="assisted")["rows"] if r["name"] == consent)
 			self.assertEqual(row["status"], "Waiting for applicant")
+		complete_sme(CITIZEN, draft["name"])
 		with self.set_user(CITIZEN):
 			mine = api.loan_detail(name=draft["name"])
 			self.assertEqual(mine["stage_label"], "Ready for you to check and submit")
@@ -168,6 +172,7 @@ class TestFieldFlow(IntegrationTestCase):
 			draft = api.save_application(
 				loan_amount=300000, purpose="Oven", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}, acting=consent
 			)["name"]
+			complete_sme(CITIZEN, draft)
 			case = field_officer.submit_assisted_application(consent=consent, name=draft)
 			self.assertEqual(case["status"], "Submitted")
 			self.assertEqual(case["submitted_by"], OFFICER)

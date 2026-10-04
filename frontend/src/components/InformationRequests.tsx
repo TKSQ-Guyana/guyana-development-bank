@@ -3,7 +3,10 @@ import type { FormEvent } from 'react';
 import { call, uploadFile } from '../api';
 import { useAuth } from '../auth';
 import { RequiredMark } from './ui/RequiredMark';
-import type { ApplicantDocument, InformationRequest } from '../types';
+import { EidBoxes } from './EidBoxes';
+import { EMPTY_EID, isCompleteEid } from '../eid';
+import { EID_REQUEST, eidItemFor, needsEid } from '../shared/eidNotice';
+import type { ApplicantDocument, DocumentSettings, InformationRequest } from '../types';
 import { formatDate } from '../utils';
 
 /** What the Bank has asked for, itemised.
@@ -33,9 +36,13 @@ interface Payload {
 
 export function InformationRequests({
   application,
+  applicantEid,
   onChange,
 }: {
   application: string;
+  /** Staff only: the applicant's e-ID, if any. "e-ID" is offered only when
+   *  there is none. */
+  applicantEid?: string | null;
   onChange?: () => void;
 }) {
   const { user } = useAuth();
@@ -43,6 +50,8 @@ export function InformationRequests({
   const [item, setItem] = useState('');
   const [type, setType] = useState('');
   const [types, setTypes] = useState<string[]>([]);
+  const [settings, setSettings] = useState<DocumentSettings | null>(null);
+  const [eids, setEids] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,11 +68,21 @@ export function InformationRequests({
   }, [load]);
 
   useEffect(() => {
-    if (!user?.is_underwriter) return;
-    call<{ types: string[] }>('gdb_bank.documents.document_settings')
-      .then((s) => setTypes(s.types))
+    call<DocumentSettings>('gdb_bank.documents.document_settings')
+      .then((s) => {
+        setSettings(s);
+        setTypes(s.request_types ?? s.types);
+      })
       .catch(() => setTypes([]));
-  }, [user?.is_underwriter]);
+  }, []);
+
+  const offered = needsEid(applicantEid) ? types : types.filter((t) => t !== EID_REQUEST);
+
+  // Choosing "e-ID" fills in what to ask; leaving it takes that text back out.
+  const chooseType = (next: string) => {
+    setType(next);
+    setItem((current) => eidItemFor(next, current));
+  };
 
   const raise = async (e: FormEvent) => {
     e.preventDefault();
@@ -101,13 +120,20 @@ export function InformationRequests({
   };
 
   const answer = async (request: InformationRequest, file: File) => {
+    // An e-ID request is answered with the e-ID card, filed as Identity.
+    const eid = request.document_type === EID_REQUEST;
+    if (eid && !isCompleteEid(eids[request.name] ?? '')) {
+      setError('Enter your e-ID number first, then choose the file.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const row = await call<ApplicantDocument>('gdb_bank.documents.new_document', {
-        document_type: request.document_type || 'Other',
+        document_type: eid ? 'Identity' : request.document_type || 'Other',
         application,
         request: request.name,
+        ...(eid && { id_document_kind: EID_REQUEST, id_document_number: eids[request.name] }),
       });
       try {
         await uploadFile(file, { doctype: DOCTYPE, docname: row.name });
@@ -212,12 +238,31 @@ export function InformationRequests({
                   </button>
                 </div>
               )}
+              {mine && r.status === 'Open' && r.document_type === EID_REQUEST && (
+                <div className="mt-2 text-xs text-slate-500">
+                  Your e-ID number
+                  <div className="mt-1 max-w-xs">
+                    <EidBoxes
+                      value={eids[r.name] ?? EMPTY_EID}
+                      onChange={(v) => setEids((m) => ({ ...m, [r.name]: v }))}
+                      disabled={busy}
+                      required={false}
+                    />
+                  </div>
+                </div>
+              )}
               {mine && r.status === 'Open' && (
                 <label className="mt-2 block text-xs text-slate-500">
-                  Answer with a PDF
+                  {r.document_type === EID_REQUEST
+                    ? 'Then attach your e-ID card (PDF or photo)'
+                    : 'Answer with a PDF'}
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept={
+                      r.document_type === EID_REQUEST
+                        ? settings?.accepts_by_type?.Identity ?? '.pdf'
+                        : '.pdf'
+                    }
                     disabled={busy}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -253,11 +298,11 @@ export function InformationRequests({
               <span className="mb-1 block text-slate-500">Type</span>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => chooseType(e.target.value)}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
               >
                 <option value="">Any</option>
-                {types.map((t) => (
+                {offered.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>

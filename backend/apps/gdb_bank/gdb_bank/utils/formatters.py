@@ -266,7 +266,8 @@ def _stage_for(status: str, ctx: dict) -> tuple:
 # A group member reads the head's case, but not the head's own contact number
 # or income; and no citizen is told which officer decided a case.
 _APPLICANT_ONLY = ("phone", "monthly_income")
-_STAFF_ONLY = ("reviewed_by",)
+# The underwriter's sector classification is GDB's working view of the case.
+_STAFF_ONLY = ("reviewed_by", "credit_sector", "credit_sub_sector")
 
 
 def _for_viewer(case: dict, user: str) -> dict:
@@ -395,6 +396,8 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),
 		"reviewed_on": get("gdb_reviewed_on"),
+		"credit_sector": get("gdb_credit_sector"),
+		"credit_sub_sector": get("gdb_credit_sub_sector"),
 		"rate_of_interest": get("rate_of_interest"),
 		# The instalment as lending states it at this point in the case, never a
 		# figure of GDB's: the repayment schedule once money has moved; the

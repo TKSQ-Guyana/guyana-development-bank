@@ -215,7 +215,14 @@ function Invitations({ onJoined }: { onJoined: () => void }) {
               <p className="font-medium text-slate-800">{inv.cluster_name || inv.name}</p>
               <p className="text-sm text-slate-500">
                 {[inv.region, inv.sector].filter(Boolean).join(' · ')}
-                {inv.invited_by ? ` · from ${inv.invited_by}` : ''}
+                {inv.invited_by ? (
+                  <>
+                    {' · from '}
+                    <span className="normal-case">{inv.invited_by}</span>
+                  </>
+                ) : (
+                  ''
+                )}
               </p>
             </div>
             <div className="flex gap-2">

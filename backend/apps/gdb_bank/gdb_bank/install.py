@@ -57,6 +57,48 @@ RETIRED_BANKS = ("Citizens Bank Guyana", "Guyana Bank for Trade and Industry", "
 
 # Each bank's branches: (id, bank, branch, routing transit number, sort order).
 # A payout's Bank Account carries the routing number as its branch code.
+# The sectors an underwriter classifies a case under on the Credit risk tab:
+# GDB's five priority sectors (the public site's), each with its sub-sectors.
+# Seeded ONCE (ensure_sectors adds what is missing, never overwrites), so the
+# desk's corrections to GDB Sector / GDB Sub Sector survive every migrate.
+SECTORS = (
+	("Agriculture", (
+		"Crop farming",
+		"Livestock and poultry",
+		"Fisheries and aquaculture",
+		"Agro-processing",
+		"Forestry",
+	)),
+	("Tourism & hospitality", (
+		"Accommodation",
+		"Food and beverage services",
+		"Tour operations and guiding",
+		"Eco-tourism",
+		"Visitor transport",
+	)),
+	("Manufacturing", (
+		"Food and beverage processing",
+		"Wood and furniture",
+		"Garments and textiles",
+		"Construction materials",
+		"Light manufacturing and assembly",
+	)),
+	("Technology & services", (
+		"Software and digital services",
+		"ICT services and repair",
+		"E-commerce",
+		"Business process outsourcing",
+		"Professional services",
+	)),
+	("Orange & care economy", (
+		"Arts, crafts and design",
+		"Music, film and media",
+		"Fashion",
+		"Childcare",
+		"Elderly and health care services",
+	)),
+)
+
 BANK_BRANCHES = (
 	('New Building Society - Any', 'New Building Society', 'Any', '', 0),
 	('Citizen Bank - Main branch', 'Citizen Bank', 'Main branch', '10001007', 0),
@@ -223,6 +265,15 @@ APPLICATION_SECTIONS = (
 	("gdb_sub_sector", "Sub-sector", "Data"),
 	# When an existing business started trading — asked beside its registration.
 	("gdb_date_established", "Date Business Established", "Date"),
+	# The date on the DCRA certificate — asked of every SME, beside its number.
+	("gdb_registration_date", "Date of Registration", "Date"),
+	# A new business's support: an industrial training programme, a mentor, and
+	# the institution behind either. Asked only when "Is this a new business?"
+	# is Yes (NEW_ONLY clears them for an existing one).
+	("gdb_industrial_training", "Part of an Industrial Training Program (New Business)", "Select", "\nYes\nNo"),
+	("gdb_has_mentor", "Has a Mentor (New Business)", "Select", "\nYes\nNo"),
+	("gdb_mentor_details", "Mentor Details (New Business)", "Data"),
+	("gdb_institution", "Institution (New Business)", "Data"),
 	# C — business or venture description
 	("gdb_executive_summary", "Executive Summary", "Small Text"),
 	("gdb_products_services", "Products / Services", "Small Text"),
@@ -310,6 +361,20 @@ APPLICATION_SECTIONS = (
 	# The applicant's own declaration that they live in Guyana — the programme
 	# is for Guyanese enterprise, and a Quick Loan asks for no address proof.
 	("gdb_resides_in_guyana", "Resides in Guyana (Declared, Quick Loan)", "Check"),
+	# The applicant's E-ID as they type it on the form — a plain declaration,
+	# beside the e-ID an account opened through My Guyana already carries.
+	("gdb_applicant_eid", "Applicant E-ID (Declared, Quick Loan)", "Data"),
+	# Public-service employment. A public servant earning GYD 250,000 a month or
+	# more is not refused — the case is routed to a Loan Officer instead
+	# (gdb_requires_loan_officer_review, set by the server, never the form).
+	("gdb_public_service_employed", "Employed in the Public Service (Declared, Quick Loan)", "Select", "\nYes\nNo"),
+	("gdb_public_service_ministry", "Ministry or Agency (Declared, Quick Loan)", "Data"),
+	("gdb_public_service_under_250k", "Earns Under GYD 250,000 a Month (Declared, Quick Loan)", "Select", "\nYes\nNo"),
+	("gdb_requires_loan_officer_review", "Requires Loan Officer Review", "Check"),
+	("gdb_related_to_gdb_employee", "Related to a GDB Employee (Declared, Quick Loan)", "Select", "\nYes\nNo"),
+	# "I don't have a bank account": the applicant is sent to the Help Desk and
+	# the facilitated banks (Bank.gdb_facilitated) rather than stopped.
+	("gdb_no_bank_account", "Has No Bank Account (Declared, Quick Loan)", "Check"),
 	# Priority groups, as the applicant declares them — a declaration, kept apart
 	# from the sector, never a decision.
 	("gdb_youth_entrepreneur", "Youth Entrepreneur (Declared)", "Check"),
@@ -506,6 +571,26 @@ CUSTOM_FIELDS = {
 			"allow_on_submit": 1,
 			"insert_after": "gdb_reviewed_by",
 		},
+		# The underwriter's classification of the case, on the Credit risk tab —
+		# GDB's own, never the applicant's (services/credit_classification).
+		{
+			"fieldname": "gdb_credit_sector",
+			"label": "Sector (Credit Risk)",
+			"fieldtype": "Link",
+			"options": "GDB Sector",
+			"read_only": 1,
+			"allow_on_submit": 1,
+			"insert_after": "gdb_reviewed_on",
+		},
+		{
+			"fieldname": "gdb_credit_sub_sector",
+			"label": "Sub-sector (Credit Risk)",
+			"fieldtype": "Link",
+			"options": "GDB Sub Sector",
+			"read_only": 1,
+			"allow_on_submit": 1,
+			"insert_after": "gdb_credit_sector",
+		},
 	],
 	"Loan Repayment": [
 		{
@@ -557,6 +642,15 @@ ERPNEXT_CUSTOM_FIELDS = {
 			"fieldtype": "Check",
 			"default": "1",
 			"insert_after": "bank_name",
+		},
+		# Listed to an applicant who has no bank account yet, as the banks the
+		# Help Desk can help them open one with. Desk-editable; seeded once.
+		{
+			"fieldname": "gdb_facilitated",
+			"label": "Facilitated for Applicants Without an Account",
+			"fieldtype": "Check",
+			"default": "0",
+			"insert_after": "gdb_enabled",
 		},
 	],
 	"Bank Account": [
@@ -725,6 +819,7 @@ def ensure_bank_account_types():
 
 def after_migrate():
 	ensure_roles()
+	ensure_sectors()
 	# Outgoing mail, when its SMTP settings are present (integrations/mail).
 	from gdb_bank.integrations import mail
 
@@ -789,7 +884,31 @@ def ensure_banks():
 	for bank_name in RETIRED_BANKS:
 		if frappe.db.exists("Bank", bank_name):
 			frappe.db.set_value("Bank", bank_name, "gdb_enabled", 0, update_modified=False)
+	# The facilitated list starts as every bank offered to citizens, once: after
+	# that it is the desk's (Bank > Facilitated for Applicants Without an Account).
+	if not frappe.db.exists("Bank", {"gdb_facilitated": 1}):
+		for bank_name, enabled in BANKS:
+			if enabled:
+				frappe.db.set_value("Bank", bank_name, "gdb_facilitated", 1, update_modified=False)
 	ensure_bank_branches()
+	frappe.db.commit()
+
+
+def ensure_sectors():
+	"""Seed SECTORS where missing. Never overwrites: the list is the desk's once
+	it exists, and a migrate must not undo GDB's own corrections."""
+	for order, (sector, subs) in enumerate(SECTORS):
+		if not frappe.db.exists("GDB Sector", sector):
+			frappe.get_doc({"doctype": "GDB Sector", "sector_name": sector, "sort_order": order}).insert(
+				ignore_permissions=True
+			)
+		for sub_order, sub in enumerate(subs):
+			name = f"{sector} - {sub}"
+			if not frappe.db.exists("GDB Sub Sector", name):
+				doc = frappe.get_doc(
+					{"doctype": "GDB Sub Sector", "sector": sector, "sub_sector_name": sub, "sort_order": sub_order}
+				)
+				doc.insert(ignore_permissions=True, set_name=name)
 	frappe.db.commit()
 
 

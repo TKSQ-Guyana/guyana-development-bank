@@ -2,8 +2,13 @@ import { useEffect, useState } from "react";
 import { call } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Drawer } from "../../components/ui/Drawer";
-import { EID_NOTICE, needsEid } from "../../shared/eidNotice";
-import type { LoanApplication } from "../../types";
+import {
+  EID_NOTICE,
+  EID_REQUEST,
+  eidItemFor,
+  needsEid,
+} from "../../shared/eidNotice";
+import type { DocumentSettings, LoanApplication } from "../../types";
 import { formatGyd } from "../../utils";
 
 const FIELD =
@@ -141,11 +146,14 @@ interface Item {
  *  request_information call — the same call the requests panel makes. */
 export function RequestInfoDrawer({
   application,
+  applicantEid,
   open,
   onClose,
   onSent,
 }: {
   application: string;
+  /** The applicant's e-ID, if any: "e-ID" is offered only when there is none. */
+  applicantEid?: string | null;
   open: boolean;
   onClose: () => void;
   onSent: () => void;
@@ -158,13 +166,26 @@ export function RequestInfoDrawer({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    call<{ types: string[] }>("gdb_bank.documents.document_settings")
-      .then((s) => setTypes(s.types))
+    call<DocumentSettings>("gdb_bank.documents.document_settings")
+      .then((s) => setTypes(s.request_types ?? s.types))
       .catch(() => setTypes([]));
   }, [open]);
 
+  const offered = needsEid(applicantEid)
+    ? types
+    : types.filter((t) => t !== EID_REQUEST);
+
   const set = (i: number, patch: Partial<Item>) =>
     setItems((xs) => xs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  // Choosing "e-ID" fills in what to ask, unless the officer already wrote it;
+  // leaving "e-ID" takes that text back out (never the officer's own words).
+  const setType = (i: number, type: string) =>
+    setItems((xs) =>
+      xs.map((x, j) =>
+        j !== i ? x : { ...x, type, item: eidItemFor(type, x.item) },
+      ),
+    );
 
   const send = async () => {
     const todo = items.filter((x) => x.item.trim());
@@ -245,11 +266,11 @@ export function RequestInfoDrawer({
             Section
             <select
               value={x.type}
-              onChange={(e) => set(i, { type: e.target.value })}
+              onChange={(e) => setType(i, e.target.value)}
               className={FIELD}
             >
               <option value="">Any</option>
-              {types.map((t) => (
+              {offered.map((t) => (
                 <option key={t} value={t}>
                   {t}
                 </option>

@@ -145,6 +145,10 @@ export interface LoanApplication {
   underwriter_remarks: string | null;
   reviewed_by: string | null;
   reviewed_on: string | null;
+  /** The underwriter's classification (Credit risk tab). Staff only: null for
+   *  a citizen. The sub-sector is its GDB Sub Sector name, "<Sector> - <Sub>". */
+  credit_sector?: string | null;
+  credit_sub_sector?: string | null;
   creation: string;
   modified: string;
   /** The debts the applicant declared (GDB Existing Debt Line). */
@@ -202,6 +206,33 @@ export interface ApplicantDocument {
   creation: string;
 }
 
+/** One answer left blank on a submitted application (api.application_gaps). */
+export interface ApplicationGap {
+  key: string;
+  fieldname: string;
+  label: string;
+  fieldtype: "Data" | "Small Text" | "Select" | "Date" | "Currency" | "Int" | "Percent" | "Float";
+  options: string[] | null;
+}
+
+/** One document on a submitted application's checklist. */
+export interface ChecklistDocument {
+  key: string;
+  label: string;
+  document_type: string;
+  /** For an Identity document: which one (National ID Card, e-ID). */
+  id_document_kind: string | null;
+  /** One of the case's expected types, rather than a further review document. */
+  required: boolean;
+  on_file: boolean;
+}
+
+export interface ApplicationGaps {
+  name: string;
+  fields: ApplicationGap[];
+  documents: ChecklistDocument[];
+}
+
 export interface DocumentSettings {
   /** The identity documents an Identity upload may be. */
   id_document_kinds?: string[];
@@ -211,6 +242,8 @@ export interface DocumentSettings {
   /** Per type — a Trading Photo takes photographs, not only PDFs. */
   accepts_by_type?: Record<string, string>;
   max_bytes: number;
+  /** What an underwriter may ask for: the types, plus "e-ID". */
+  request_types?: string[];
 }
 
 export interface DocumentShelf {

@@ -52,6 +52,8 @@ const FILTER_KEYS = [
   "product",
   "business_stage",
   "evidence",
+  "officer_review",
+  "employment",
   "min_amount",
   "max_amount",
   "from_date",
@@ -63,6 +65,9 @@ type Filters = Partial<Record<FilterKey, string>>;
 const PRODUCT_LABEL: Record<string, string> = { standard: "SME Loan", quick: "Quick Loan" };
 const STAGE_LABEL: Record<string, string> = { Existing: "Existing business", New: "New venture" };
 const EVIDENCE_LABEL: Record<string, string> = { complete: "Evidence complete", missing: "Missing documents" };
+const OFFICER_REVIEW_LABEL: Record<string, string> = { "1": "Needs Loan Officer review" };
+/** The applicant's declaration of public-service employment (Yes / No). */
+const EMPLOYMENT_LABEL: Record<string, string> = { public: "Public sector", private: "Private sector" };
 
 /** What an active filter reads as in its chip. */
 function chipLabel(key: FilterKey, value: string): string {
@@ -75,6 +80,10 @@ function chipLabel(key: FilterKey, value: string): string {
       return STAGE_LABEL[value] ?? value;
     case "evidence":
       return EVIDENCE_LABEL[value] ?? value;
+    case "officer_review":
+      return OFFICER_REVIEW_LABEL[value] ?? value;
+    case "employment":
+      return EMPLOYMENT_LABEL[value] ?? value;
     case "min_amount":
       return `From ${formatGyd(Number(value))}`;
     case "max_amount":
@@ -221,7 +230,7 @@ export function Review() {
         aria-label="Filters"
         className="mt-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
       >
-        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
           <label className="block text-xs font-medium text-slate-500">
             Search
             <span className="relative mt-1 block">
@@ -262,6 +271,18 @@ export function Review() {
             value={filters.evidence ?? ""}
             onChange={(v) => update({ evidence: v })}
             options={Object.entries(EVIDENCE_LABEL)}
+          />
+          <FilterSelect
+            label="Loan Officer"
+            value={filters.officer_review ?? ""}
+            onChange={(v) => update({ officer_review: v })}
+            options={Object.entries(OFFICER_REVIEW_LABEL)}
+          />
+          <FilterSelect
+            label="Employment"
+            value={filters.employment ?? ""}
+            onChange={(v) => update({ employment: v })}
+            options={Object.entries(EMPLOYMENT_LABEL)}
           />
         </div>
 
@@ -411,6 +432,12 @@ export function Review() {
                     {loan.business_name ? `${loan.business_name} · ` : ""}
                     {loan.name}
                   </span>
+                  {Number(loan.sections?.requires_loan_officer_review ?? 0) ===
+                    1 && (
+                    <span className="mt-1 block">
+                      <Badge tone="warning">Loan Officer review</Badge>
+                    </span>
+                  )}
                 </>
               ),
             },

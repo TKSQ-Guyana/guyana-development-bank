@@ -47,8 +47,7 @@ const SECTIONS: SectionSpec[] = [
     fields: [
       { key: "legal_structure", label: "Legal structure" },
       { key: "co_applicants", label: "Co-applicant e-IDs" },
-      { key: "sector", label: "Sector" },
-      { key: "sub_sector", label: "Sub-sector" },
+      { key: "registration_date", label: "Date of registration" },
     ],
   },
   {

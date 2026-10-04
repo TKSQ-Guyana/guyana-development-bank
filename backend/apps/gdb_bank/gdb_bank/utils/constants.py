@@ -123,6 +123,8 @@ LOAN_FIELDS = [
 	"gdb_remarks",
 	"gdb_reviewed_by",
 	"gdb_reviewed_on",
+	"gdb_credit_sector",
+	"gdb_credit_sub_sector",
 	"rate_of_interest",
 	"repayment_amount",
 	"docstatus",
@@ -151,6 +153,10 @@ NEW_ONLY = (
 	"gdb_initial_costs",
 	"gdb_expected_cash_position",
 	"gdb_assumptions",
+	"gdb_industrial_training",
+	"gdb_has_mentor",
+	"gdb_mentor_details",
+	"gdb_institution",
 )
 
 # The Quick Loan's own section, and everything it asks INSTEAD of. The same
@@ -176,7 +182,17 @@ QUICK_ONLY = (
 	"gdb_woman_entrepreneur",
 )
 # Asked on both forms: when the borrower wants repayments to start.
-SHARED_SECTIONS = ("gdb_moratorium_months",)
+SHARED_SECTIONS = (
+	"gdb_moratorium_months",
+	# The applicant's declarations, asked on both forms.
+	"gdb_applicant_eid",
+	"gdb_public_service_employed",
+	"gdb_public_service_ministry",
+	"gdb_public_service_under_250k",
+	"gdb_requires_loan_officer_review",
+	"gdb_related_to_gdb_employee",
+	"gdb_no_bank_account",
+)
 SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY + SHARED_SECTIONS)
 
 # Portal product key -> the lending Loan Product it is filed on.
