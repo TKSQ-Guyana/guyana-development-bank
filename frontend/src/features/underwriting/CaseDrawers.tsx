@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
-import { call } from '../../api';
-import { Button } from '../../components/ui/Button';
-import { Drawer } from '../../components/ui/Drawer';
-import type { LoanApplication } from '../../types';
-import { formatGyd } from '../../utils';
+import { useEffect, useState } from "react";
+import { call } from "../../api";
+import { Button } from "../../components/ui/Button";
+import { Drawer } from "../../components/ui/Drawer";
+import { EID_NOTICE, needsEid } from "../../shared/eidNotice";
+import type { LoanApplication } from "../../types";
+import { formatGyd } from "../../utils";
 
 const FIELD =
-  'mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20';
+  "mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -27,34 +28,41 @@ export function DecisionDrawer({
   onDecided,
 }: {
   loan: LoanApplication;
-  action: 'approve' | 'reject' | null;
+  action: "approve" | "reject" | null;
   onClose: () => void;
   onDecided: (loan: LoanApplication) => void;
 }) {
-  const [remarks, setRemarks] = useState('');
+  const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const approve = action === "approve";
+  const noEid = approve && needsEid(loan.applicant_eid);
+
   useEffect(() => {
     if (action) setError(null);
-  }, [action]);
-
-  const approve = action === 'approve';
+    // No e-ID on the account: the approval message starts with the notice.
+    if (action === "approve" && needsEid(loan.applicant_eid)) {
+      setRemarks((r) =>
+        r.includes(EID_NOTICE) ? r : r ? `${EID_NOTICE}\n${r}` : EID_NOTICE,
+      );
+    }
+  }, [action, loan.applicant_eid]);
 
   const submit = async () => {
     if (!action) return;
     setBusy(true);
     setError(null);
     try {
-      const updated = await call<LoanApplication>('gdb_bank.api.review_loan', {
+      const updated = await call<LoanApplication>("gdb_bank.api.review_loan", {
         name: loan.name,
         action,
         remarks,
       });
-      setRemarks('');
+      setRemarks("");
       onDecided(updated);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(err instanceof Error ? err.message : "Action failed");
     } finally {
       setBusy(false);
     }
@@ -64,7 +72,7 @@ export function DecisionDrawer({
     <Drawer
       open={action !== null}
       onClose={onClose}
-      title={approve ? 'Approve application' : 'Decline application'}
+      title={approve ? "Approve application" : "Decline application"}
       subtitle={`${loan.applicant_name} · ${loan.name}`}
       footer={
         <>
@@ -72,12 +80,14 @@ export function DecisionDrawer({
             Cancel
           </Button>
           <Button
-            variant={approve ? 'primary' : 'danger'}
-            className={approve ? '' : 'bg-rose-600! text-white! hover:bg-rose-700!'}
+            variant={approve ? "primary" : "danger"}
+            className={
+              approve ? "" : "bg-rose-600! text-white! hover:bg-rose-700!"
+            }
             onClick={() => void submit()}
             disabled={busy}
           >
-            {approve ? 'Approve' : 'Decline application'}
+            {approve ? "Approve" : "Decline application"}
           </Button>
         </>
       }
@@ -86,6 +96,13 @@ export function DecisionDrawer({
         <Fact label="Requested" value={formatGyd(loan.loan_amount)} />
         <Fact label="Term" value={`${loan.term_months} months`} />
       </div>
+
+      {noEid && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          This applicant has no e-ID on their account, so the message below
+          starts with “{EID_NOTICE}” You can edit it.
+        </p>
+      )}
 
       <label className="block text-sm font-medium text-slate-700">
         Message to applicant
@@ -97,10 +114,17 @@ export function DecisionDrawer({
         />
       </label>
 
-      {approve && <p className="text-xs text-slate-500">Issue the Letter of Offer next, from the Offer tab.</p>}
+      {approve && (
+        <p className="text-xs text-slate-500">
+          Issue the Letter of Offer next, from the Offer tab.
+        </p>
+      )}
 
       {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -126,7 +150,7 @@ export function RequestInfoDrawer({
   onClose: () => void;
   onSent: () => void;
 }) {
-  const [items, setItems] = useState<Item[]>([{ item: '', type: '' }]);
+  const [items, setItems] = useState<Item[]>([{ item: "", type: "" }]);
   const [types, setTypes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +158,7 @@ export function RequestInfoDrawer({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    call<{ types: string[] }>('gdb_bank.documents.document_settings')
+    call<{ types: string[] }>("gdb_bank.documents.document_settings")
       .then((s) => setTypes(s.types))
       .catch(() => setTypes([]));
   }, [open]);
@@ -150,22 +174,24 @@ export function RequestInfoDrawer({
     let sent = 0;
     try {
       for (const x of todo) {
-        await call('gdb_bank.documents.request_information', {
+        await call("gdb_bank.documents.request_information", {
           application,
           item: x.item,
           document_type: x.type,
         });
         sent++;
       }
-      setItems([{ item: '', type: '' }]);
+      setItems([{ item: "", type: "" }]);
       onSent();
       onClose();
     } catch (err) {
       // Keep only what did not go, so a retry never asks twice.
       const left = todo.slice(sent);
-      setItems(left.length ? left : [{ item: '', type: '' }]);
+      setItems(left.length ? left : [{ item: "", type: "" }]);
       if (sent) onSent();
-      setError(err instanceof Error ? err.message : 'Could not send the request');
+      setError(
+        err instanceof Error ? err.message : "Could not send the request",
+      );
     } finally {
       setBusy(false);
     }
@@ -182,7 +208,10 @@ export function RequestInfoDrawer({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void send()} disabled={busy || !items.some((x) => x.item.trim())}>
+          <Button
+            onClick={() => void send()}
+            disabled={busy || !items.some((x) => x.item.trim())}
+          >
             Send request
           </Button>
         </>
@@ -191,7 +220,9 @@ export function RequestInfoDrawer({
       {items.map((x, i) => (
         <div key={i} className="rounded-md border border-slate-200 p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Item {i + 1}</span>
+            <span className="text-xs font-medium text-slate-500">
+              Item {i + 1}
+            </span>
             {items.length > 1 && (
               <button
                 type="button"
@@ -204,11 +235,19 @@ export function RequestInfoDrawer({
           </div>
           <label className="mt-2 block text-sm font-medium text-slate-700">
             What you need
-            <input value={x.item} onChange={(e) => set(i, { item: e.target.value })} className={FIELD} />
+            <input
+              value={x.item}
+              onChange={(e) => set(i, { item: e.target.value })}
+              className={FIELD}
+            />
           </label>
           <label className="mt-3 block text-sm font-medium text-slate-700">
             Section
-            <select value={x.type} onChange={(e) => set(i, { type: e.target.value })} className={FIELD}>
+            <select
+              value={x.type}
+              onChange={(e) => set(i, { type: e.target.value })}
+              className={FIELD}
+            >
               <option value="">Any</option>
               {types.map((t) => (
                 <option key={t} value={t}>
@@ -221,14 +260,17 @@ export function RequestInfoDrawer({
       ))}
       <button
         type="button"
-        onClick={() => setItems((xs) => [...xs, { item: '', type: '' }])}
+        onClick={() => setItems((xs) => [...xs, { item: "", type: "" }])}
         className="text-sm font-medium text-brand hover:underline"
       >
         + Add item
       </button>
 
       {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -236,10 +278,10 @@ export function RequestInfoDrawer({
   );
 }
 
-const FIELD_KINDS = ['Site Visit', 'Reference Check'] as const;
+const FIELD_KINDS = ["Site Visit", "Reference Check"] as const;
 
 /** Ask a Field Officer in the applicant's region for a site visit or a
- *  reference check. The report comes back onto this case (Checks & documents). */
+ *  reference check. The report comes back onto this case (Credit risk tab). */
 export function FieldTaskDrawer({
   application,
   open,
@@ -252,9 +294,9 @@ export function FieldTaskDrawer({
   onSent: () => void;
 }) {
   const [kind, setKind] = useState<string>(FIELD_KINDS[0]);
-  const [instructions, setInstructions] = useState('');
-  const [due, setDue] = useState('');
-  const [address, setAddress] = useState('');
+  const [instructions, setInstructions] = useState("");
+  const [due, setDue] = useState("");
+  const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,20 +308,22 @@ export function FieldTaskDrawer({
     setBusy(true);
     setError(null);
     try {
-      await call('gdb_bank.field_officer.request_field_task', {
+      await call("gdb_bank.field_officer.request_field_task", {
         application,
         kind,
         instructions,
         due_date: due || undefined,
         address: address || undefined,
       });
-      setInstructions('');
-      setDue('');
-      setAddress('');
+      setInstructions("");
+      setDue("");
+      setAddress("");
       onSent();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send the request');
+      setError(
+        err instanceof Error ? err.message : "Could not send the request",
+      );
     } finally {
       setBusy(false);
     }
@@ -296,7 +340,10 @@ export function FieldTaskDrawer({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void send()} disabled={busy || !instructions.trim()}>
+          <Button
+            onClick={() => void send()}
+            disabled={busy || !instructions.trim()}
+          >
             Send request
           </Button>
         </>
@@ -304,7 +351,11 @@ export function FieldTaskDrawer({
     >
       <label className="block text-sm font-medium text-slate-700">
         Task
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className={FIELD}>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className={FIELD}
+        >
           {FIELD_KINDS.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -314,20 +365,40 @@ export function FieldTaskDrawer({
       </label>
       <label className="mt-3 block text-sm font-medium text-slate-700">
         What to check
-        <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={4} className={FIELD} />
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          rows={4}
+          className={FIELD}
+        />
       </label>
       <label className="mt-3 block text-sm font-medium text-slate-700">
         Due
-        <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={FIELD} />
+        <input
+          type="date"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+          className={FIELD}
+        />
       </label>
-      {kind === 'Site Visit' && (
+      {kind === "Site Visit" && (
         <label className="mt-3 block text-sm font-medium text-slate-700">
-          Address <span className="font-normal text-slate-400">(defaults to the applicant's)</span>
-          <input value={address} onChange={(e) => setAddress(e.target.value)} className={FIELD} />
+          Address{" "}
+          <span className="font-normal text-slate-400">
+            (defaults to the applicant's)
+          </span>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            className={FIELD}
+          />
         </label>
       )}
       {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+        <p
+          className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
+          role="alert"
+        >
           {error}
         </p>
       )}

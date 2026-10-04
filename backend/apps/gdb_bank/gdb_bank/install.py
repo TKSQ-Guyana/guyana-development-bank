@@ -128,7 +128,7 @@ GDB_PRODUCT_NAMES = (LOAN_PRODUCT_NAME, QUICK_LOAN_PRODUCT_NAME)
 
 # The Quick Loan's two closed questions — the Select options on the Custom
 # Fields below, so Frappe itself refuses an answer outside them.
-QUICK_TRADE_LOCATIONS = ("From home", "Fixed location", "Mobile")
+QUICK_TRADE_LOCATIONS = ("From home", "Market", "Mobile")
 QUICK_TRADING_SINCE = ("Less than 6 months", "6 months to 1 year", "1 to 3 years", "More than 3 years")
 
 # The sixteen accounts lending makes mandatory on a Loan Product once
@@ -221,6 +221,8 @@ APPLICATION_SECTIONS = (
 	# B — business identity
 	("gdb_sector", "Sector", "Data"),
 	("gdb_sub_sector", "Sub-sector", "Data"),
+	# When an existing business started trading — asked beside its registration.
+	("gdb_date_established", "Date Business Established", "Date"),
 	# C — business or venture description
 	("gdb_executive_summary", "Executive Summary", "Small Text"),
 	("gdb_products_services", "Products / Services", "Small Text"),
@@ -267,6 +269,14 @@ APPLICATION_SECTIONS = (
 	("gdb_operating_expenses", "Operating Expenses (Declared)", "Currency"),
 	("gdb_existing_obligations", "Existing Loan Obligations", "Currency"),
 	("gdb_cash_position", "Current Cash Position", "Currency"),
+	# The balance sheet in three figures — asked of an existing business and of
+	# a new venture alike (a venture's opening position).
+	("gdb_total_assets", "Total Assets (Declared)", "Currency"),
+	("gdb_total_debt", "Total Debt (Declared)", "Currency"),
+	("gdb_total_equity", "Total Equity (Declared)", "Currency"),
+	# Whether the applicant already owes anyone. Yes brings the lines below
+	# (gdb_existing_debt_lines): lender, amount outstanding, status.
+	("gdb_has_existing_debts", "Has Existing Debts (Declared)", "Select", "\nYes\nNo"),
 	# H — new-venture projections. Forecasts, and labelled as forecasts
 	# everywhere they are shown.
 	("gdb_expected_sales_volume", "Expected Sales Volume", "Small Text"),
@@ -413,6 +423,15 @@ CUSTOM_FIELDS = {
 			"fieldtype": "Table",
 			"options": "GDB Use Of Funds Line",
 			"insert_after": "gdb_use_of_funds",
+		},
+		# The debts the applicant already carries, one row each, when they said
+		# they have any (gdb_has_existing_debts).
+		{
+			"fieldname": "gdb_existing_debt_lines",
+			"label": "Existing Debts",
+			"fieldtype": "Table",
+			"options": "GDB Existing Debt Line",
+			"insert_after": "gdb_use_of_funds_lines",
 		},
 		# Everybody who owns a share of the business BESIDES the applicant,
 		# whose own share is the gdb_applicant_share above. Rows rather than
@@ -618,8 +637,19 @@ USER_CUSTOM_FIELDS = {
 			"description": "National e-ID (123-4567-8901) — also the Keycloak username.",
 			"insert_after": "username",
 		},
-		# A citizen who signed up with their TIN (tin_auth.py): their GRA
-		# Taxpayer Identification Number, which is also their Keycloak username.
+		# A citizen who signed up online (tin_auth.py): the National ID number
+		# the KYC register knows them by, which is also their Keycloak username.
+		{
+			"fieldname": "gdb_national_id",
+			"label": "National ID Number",
+			"fieldtype": "Data",
+			"unique": 1,
+			"read_only": 1,
+			"no_copy": 1,
+			"description": "The ID number on the KYC register — the Keycloak username of an online sign-up.",
+			"insert_after": "gdb_eid",
+		},
+		# Their GRA Taxpayer Identification Number, when they gave one. Optional.
 		{
 			"fieldname": "gdb_tin",
 			"label": "TIN",
@@ -627,8 +657,8 @@ USER_CUSTOM_FIELDS = {
 			"unique": 1,
 			"read_only": 1,
 			"no_copy": 1,
-			"description": "GRA Taxpayer Identification Number (9 digits) — the Keycloak username of a TIN sign-up.",
-			"insert_after": "gdb_eid",
+			"description": "GRA Taxpayer Identification Number (9 digits), optional at sign-up.",
+			"insert_after": "gdb_national_id",
 		},
 		# A staff member signs in with a work email, so their national e-ID is
 		# not their username — but it is still who they are. The platform
@@ -695,7 +725,22 @@ def ensure_bank_account_types():
 
 def after_migrate():
 	ensure_roles()
+	# Outgoing mail, when its SMTP settings are present (integrations/mail).
+	from gdb_bank.integrations import mail
+
+	mail.ensure_email_account()
 	make_user_custom_fields()
+	# After the field exists: earlier online sign-ups' number, held as "TIN",
+	# moves to the National ID field. Repeating it finds nothing to move.
+	from gdb_bank.patches.national_id_from_tin import execute as national_id_from_tin
+
+	national_id_from_tin()
+	# "Fixed location" became "Market" (2026-10-04): move answers already given.
+	if frappe.db.has_column("Loan Application", "gdb_trade_location"):
+		frappe.db.sql(
+			"update `tabLoan Application` set gdb_trade_location='Market' where gdb_trade_location='Fixed location'"
+		)
+	frappe.db.commit()
 	ensure_lending_rule_proposal_workflow()
 	if "erpnext" in frappe.get_installed_apps():
 		make_erpnext_custom_fields()

@@ -38,7 +38,7 @@ export function isStaff(user: Whoami | null | undefined): boolean {
  *  holding several roles lands on the most specific desk it has rather than
  *  the most powerful. */
 export function deskFor(user: Whoami | null | undefined): string | null {
-  if (user?.is_platform_admin) return '/admin/users';
+  if (user?.is_platform_admin) return '/admin/overview';
   if (user?.is_facilitator) return '/facilitator';
   if (user?.is_field_officer) return '/field';
   if (user?.is_underwriter) return '/review';

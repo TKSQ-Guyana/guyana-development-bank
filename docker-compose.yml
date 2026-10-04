@@ -1,6 +1,6 @@
-# The whole stack in FIVE services:
+# The whole stack in SIX services:
 #   mariadb, redis, backend (self-contained ERPNext), frontend (React portal),
-#   keycloak (all sign-in).
+#   keycloak (all sign-in), face (the sign-up face check).
 #
 #   docker compose up -d --build
 #
@@ -119,6 +119,19 @@ services:
       DCRA_API_KEY: ${DCRA_API_KEY:-}
       BANK_REGISTRY_BASE_URL: ${BANK_REGISTRY_BASE_URL:-}
       BANK_REGISTRY_API_KEY: ${BANK_REGISTRY_API_KEY:-}
+      # Sign-up's face check (gdb_bank.face_check) — the face service below, by
+      # its in-network name, and the secret it insists on. No token: the face
+      # check is off and sign-up goes straight to the code, as before.
+      # Outgoing email (gdb_bank.integrations.mail). Off until GDB_SMTP_USER and
+      # GDB_SMTP_PASSWORD (an app password) are set in .env.
+      GDB_SMTP_SERVER: ${GDB_SMTP_SERVER:-smtp.gmail.com}
+      GDB_SMTP_PORT: ${GDB_SMTP_PORT:-587}
+      GDB_SMTP_USER: ${GDB_SMTP_USER:-}
+      GDB_SMTP_PASSWORD: ${GDB_SMTP_PASSWORD:-}
+      GDB_MAIL_SENDER: ${GDB_MAIL_SENDER:-Guyana Development Bank}
+      GDB_PORTAL_URL: ${GDB_PORTAL_URL:-http://localhost:3000}
+      FACE_SERVICE_URL: ${FACE_SERVICE_URL:-http://face:8000}
+      FACE_SERVICE_TOKEN: ${FACE_SERVICE_TOKEN:-}
     # host.docker.internal is automatic on Docker Desktop; this makes the same
     # compose file work on Linux engines too.
     extra_hosts:
@@ -147,6 +160,21 @@ services:
       # up the site bootstrap.
       keycloak:
         condition: service_started
+    restart: unless-stopped
+
+  # The face check at sign-up: InsightFace on CPU (face/). INTERNAL — no port is
+  # published; only the backend calls it, with FACE_SERVICE_TOKEN. Reference
+  # photos are the KYC register's enrolment pictures, <profile_id>.jpg, mounted
+  # read-only from GDB_KYC_PHOTO_DIR (outside the repo: real people's faces).
+  # LICENCE: the buffalo_l models are non-commercial — trial use only.
+  face:
+    build: ./face
+    image: gdb-face:local
+    environment:
+      FACE_SERVICE_TOKEN: ${FACE_SERVICE_TOKEN:-}
+      PHOTO_DIR: /photos
+    volumes:
+      - ${GDB_KYC_PHOTO_DIR:-./face/photos}:/photos:ro
     restart: unless-stopped
 
   keycloak:

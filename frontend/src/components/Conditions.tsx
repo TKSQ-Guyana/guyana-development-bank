@@ -155,7 +155,7 @@ export function Conditions({
               )}
               {mayVerify && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {c.status !== 'Met' && (
+                  {c.status === 'Outstanding' && (
                     <button
                       type="button"
                       disabled={busy === c.name}
@@ -165,7 +165,7 @@ export function Conditions({
                       Mark met
                     </button>
                   )}
-                  {c.status !== 'Waived' && (
+                  {c.status === 'Outstanding' && (
                     <button
                       type="button"
                       disabled={busy === c.name}

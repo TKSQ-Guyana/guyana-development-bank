@@ -4,7 +4,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { DataTable } from "../../components/ui/DataTable";
 import type { LoanApplication } from "../../types";
-import { formatGyd } from "../../utils";
+import { formatDate, formatGyd } from "../../utils";
 
 /** The staff Application tab: what the applicant wrote, as cards. Every value
  *  is the applicant's own declaration from `sections` — nothing is derived or
@@ -131,6 +131,12 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               moratoriumValue(Number(text(s, "moratorium_months") ?? 0)),
             ],
             ["Sector", sector],
+            [
+              "Established",
+              text(s, "date_established")
+                ? formatDate(text(s, "date_established")!)
+                : null,
+            ],
             ["Employees", text(s, "staff_count")],
             ["Jobs to be created", text(s, "jobs_created")],
             ["Location", text(s, "operating_location")],
@@ -150,6 +156,9 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               ["Start-up costs", money(s, "initial_costs")],
               ["Monthly cash", money(s, "expected_cash_position")],
               ["Sales volume", text(s, "expected_sales_volume")],
+              ["Total assets", money(s, "total_assets")],
+              ["Total debt", money(s, "total_debt")],
+              ["Total equity", money(s, "total_equity")],
             ]}
           />
           {text(s, "assumptions") && (
@@ -168,10 +177,48 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               ["Operating expenses", money(s, "operating_expenses")],
               ["Loan obligations", money(s, "existing_obligations")],
               ["Cash position", money(s, "cash_position")],
+              ["Total assets", money(s, "total_assets")],
+              ["Total debt", money(s, "total_debt")],
+              ["Total equity", money(s, "total_equity")],
             ]}
           />
         </Card>
       )}
+
+      <Card>
+        <CardHead title="Existing debts" tag="Declared" />
+        {(loan.existing_debts ?? []).length > 0 ? (
+          <DataTable
+            caption="Debts the applicant declared they already carry"
+            columns={[
+              {
+                key: "lender",
+                header: "Lender",
+                className: "text-slate-700",
+                cell: (r) => r.lender,
+              },
+              {
+                key: "amount",
+                header: "Outstanding",
+                align: "right",
+                className: "font-medium text-slate-900",
+                cell: (r) => formatGyd(r.amount),
+              },
+              { key: "status", header: "Status", cell: (r) => r.status || "—" },
+            ]}
+            rows={loan.existing_debts ?? []}
+            rowKey={(_, i) => String(i)}
+            dense
+            footnote={false}
+          />
+        ) : (
+          <p className="text-sm text-slate-500">
+            {text(s, "has_existing_debts") === "No"
+              ? "None — the applicant declared no existing debts."
+              : "Not answered."}
+          </p>
+        )}
+      </Card>
 
       <Card>
         <CardHead title="Use of funds" tag="Declared" />

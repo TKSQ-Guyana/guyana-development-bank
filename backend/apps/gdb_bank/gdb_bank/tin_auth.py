@@ -1,18 +1,24 @@
-"""TIN sign-up and TIN sign-in, each finished with a one-time code.
+"""Online sign-up and sign-in by National ID, each finished with a one-time code.
 
 THE THIRD CITIZEN DOOR. Beside the e-ID door (identity.password_login), a
-citizen may open an account with their GRA Taxpayer Identification Number and
-a password of their own, and sign in with the same two. The architecture does
-not change: the password lives in KEYCLOAK — the citizen realm, with the TIN as
-the account's username — and this module only ever mints the ordinary Frappe
-`sid` once Keycloak and the one-time code have both said yes. Which accounts
+citizen may open an account with their NATIONAL ID NUMBER — the number the KYC
+register knows them by — and a password of their own, and sign in with the
+same two. Their GRA TIN is asked too, but is optional. The architecture does
+not change: the password lives in KEYCLOAK — the citizen realm, with the
+National ID (lowercased, as Keycloak keeps usernames) as the account's username
+— and this module only ever mints the ordinary Frappe `sid` once Keycloak and
+the one-time code have both said yes.
+
+Accounts opened before 2026-10-03 were keyed by the same number under the name
+"TIN"; patches/national_id_from_tin.py moved it across, and sign-in still finds
+an account by either field. Which accounts
 this door may open is security/sign_in_policy.py (citizens only, as the e-ID
 door).
 
   request_signup_otp(...)     check the form, open a code challenge
   complete_signup(...)        the code, then: Keycloak account, Frappe user,
                               the identity document, and a signed-in session
-  tin_login(tin, password)    Keycloak password grant, then a code challenge
+  national_id_login(...)      Keycloak password grant, then a code challenge
   verify_login_otp(...)       the code, then a signed-in session
 
 NOTHING IS CREATED BEFORE THE CODE. Sign-up's first call writes nothing but a
@@ -37,20 +43,32 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
-from gdb_bank import identity
+from gdb_bank import face_check, identity
 from gdb_bank.integrations import keycloak_admin, kyc_registry
 from gdb_bank.security import sign_in_policy
-from gdb_bank.services.evidence import ALLOWED_EXTENSIONS, MAX_FILE_BYTES, is_what_it_claims
+from gdb_bank.services.evidence import (
+	ID_DOCUMENT_KINDS,
+	MAX_FILE_BYTES,
+	accepted_extensions,
+	clean_id_number,
+	is_what_it_claims,
+	require_national_id_match,
+)
 from gdb_bank.utils.formatters import _normalised_phone
 from gdb_bank.utils.session import _logger
 
+NID_FIELD = "gdb_national_id"
 TIN_FIELD = "gdb_tin"
 # A GRA Taxpayer Identification Number: nine digits.
 TIN_SHAPE = re.compile(r"^\d{9}$")
+# An ID number as the register holds it: national IDs are digits, passport-
+# style IDs a letter or two then digits, e-IDs eleven digits.
+NID_SHAPE = re.compile(r"^[A-Z0-9]{6,15}$")
+NID_MESSAGE = "Enter your National ID number, as printed on your ID card."
 
 # The identity documents a person may sign up with — one, attached. Filed as
 # the person's own `Identity` document, which follows them across cases.
-DOCUMENT_KINDS = ("National ID Card", "Passport", "Driver's Licence", "e-ID")
+DOCUMENT_KINDS = ID_DOCUMENT_KINDS
 
 PASSWORD_MIN = 8
 PASSWORD_MAX = 128
@@ -127,6 +145,42 @@ def _normalize_tin(tin: str | None) -> str:
 	return "".join(c for c in (tin or "") if c.isdigit())
 
 
+def _normalize_nid(value: str | None) -> str:
+	return kyc_registry.normalize_id(value) or ""
+
+
+def _required_nid(value: str | None) -> str:
+	nid = _normalize_nid(value)
+	if not NID_SHAPE.match(nid):
+		frappe.throw(_(NID_MESSAGE))
+	return nid
+
+
+def _optional_tin(value: str | None) -> str | None:
+	"""The TIN, when one was given — nine digits, and nobody else's."""
+	tin = _normalize_tin(value)
+	if not tin:
+		return None
+	if not TIN_SHAPE.match(tin):
+		frappe.throw(_("A TIN is the 9-digit number from the GRA. Check it, or leave it blank."))
+	if frappe.db.exists("User", {TIN_FIELD: tin}):
+		frappe.throw(_("This TIN is already linked to another GDB account."))
+	return tin
+
+
+def _account_for(number: str) -> str | None:
+	"""The citizen account opened with this National ID — or, for an account
+	from before the National ID field, the same number held as its TIN."""
+	return frappe.db.get_value("User", {NID_FIELD: number}, "name") or frappe.db.get_value(
+		"User", {TIN_FIELD: number}, "name"
+	)
+
+
+def _username(nid: str) -> str:
+	"""The Keycloak username for this National ID; Keycloak lowercases them."""
+	return nid.lower()
+
+
 # The youngest a person may be to hold a GDB account.
 MIN_AGE = 18
 
@@ -147,20 +201,35 @@ def _birth_date(value) -> "datetime.date":
 	return born
 
 
-def _registry_phone(tin, use_registry_phone) -> str | None:
-	"""The phone on the KYC register for this TIN, when the person has said it
-	is theirs; None when they typed their own. The form never sees it whole."""
-	if not frappe.utils.cint(use_registry_phone):
-		return None
-	person = kyc_registry.lookup(_normalize_tin(tin))
-	if not person or not person["phone"]:
-		frappe.throw(_("There is no phone on record for this TIN. Enter your phone number."))
-	return person["phone"]
+PHONE_CHANGE_MESSAGE = (
+	"Your sign-up code can only be sent to the phone number on record for this National ID. "
+	"To change that number, visit a GDB Field Officer or any GDB branch with your ID."
+)
 
 
-def _validated(first_name, last_name, email, phone, tin, password, confirm_password, document_kind, date_of_birth=None, use_registry_phone=None) -> dict:
+def _registry_phone(nid, use_registry_phone) -> str | None:
+	"""The phone the sign-up code goes to when the KYC register has one for
+	this National ID — and then ONLY that phone. A different number cannot be
+	typed online: changing the number on record is done in person, with a GDB
+	Field Officer, so a stolen ID number cannot be paired with the thief's phone.
+
+	None when the register has no phone for this ID; the person then types
+	theirs. The form never sees the number on record whole."""
+	person = kyc_registry.lookup(_normalize_nid(nid))
+	on_record = person["phone"] if person else None
+	if frappe.utils.cint(use_registry_phone):
+		if not on_record:
+			frappe.throw(_("There is no phone on record for this National ID. Enter your phone number."))
+		return on_record
+	if on_record:
+		frappe.throw(_(PHONE_CHANGE_MESSAGE))
+	return None
+
+
+def _validated(first_name, last_name, email, phone, national_id, password, confirm_password, document_kind, date_of_birth=None, use_registry_phone=None, document_number=None, tin=None) -> dict:
 	"""Every sign-up rule except the attachment, in the order the form asks."""
-	phone = _registry_phone(tin, use_registry_phone) or phone
+	nid = _required_nid(national_id)
+	phone = _registry_phone(nid, use_registry_phone) or phone
 	first = (first_name or "").strip()
 	last = (last_name or "").strip()
 	if not first:
@@ -181,40 +250,42 @@ def _validated(first_name, last_name, email, phone, tin, password, confirm_passw
 	if not normalised_phone:
 		frappe.throw(_("Enter a valid phone number, e.g. +592 600 1234."))
 
-	tin = _normalize_tin(tin)
-	if not TIN_SHAPE.match(tin):
-		frappe.throw(_("Enter your TIN — the 9-digit number from the GRA."))
-	if frappe.db.exists("User", {TIN_FIELD: tin}) or _tin_held_by_keycloak(tin):
-		frappe.throw(_("This TIN already has an account. Sign in instead."))
+	if _account_for(nid) or _held_by_keycloak(nid):
+		frappe.throw(_("This National ID already has an account. Sign in instead."))
+	tin = _optional_tin(tin)
 
 	password = password or ""
 	if not (PASSWORD_MIN <= len(password) <= PASSWORD_MAX):
 		frappe.throw(_("Choose a password of {0} to {1} characters.").format(PASSWORD_MIN, PASSWORD_MAX))
 	if not (re.search(r"[A-Za-z]", password) and re.search(r"\d", password)):
 		frappe.throw(_("Use at least one letter and one number in your password."))
-	if tin in password:
-		frappe.throw(_("Your password cannot contain your TIN."))
+	if nid.lower() in password.lower() or (tin and tin in password):
+		frappe.throw(_("Your password cannot contain your ID number or TIN."))
 	if password != (confirm_password or ""):
 		frappe.throw(_("The two passwords do not match."))
 
 	if document_kind not in DOCUMENT_KINDS:
 		frappe.throw(_("Choose the identity document you are attaching."))
+	document_kind, document_number = clean_id_number(document_kind, document_number)
+	require_national_id_match(document_kind, document_number, nid)
 
 	return {
 		"first": first,
 		"last": last,
 		"email": email,
 		"phone": normalised_phone,
+		"national_id": nid,
 		"tin": tin,
 		"password": password,
 		"document_kind": document_kind,
+		"document_number": document_number,
 		"date_of_birth": born,
 	}
 
 
-def _tin_held_by_keycloak(tin: str) -> bool:
+def _held_by_keycloak(nid: str) -> bool:
 	try:
-		return keycloak_admin.citizen_username_taken(tin)
+		return keycloak_admin.citizen_username_taken(_username(nid))
 	except keycloak_admin.KeycloakAdminError as exc:
 		frappe.throw(str(exc))
 
@@ -230,8 +301,13 @@ def _attachment(document_name: str | None, document_data: str | None) -> tuple[s
 	except (ValueError, TypeError):
 		frappe.throw(_("The document could not be read. Attach it again."))
 	extension = os.path.splitext(name)[-1].lower()
-	if extension not in ALLOWED_EXTENSIONS:
-		frappe.throw(_("{0}: attach a PDF.").format(name))
+	accepted = accepted_extensions("Identity")
+	if extension not in accepted:
+		frappe.throw(
+			_("{0}: attach a PDF or a photo ({1}).").format(
+				name, ", ".join(e.lstrip(".").upper() for e in accepted if e != ".pdf")
+			)
+		)
 	if len(content) > MAX_FILE_BYTES:
 		frappe.throw(_("{0} is larger than {1} MB.").format(name, MAX_FILE_BYTES // 1024 // 1024))
 	if not is_what_it_claims(extension, content):
@@ -241,58 +317,89 @@ def _attachment(document_name: str | None, document_data: str | None) -> tuple[s
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @rate_limit(limit=12, seconds=60)
-def lookup_tin(tin: str) -> dict:
-	"""What the KYC register holds for this TIN, to fill the sign-up form: names,
-	date of birth, where they live, and the phone on record — its last four
-	digits only. {"found": False} when it holds nothing, or the TIN has an account.
+def lookup_national_id(national_id: str) -> dict:
+	"""What the KYC register holds for this National ID, to fill the sign-up
+	form: names, date of birth, where they live, and the phone on record — its
+	last four digits only. {"found": False} when it holds nothing, or the ID
+	already has an account.
 
 	Rate-limited per caller, because it answers anyone who can type a number."""
 	_require_door()
-	tin = _normalize_tin(tin)
-	if not TIN_SHAPE.match(tin):
+	nid = _normalize_nid(national_id)
+	if not NID_SHAPE.match(nid):
 		return {"found": False}
-	if frappe.db.exists("User", {TIN_FIELD: tin}):
+	if _account_for(nid):
 		return {"found": False, "has_account": True}
-	person = kyc_registry.lookup(tin)
+	person = kyc_registry.lookup(nid)
 	if not person:
 		return {"found": False}
-	_logger().info(f"tin signup: register lookup matched {tin}")
-	return kyc_registry.public(person)
+	_logger().info(f"signup: register lookup matched {nid}")
+	found = kyc_registry.public(person)
+	# Said now, not after the whole form: on the register but no photo to check
+	# against means this person finishes at a branch (face_check.policy).
+	if face_check.policy(nid)[0] == face_check.BLOCKED:
+		found["online_signup"] = False
+		found["message"] = face_check.NO_PHOTO
+	return found
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@rate_limit(key="tin", limit=8, seconds=60)
+@rate_limit(limit=10, seconds=60)
+def start_face_check(national_id: str) -> dict:
+	"""Before the code: whether this National ID needs a face check, and if so
+	its prompts. {"required": False} when no photo on record can be compared with."""
+	_require_door()
+	return face_check.start(_required_nid(national_id))
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=10, seconds=60)
+def submit_face_check(check: str, frames) -> dict:
+	"""The camera frames for each prompt; a pass answers the face_token that sign-up
+	then needs."""
+	_require_door()
+	return face_check.submit(check, frames)
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="national_id", limit=8, seconds=60)
 def request_signup_otp(
 	first_name: str,
 	last_name: str,
 	phone: str,
-	tin: str,
+	national_id: str,
 	password: str,
 	confirm_password: str,
 	document_kind: str,
 	email: str | None = None,
 	date_of_birth: str | None = None,
 	use_registry_phone=None,
+	face_token: str | None = None,
+	document_number: str | None = None,
+	tin: str | None = None,
 ) -> dict:
-	"""Check the sign-up form and open a code challenge for its TIN and phone.
-	Writes nothing else."""
+	"""Check the sign-up form and open a code challenge for its National ID and
+	phone.
+	Writes nothing else. Where a face check applies, only after it passed."""
 	_require_door()
 	form = _validated(
-		first_name, last_name, email, phone, tin, password, confirm_password, document_kind, date_of_birth, use_registry_phone
+		first_name, last_name, email, phone, national_id, password, confirm_password, document_kind, date_of_birth,
+		use_registry_phone, document_number=document_number, tin=tin,
 	)
-	_logger().info(f"tin signup: code issued for {form['tin']}")
-	return _issue(SIGNUP, tin=form["tin"], phone=form["phone"])
+	face_check.require_passed(form["national_id"], face_token)
+	_logger().info(f"signup: code issued for {form['national_id']}")
+	return _issue(SIGNUP, national_id=form["national_id"], phone=form["phone"])
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@rate_limit(key="tin", limit=8, seconds=60)
+@rate_limit(key="national_id", limit=8, seconds=60)
 def complete_signup(
 	challenge: str,
 	otp: str,
 	first_name: str,
 	last_name: str,
 	phone: str,
-	tin: str,
+	national_id: str,
 	password: str,
 	confirm_password: str,
 	document_kind: str,
@@ -301,22 +408,29 @@ def complete_signup(
 	email: str | None = None,
 	date_of_birth: str | None = None,
 	use_registry_phone=None,
+	face_token: str | None = None,
+	document_number: str | None = None,
+	tin: str | None = None,
 ) -> dict:
-	"""The code, then everything: the Keycloak account (TIN as username), the
-	Frappe citizen, their identity document, and a signed-in session."""
+	"""The code, then everything: the Keycloak account (National ID as
+	username), the Frappe citizen, their identity document, and a signed-in
+	session."""
 	_require_door()
 	form = _validated(
-		first_name, last_name, email, phone, tin, password, confirm_password, document_kind, date_of_birth, use_registry_phone
+		first_name, last_name, email, phone, national_id, password, confirm_password, document_kind, date_of_birth,
+		use_registry_phone, document_number=document_number, tin=tin,
 	)
+	face_check.require_passed(form["national_id"], face_token, consume=True)
 	file_name, content = _attachment(document_name, document_data)
 	held = _redeem(challenge, otp, SIGNUP)
-	if held.get("tin") != form["tin"] or held.get("phone") != form["phone"]:
-		frappe.throw(_("Your TIN or phone changed after the code was sent. Request a new code."))
+	if held.get("national_id") != form["national_id"] or held.get("phone") != form["phone"]:
+		frappe.throw(_("Your National ID or phone changed after the code was sent. Request a new code."))
 
-	login_email = form["email"] or f"{form['tin']}@{PLACEHOLDER_DOMAIN}"
+	nid = form["national_id"]
+	login_email = form["email"] or f"{_username(nid)}@{PLACEHOLDER_DOMAIN}"
 	try:
 		kc_id = keycloak_admin.create_citizen_account(
-			form["tin"], login_email, form["first"], form["last"], form["password"]
+			_username(nid), login_email, form["first"], form["last"], form["password"]
 		)
 	except keycloak_admin.PasswordRejected as exc:
 		frappe.throw(str(exc))
@@ -325,8 +439,8 @@ def complete_signup(
 
 	try:
 		user = _create_citizen(form, login_email)
-		_file_identity(user, form["document_kind"], file_name, content)
-		_save_profile(user, form["phone"], form["date_of_birth"], kyc_registry.lookup(form["tin"]))
+		_file_identity(user, form["document_kind"], file_name, content, form["document_number"])
+		_save_profile(user, form["phone"], form["date_of_birth"], kyc_registry.lookup(nid), nid)
 		frappe.db.commit()
 	except Exception as exc:
 		# The Keycloak half must not outlive a portal account that was never made.
@@ -334,15 +448,15 @@ def complete_signup(
 		try:
 			keycloak_admin.delete_citizen_account(kc_id)
 		except keycloak_admin.KeycloakAdminError:
-			_logger().error(f"tin signup: Keycloak account {kc_id} left behind for {form['tin']}")
+			_logger().error(f"signup: Keycloak account {kc_id} left behind for {nid}")
 		if isinstance(exc, frappe.ValidationError):
 			raise
 		# Frappe parses a PDF on the way in; a damaged one fails there with the
 		# parser's own exception, which says nothing a person can act on.
-		_logger().error(f"tin signup failed for {form['tin']}: {type(exc).__name__}: {exc}")
-		frappe.throw(_("The document could not be read as a PDF. Attach another copy and try again."))
+		_logger().error(f"signup failed for {nid}: {type(exc).__name__}: {exc}")
+		frappe.throw(_("The document could not be read. Attach another copy and try again."))
 
-	_logger().info(f"tin signup: {form['tin']} -> {user}")
+	_logger().info(f"signup: {nid} -> {user}")
 	return _sign_in(user, provisioned=True)
 
 
@@ -357,6 +471,7 @@ def _create_citizen(form: dict, login_email: str) -> str:
 			"user_type": "Website User",
 			"send_welcome_email": 0,
 			"enabled": 1,
+			NID_FIELD: form["national_id"],
 			TIN_FIELD: form["tin"],
 		}
 	).insert(ignore_permissions=True)
@@ -365,7 +480,7 @@ def _create_citizen(form: dict, login_email: str) -> str:
 	return user.name
 
 
-def _file_identity(user: str, kind: str, file_name: str, content: bytes) -> None:
+def _file_identity(user: str, kind: str, file_name: str, content: bytes, number: str | None = None) -> None:
 	"""The attached document, as the person's own Identity document. The File
 	goes through documents.validate_attachment like every other upload."""
 	from gdb_bank.documents import DOCTYPE, RECEIVED
@@ -376,6 +491,8 @@ def _file_identity(user: str, kind: str, file_name: str, content: bytes) -> None
 			"applicant": user,
 			"applicant_name": frappe.utils.get_fullname(user),
 			"document_type": "Identity",
+			"id_document_kind": kind,
+			"id_document_number": number,
 			"status": RECEIVED,
 			"uploaded_by": user,
 		}
@@ -400,14 +517,16 @@ def _file_identity(user: str, kind: str, file_name: str, content: bytes) -> None
 	)
 
 
-def _save_profile(user: str, phone: str, born, person: dict | None = None) -> None:
-	"""Phone and date of birth, on their profile — where every form reads them —
-	and, when the KYC register knows the TIN, where they live."""
+def _save_profile(user: str, phone: str, born, person: dict | None = None, nid: str | None = None) -> None:
+	"""Phone, date of birth and National ID, on their profile — where every form
+	reads them — and, when the KYC register knows them, where they live."""
 	from gdb_bank import profiles
 
 	doc = frappe.get_doc(profiles.DOCTYPE, profiles._ensure(user))
 	doc.phone = phone
 	doc.date_of_birth = born
+	if nid and not doc.get("national_id"):
+		doc.national_id = nid
 	if person:
 		doc.region = person["region"] or doc.region
 		doc.village_or_town = person["village"] or doc.village_or_town
@@ -421,32 +540,33 @@ def _save_profile(user: str, phone: str, born, person: dict | None = None) -> No
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@rate_limit(key="tin", limit=8, seconds=60)
-def tin_login(tin: str, password: str) -> dict:
-	"""TIN and password against the citizen realm. Right ones open a code
-	challenge; no session exists until verify_login_otp."""
+@rate_limit(key="national_id", limit=8, seconds=60)
+def national_id_login(national_id: str, password: str) -> dict:
+	"""National ID and password against the citizen realm. Right ones open a
+	code challenge; no session exists until verify_login_otp."""
 	_require_door()
-	tin = _normalize_tin(tin)
-	if not TIN_SHAPE.match(tin):
-		frappe.throw(_("Enter your TIN — the 9-digit number from the GRA."))
+	nid = _required_nid(national_id)
 	if not password:
 		frappe.throw(_("Password is required."))
 
 	citizen = identity.keycloak_settings(identity.CITIZEN)
 	try:
-		token = identity._request_token(citizen, tin, password)
+		token = identity._request_token(citizen, _username(nid), password)
 	except identity._Unreachable:
 		frappe.throw(_("Could not reach the sign-in service. Please try again."))
 	if not token:
-		frappe.throw(_("Incorrect TIN or password."), frappe.AuthenticationError)
+		frappe.throw(_("Incorrect National ID or password."), frappe.AuthenticationError)
 
 	info = identity._userinfo(citizen, token)
-	if (info.get("preferred_username") or "") != tin:
-		_logger().error(f"tin login: typed {tin}, keycloak vouched for {info.get('preferred_username')}")
-		frappe.throw(_("Incorrect TIN or password."), frappe.AuthenticationError)
-	user = frappe.db.get_value("User", {TIN_FIELD: tin}, "name")
+	if (info.get("preferred_username") or "").lower() != _username(nid):
+		_logger().error(f"login: typed {nid}, keycloak vouched for {info.get('preferred_username')}")
+		frappe.throw(_("Incorrect National ID or password."), frappe.AuthenticationError)
+	user = _account_for(nid)
 	if not user:
-		frappe.throw(_("Your TIN is recognised, but it has no GDB account. Please contact GDB."), frappe.AuthenticationError)
+		frappe.throw(
+			_("Your National ID is recognised, but it has no GDB account. Please contact GDB."),
+			frappe.AuthenticationError,
+		)
 	_check_may_enter(user)
 	return {"otp_required": True, **_issue(LOGIN, user=user, phone=frappe.db.get_value("User", user, "mobile_no") or "")}
 
@@ -454,7 +574,7 @@ def tin_login(tin: str, password: str) -> dict:
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @rate_limit(key="challenge", limit=10, seconds=60)
 def verify_login_otp(challenge: str, otp: str) -> dict:
-	"""The code from tin_login, then a signed-in session."""
+	"""The code from national_id_login, then a signed-in session."""
 	held = _redeem(challenge, otp, LOGIN)
 	return _sign_in(held["user"], provisioned=False)
 
@@ -478,4 +598,4 @@ def _sign_in(user: str, *, provisioned: bool) -> dict:
 
 def _require_door() -> None:
 	if not identity.keycloak_settings(identity.CITIZEN):
-		frappe.throw(_("TIN sign-in is not configured on this site."))
+		frappe.throw(_("Online sign-in is not configured on this site."))

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { firstRepaymentLine, moratoriumChoice } from "../../shared/moratorium";
 import { useNavigate, useParams } from "react-router-dom";
+import { useOneAtATime } from "../../components/apply/OneAtATime";
 import { call } from "../../api";
 import { useAuth } from "../../auth";
 import {
@@ -127,6 +128,8 @@ export function QuickApplyPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { name: routeName } = useParams<{ name: string }>();
+  // One Quick Loan at a time — told before the form, not at the first save.
+  const blocked = useOneAtATime("quick", !routeName);
 
   const [terms, setTerms] = useState<QuickLoanTerms | null>(null);
   const [answers, setAnswers] = useState<QuickAnswers>(EMPTY_ANSWERS);
@@ -185,6 +188,11 @@ export function QuickApplyPage() {
           ...a,
           phone: a.phone || p.phone || p.verified_phone || "",
           dob: a.dob || p.date_of_birth || p.verified_birth_date || "",
+          // The region on record (from the KYC register at sign-up); still
+          // theirs to change if they trade elsewhere.
+          region:
+            a.region ||
+            (p.region && REGIONS.includes(p.region) ? p.region : ""),
           holder: a.holder || user?.full_name || "",
         }));
       })
@@ -507,8 +515,7 @@ export function QuickApplyPage() {
                 Application submitted
               </h1>
               <p className="mt-2 max-w-xl text-emerald-100">
-                Your application is now read-only. GDB will review it and
-                contact you if more information is needed.
+                Your application has been submitted for GDB review.
               </p>
               <dl className="mt-6 grid gap-4 rounded-2xl bg-black/20 p-4 backdrop-blur-xs sm:grid-cols-3">
                 {[
@@ -539,13 +546,18 @@ export function QuickApplyPage() {
                   true,
                 ],
                 [
-                  "GDB reviews it",
+                  "In review",
                   "A member of the GDB team reviews your application. If more information is required, you will receive a request explaining what to provide.",
                   false,
                 ],
                 [
-                  "A person decides",
-                  "Submission is not approval. You will be told the decision in the portal.",
+                  "Loan agreement and disbursement",
+                  "If approved, you accept and sign your Letter of Offer in the portal, and the loan is paid into your bank account.",
+                  false,
+                ],
+                [
+                  "Active",
+                  "Your loan is running. Repay each installment on time — you can see your schedule and payments in the portal.",
                   false,
                 ],
               ].map(([t, d, done]) => (
@@ -1364,10 +1376,14 @@ export function QuickApplyPage() {
                             : "border-slate-300 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
                         }`}
                       >
-                        <span className={`text-base font-black leading-none ${on ? "text-amber-300" : ""}`}>
+                        <span
+                          className={`text-base font-black leading-none ${on ? "text-amber-300" : ""}`}
+                        >
                           {m}
                         </span>
-                        <span className={`mt-0.5 text-[10px] font-semibold ${on ? "text-emerald-100" : "text-slate-400"}`}>
+                        <span
+                          className={`mt-0.5 text-[10px] font-semibold ${on ? "text-emerald-100" : "text-slate-400"}`}
+                        >
                           month{m === 1 ? "" : "s"}
                         </span>
                       </button>
@@ -1411,7 +1427,8 @@ export function QuickApplyPage() {
                 onChange={set("residesInGuyana")}
               >
                 <b className="font-bold text-slate-900">
-                  I confirm I have been residing in Guyana for the last 12 months or more.
+                  I confirm I have been residing in Guyana for the last 12
+                  months or more.
                 </b>
               </Check>
             </>
@@ -1444,6 +1461,9 @@ export function QuickApplyPage() {
                   }));
                   setBranchCode(next.branchCode);
                 }}
+                onAccountType={(t) =>
+                  set("accountType")(t as QuickAnswers["accountType"])
+                }
               />
               <QField label="Type of account" required>
                 <Chips
@@ -1559,7 +1579,10 @@ export function QuickApplyPage() {
                 </div>
                 <div className="px-4 py-2.5">
                   <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/90">
-                    Monthly{Number(answers.moratorium) ? ` · first in ${Number(answers.moratorium) + 1} months` : ""}
+                    Monthly
+                    {Number(answers.moratorium)
+                      ? ` · first in ${Number(answers.moratorium) + 1} months`
+                      : ""}
                   </dt>
                   <dd className="text-sm font-bold">
                     {monthly && !overCap ? `≈ ${monthly}` : "—"}
@@ -1616,7 +1639,7 @@ export function QuickApplyPage() {
     );
   };
 
-  return <>{screen()}</>;
+  return <>{blocked ?? screen()}</>;
 }
 
 /** Business photos picked before the draft exists: checked against the
@@ -1712,7 +1735,12 @@ function YourDetails({
   askDob,
   onDob,
 }: {
-  user: { full_name?: string; eid?: string | null; tin?: string | null } | null;
+  user: {
+    full_name?: string;
+    eid?: string | null;
+    tin?: string | null;
+    national_id?: string | null;
+  } | null;
   profile: CitizenProfile | null;
   dob: string;
   askDob?: boolean;
@@ -1722,8 +1750,10 @@ function YourDetails({
   const facts: [string, ReactNode][] = [
     ["Name", user?.full_name || "—"],
     [
-      user?.eid ? "e-ID" : "TIN",
-      <span className="font-mono">{user?.eid || user?.tin || "—"}</span>,
+      user?.eid ? "e-ID" : user?.national_id ? "National ID" : "TIN",
+      <span className="font-mono">
+        {user?.eid || user?.national_id || user?.tin || "—"}
+      </span>,
     ],
     ["Phone", phone ? formatPhone(phone) : "—"],
   ];
@@ -1775,7 +1805,7 @@ function YourDetails({
         </div>
       </dl>
       <div className="mt-3 border-t border-emerald-200/70 pt-3">
-        <DocumentShelf only="Identity" title="Identity document" />
+        <DocumentShelf only="Identity" title="Identity document" viewOnly />
       </div>
     </section>
   );

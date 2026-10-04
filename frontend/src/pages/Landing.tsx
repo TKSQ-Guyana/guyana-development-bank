@@ -1,40 +1,939 @@
-import { FlagRibbon } from '../components/site/atoms';
-import { Hero } from '../components/site/Hero';
-import { PresidentSection } from '../components/site/PresidentSection';
-import { Purposes } from '../components/site/Purposes';
-import { Sectors } from '../components/site/Sectors';
-import { GovBanner, SITE_GUTTER, SiteFooter, SiteHeader } from '../components/site/SiteChrome';
-import { Terms } from '../components/site/Terms';
+import { useState } from "react";
+import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import {
+  appointmentPhoto,
+  heroFarmer,
+  heroTrade,
+  heroVendor,
+  homeCrest,
+  presidentPhoto,
+} from "../components/site/assets";
 
 /**
  * The public front door — what a citizen sees before they have an account.
+ * Built to the "Home v3" design (Hanken Grotesk, navy and gold).
  *
- * It is the one page in this SPA that renders for a signed-out visitor by
- * choice rather than as a gate, so it carries no `useAuth`: nothing on it
- * varies by who is reading, and a marketing page that waits on `whoami`
- * before painting is a slower page for no benefit. App.tsx decides whether a
- * visitor sees this or their dashboard.
+ * It renders for a signed-out visitor by choice rather than as a gate, so it
+ * carries no `useAuth`: nothing on it varies by who is reading. App.tsx
+ * decides whether a visitor sees this or their dashboard. Every "apply" link
+ * goes into the app, which asks a signed-out visitor to sign in first.
  *
- * `gdb-public` is not a styling hook for this file — it tells `index.css` to
- * drop the application's fixed gradient so this page's own stone background
- * runs the full height of a very long document.
+ * `gdb-public` tells `index.css` to drop the application's fixed gradient so
+ * this page's own background runs the full height of the document.
  */
+
+const GOLD = "#f2c14e";
+
+const GUTTER = "px-[clamp(16px,4vw,48px)]";
+const SECTION_Y = "py-[clamp(56px,7vw,96px)]";
+const WRAP = "mx-auto w-full max-w-[1320px]";
+const EYEBROW =
+  "text-[14px] font-bold uppercase tracking-[0.08em] text-[#b8860b]";
+const H2 =
+  "m-0 text-[clamp(34px,4vw,52px)] font-extrabold leading-[1.04] tracking-[-0.03em] text-[#0b2654] [text-wrap:balance]";
+const PILL =
+  "inline-flex items-center justify-center rounded-full font-bold no-underline transition-colors";
+
+const QUICK_MAX = 300_000;
+const SME_MAX = 3_000_000;
+const MIN_AMOUNT = 50_000;
+
+const gyd = (n: number) => "G$" + Math.round(n).toLocaleString("en-US");
+
+/** The estimate slider: its left half is the Quick Loan's range (to G$300k),
+ *  its right half the SME Loan's — so the small amounts get the room. */
+const amountAt = (pos: number) =>
+  pos <= 50
+    ? Math.round(
+        (MIN_AMOUNT + (pos / 50) * (QUICK_MAX - MIN_AMOUNT)) / 10_000,
+      ) * 10_000
+    : Math.round(
+        (QUICK_MAX + ((pos - 50) / 50) * (SME_MAX - QUICK_MAX)) / 50_000,
+      ) * 50_000;
+const positionOf = (amount: number) =>
+  amount <= QUICK_MAX
+    ? ((amount - MIN_AMOUNT) / (QUICK_MAX - MIN_AMOUNT)) * 50
+    : 50 + ((amount - QUICK_MAX) / (SME_MAX - QUICK_MAX)) * 50;
+
+/** Each loan's own terms: a Quick Loan runs to 24 months, an SME Loan longer. */
+const QUICK_TERMS = [6, 12, 18, 24];
+const SME_TERMS = [12, 24, 36, 48];
+
+// The identity documents sign-up accepts (tin_auth.DOCUMENT_KINDS).
+const ID_LINE =
+  "One valid ID: National ID card, passport, driver’s licence or e-ID";
+const NEED_QUICK = [
+  ID_LINE,
+  "Phone number (required)",
+  "Photos of your business",
+  "A short description of what the loan is for",
+  "Bank details, provided before loan disbursement",
+];
+const NEED_SME = [
+  ID_LINE,
+  "Phone number (required)",
+  "Business registration and TIN",
+  "Business details and location",
+  "Market, customers and financial information",
+  "How you’ll use the funds",
+  "Bank details, provided before loan disbursement",
+];
+
+const STEPS = [
+  {
+    n: "1",
+    title: "Apply online",
+    body: "Complete your application online. Your details are prefilled from your National ID record where possible.",
+  },
+  {
+    n: "2",
+    title: "Review",
+    body: "A GDB credit officer reviews your application. You will be notified if additional information is required.",
+  },
+  {
+    n: "3",
+    title: "Accept your offer",
+    body: "Receive a letter of offer with the amount, term and installment. The letter of offer is accepted and signed online.",
+  },
+  {
+    n: "4",
+    title: "Loan disbursed",
+    body: "Your loan is paid into your bank account. Repay as per your installment cycle, with no interest.",
+  },
+];
+
+const FAQS = [
+  {
+    q: "Is it really 0% interest?",
+    a: "Yes. You repay only the amount you borrow — no interest is added. Your letter of offer shows the amount, term and monthly installment before you accept.",
+  },
+  {
+    q: "Do I have to pay the loan back?",
+    a: "Yes. This is a loan, not a grant. Repaying on time builds your credit history and can help you qualify for larger financing later.",
+  },
+  {
+    q: "Which loan should I choose?",
+    a: "If you need up to G$300,000 for a small business, choose the Quick Loan — it is shorter and faster. For larger amounts up to G$3,000,000, choose the SME Loan.",
+  },
+  {
+    q: "How do I check on my application?",
+    a: "Sign in and open My applications. Each application shows its current status — under review, approved or declined, or loan disbursed — and any action we need from you.",
+  },
+  {
+    q: "How will I receive the money?",
+    a: "Funds are paid directly into your bank account. You provide your bank name, branch and account number in the application.",
+  },
+];
+
 export function Landing() {
   return (
-    <div className="gdb-public min-h-screen bg-gdb-page font-body text-gdb-ink">
-      <FlagRibbon />
-      <GovBanner />
-      <SiteHeader />
-
-      <main className={`flex flex-col gap-6 pt-6 pb-20 ${SITE_GUTTER}`}>
+    <div
+      className="gdb-public flex min-h-screen flex-col bg-[#faf8f4] text-[#17161d] antialiased"
+      style={{ fontFamily: "'Hanken Grotesk', system-ui, sans-serif" }}
+    >
+      <GovStrip />
+      <Header />
+      <LaunchBanner />
+      <main id="top" className="flex-1">
         <Hero />
-        <PresidentSection />
-        <Purposes />
-        <Terms />
-        <Sectors />
+        <Loans />
+        <HowItWorks />
+        <President />
+        <About />
+        <Faqs />
+        <Appointment />
+        <ReadyBand />
       </main>
-
-      <SiteFooter />
+      <Footer />
     </div>
+  );
+}
+
+function GovStrip() {
+  return (
+    <div
+      className={`flex flex-wrap justify-between gap-3 bg-[#0b2654] py-2 text-[13px] text-[#e4eaf5] ${GUTTER}`}
+    >
+      <span>
+        An official website of the Government of the Co-operative Republic of
+        Guyana
+      </span>
+      <a
+        href="https://finance.gov.gy"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold tracking-[0.02em] text-[#f2c14e] underline hover:text-[#f5cd6a]"
+      >
+        finance.gov.gy · Ministry of Finance ↗
+      </a>
+    </div>
+  );
+}
+
+function Header() {
+  const nav = [
+    ["#loans", "Loans"],
+    ["#how", "How it works"],
+    ["#about", "About the Bank"],
+    ["#help", "Help"],
+  ];
+  return (
+    <header
+      className={`sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b border-[#e7e3da] bg-[#faf8f4]/95 py-4 backdrop-blur ${GUTTER}`}
+    >
+      <a
+        href="#top"
+        className="flex items-center gap-2.5 text-[#17161d] no-underline"
+      >
+        <img
+          src={homeCrest}
+          alt="Coat of Arms of Guyana"
+          className="block h-12 w-auto flex-none"
+        />
+        <span className="text-[17px] font-bold leading-tight">
+          Guyana Development Bank
+        </span>
+      </a>
+      <nav
+        aria-label="Sections"
+        className="flex min-w-0 max-w-full gap-[clamp(14px,2vw,28px)] overflow-x-auto whitespace-nowrap text-[15px] font-medium"
+      >
+        {nav.map(([href, label]) => (
+          <a
+            key={href}
+            href={href}
+            className="text-[#17161d] hover:text-[#0b2654]"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+      <div className="flex items-center gap-2.5">
+        <Link
+          to="/login"
+          className={`${PILL} px-4 py-2.5 text-[15px] font-semibold text-[#123a7a] hover:bg-[#123a7a]/5`}
+        >
+          Sign in
+        </Link>
+        <Link
+          to="/apply/new"
+          className={`${PILL} bg-[#123a7a] px-[18px] py-2.5 text-[15px] font-semibold text-white hover:bg-[#0b2654]`}
+        >
+          Apply
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+function LaunchBanner() {
+  return (
+    <Link
+      to="/apply/new"
+      className={`flex flex-wrap items-center justify-center gap-2.5 bg-[#f2c14e] py-2.5 text-center text-[15px] font-semibold text-[#0b2654] no-underline hover:bg-[#f5cd6a] ${GUTTER}`}
+    >
+      <span>
+        Now accepting applications, with zero-interest financing up to
+        G$3,000,000.
+      </span>
+      <span className="underline">Apply online →</span>
+    </Link>
+  );
+}
+
+function Photo({
+  src,
+  alt,
+  className = "",
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-[20px] bg-[#e4dfd2] ${className}`}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+    </div>
+  );
+}
+
+function Hero() {
+  return (
+    <section className={`py-[clamp(40px,6vw,88px)] ${GUTTER}`}>
+      <div className={`${WRAP} flex flex-col gap-[clamp(36px,5vw,64px)]`}>
+        <div className="grid items-end gap-[clamp(24px,4vw,64px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))]">
+          <h1 className="m-0 text-[clamp(52px,7.6vw,112px)] font-extrabold leading-[0.92] tracking-[-0.045em] text-[#0b2654] [text-wrap:balance]">
+            Capital to{" "}
+            <span className="bg-[linear-gradient(transparent_62%,#f2c14e_62%,#f2c14e_92%,transparent_92%)] px-[0.04em]">
+              grow
+            </span>{" "}
+            your business.
+          </h1>
+          <div className="flex flex-col gap-6 pb-2.5">
+            <p className="m-0 max-w-[30em] text-[clamp(18px,1.5vw,21px)] leading-[1.5] text-[#3d3a4a] [text-wrap:pretty]">
+              The Guyana Development Bank gives small and medium businesses the
+              capital to start up, sustain, scale and grow, with zero-interest
+              loans from G$50,000 to G$3,000,000.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href="#loans"
+                className={`${PILL} bg-[#123a7a] px-[26px] py-4 text-[17px] text-white hover:bg-[#0b2654]`}
+              >
+                Apply now
+              </a>
+              <a
+                href="#appointment"
+                className={`${PILL} border-[1.5px] border-[#123a7a] px-[26px] py-4 text-[17px] text-[#123a7a] hover:bg-[#123a7a]/5`}
+              >
+                Schedule an appointment
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))]">
+          <div className="grid min-h-[460px] grid-cols-[1.2fr_1fr] grid-rows-2 gap-5">
+            <Photo
+              src={heroVendor}
+              alt="Market vendor serving a customer at her stall"
+              className="row-span-2"
+            />
+            <Photo
+              src={heroTrade}
+              alt="A mechanic, a barber and a seamstress at work"
+            />
+            <Photo src={heroFarmer} alt="A farmer with his produce" />
+          </div>
+          <Estimator />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Estimator() {
+  const [amount, setAmount] = useState(250_000);
+  const [term, setTerm] = useState(24);
+  const quick = amount <= QUICK_MAX;
+  const terms = quick ? QUICK_TERMS : SME_TERMS;
+  // A term the other loan offers is moved to this loan's nearest one.
+  const shown = terms.includes(term)
+    ? term
+    : terms.reduce((a, b) => (Math.abs(b - term) < Math.abs(a - term) ? b : a));
+
+  return (
+    <div className="flex flex-col gap-6 rounded-[24px] bg-[#0b2654] p-[clamp(28px,3vw,40px)] text-[#faf8f4]">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="m-0 text-[24px] font-extrabold tracking-[-0.01em]">
+          How much does your business need?
+        </h2>
+        <span className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#f2c14e]">
+          Estimate
+        </span>
+      </div>
+      <div className="flex flex-col gap-3.5">
+        <output
+          htmlFor="gdb-estimate"
+          className="text-[clamp(44px,5vw,64px)] font-extrabold leading-none tracking-[-0.035em] text-[#f2c14e]"
+        >
+          {gyd(amount)}
+        </output>
+        <input
+          id="gdb-estimate"
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={positionOf(amount)}
+          onChange={(e) => setAmount(amountAt(Number(e.target.value)))}
+          aria-label="Loan amount"
+          aria-valuetext={gyd(amount)}
+          className="h-7 w-full cursor-pointer"
+          style={{ accentColor: GOLD }}
+        />
+        <div className="flex justify-between text-[13px] text-[#c9d6ec]">
+          <span>G$50,000</span>
+          <span>G$300,000</span>
+          <span>G$3,000,000</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        <span className="text-[14px] font-semibold text-[#c9d6ec]">
+          Repay over
+        </span>
+        <div
+          className="grid grid-cols-4 gap-2"
+          role="radiogroup"
+          aria-label="Repay over"
+        >
+          {terms.map((t) => {
+            const on = t === shown;
+            return (
+              <button
+                key={t}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => setTerm(t)}
+                className={`h-11 cursor-pointer rounded-[10px] border-[1.5px] text-[15px] transition-colors ${
+                  on
+                    ? "border-[#f2c14e] bg-[#f2c14e] font-bold text-[#0b2654]"
+                    : "border-[#284c86] bg-transparent font-semibold text-[#faf8f4] hover:border-[#f2c14e]/60"
+                }`}
+              >
+                {t} mo
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[14px] bg-[#284c86]">
+        {[
+          ["Loan", quick ? "Quick Loan" : "SME Loan", ""],
+          ["Monthly", gyd(amount / shown), ""],
+          ["Interest", "G$0", "text-[#f2c14e]"],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="flex flex-col gap-1 bg-[#0f3068] p-4">
+            <span className="text-[13px] text-[#c9d6ec]">{label}</span>
+            <span className={`text-[18px] font-extrabold ${tone}`}>
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="m-0 text-[14px] leading-[1.5] text-[#c9d6ec]">
+        {quick
+          ? "Short application for small businesses. Apply online with photos of your business."
+          : "For registered businesses ready to scale. You will list how you will use the funds."}
+      </p>
+      <Link
+        to={quick ? "/apply/quick" : "/apply/new/sme"}
+        className={`${PILL} mt-auto bg-[#f2c14e] px-6 py-4 text-center text-[17px] text-[#0b2654] hover:bg-[#f5cd6a]`}
+      >
+        Apply for {quick ? "a Quick Loan" : "an SME Loan"}
+      </Link>
+      <p className="m-0 text-[12px] text-[#86a3d4]">
+        Illustrative only. Your final amount, term and installment are set in
+        your letter of offer.
+      </p>
+    </div>
+  );
+}
+
+function Needs({ items, tone }: { items: string[]; tone: "gold" | "navy" }) {
+  const gold = tone === "gold";
+  return (
+    <div
+      className={`flex flex-col gap-3 border-t pt-5 ${gold ? "border-[#e6dcbf]" : "border-[#284c86]"}`}
+    >
+      <span
+        className={`text-[13px] font-bold uppercase tracking-[0.08em] ${gold ? "text-[#b8860b]" : "text-[#f2c14e]"}`}
+      >
+        What you'll need
+      </span>
+      {items.map((item) => (
+        <div
+          key={item}
+          className={`flex gap-2.5 text-[15px] leading-[1.45] ${gold ? "text-[#2c2a38]" : "text-[#eaf0f9]"}`}
+        >
+          <span
+            className={`font-extrabold ${gold ? "text-[#b8860b]" : "text-[#f2c14e]"}`}
+          >
+            ✓
+          </span>
+          <span>{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Dashes({ items, tone }: { items: string[]; tone: "gold" | "navy" }) {
+  const gold = tone === "gold";
+  return (
+    <ul
+      className={`m-0 flex list-none flex-col gap-2.5 p-0 text-[16px] ${gold ? "text-[#2c2a38]" : "text-[#eaf0f9]"}`}
+    >
+      {items.map((item) => (
+        <li key={item} className="flex gap-2.5">
+          <span
+            className={`font-extrabold ${gold ? "text-[#b8860b]" : "text-[#f2c14e]"}`}
+          >
+            —
+          </span>
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Loans() {
+  return (
+    <section
+      id="loans"
+      className={`scroll-mt-20 border-y border-[#ece8de] bg-white ${SECTION_Y} ${GUTTER}`}
+    >
+      <div className={`${WRAP} flex flex-col gap-10`}>
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="flex max-w-[640px] flex-col gap-3">
+            <span className={EYEBROW}>Our loans</span>
+            <h2 className={H2}>
+              Two loans. Same terms. Pick the size that fits.
+            </h2>
+          </div>
+          <p className="m-0 max-w-[26em] text-[17px] leading-[1.5] text-[#5e5b6b]">
+            Both loans are zero-interest financing, so you repay only what you
+            borrow. If we can’t fetch your details automatically, you can type
+            them in or upload a document.
+          </p>
+        </div>
+
+        <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
+          <article className="flex flex-col gap-6 rounded-[24px] bg-[#f7f1df] p-[clamp(28px,3vw,40px)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <span className="rounded-full bg-[#f2c14e] px-3 py-1.5 text-[15px] font-bold text-[#0b2654]">
+                Quick Loan
+              </span>
+              <span className="text-[14px] font-medium text-[#6b5a2a]">
+                For small businesses
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[15px] text-[#5e5b6b]">Borrow up to</span>
+              <span className="text-[clamp(44px,5vw,64px)] font-extrabold leading-none tracking-[-0.03em] text-[#0b2654]">
+                G$300,000
+              </span>
+            </div>
+            <p className="m-0 text-[18px] leading-[1.5] text-[#2c2a38] [text-wrap:pretty]">
+              For small businesses — market vendors, salons, barbershops, food
+              sellers, seamstresses, mechanics and more. Apply with photos of
+              your business and a short description of what the loan is for.
+            </p>
+            <Dashes
+              tone="gold"
+              items={[
+                "Short application you can finish on your phone",
+                "Photos of your business as proof of trading",
+                "Prefer help in person? Book an appointment with GDB",
+              ]}
+            />
+            <Needs items={NEED_QUICK} tone="gold" />
+            <div className="mt-auto flex flex-wrap gap-2.5">
+              <Link
+                to="/apply/quick"
+                className={`${PILL} bg-[#0b2654] px-[22px] py-3.5 text-[16px] text-white hover:bg-[#123a7a]`}
+              >
+                Start Quick Loan application
+              </Link>
+              <a
+                href="#appointment"
+                className={`${PILL} border-[1.5px] border-[#0b2654] px-[22px] py-3.5 text-[16px] text-[#0b2654] hover:bg-[#0b2654]/5`}
+              >
+                Book an appointment
+              </a>
+            </div>
+          </article>
+
+          <article className="flex flex-col gap-6 rounded-[24px] bg-[#123a7a] p-[clamp(28px,3vw,40px)] text-white">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <span className="rounded-full bg-white px-3 py-1.5 text-[15px] font-bold text-[#123a7a]">
+                SME Loan
+              </span>
+              <span className="text-[14px] font-medium text-[#c9d6ec]">
+                For registered small &amp; medium businesses
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[15px] text-[#c9d6ec]">Borrow up to</span>
+              <span className="text-[clamp(44px,5vw,64px)] font-extrabold leading-none tracking-[-0.03em] text-[#f2c14e]">
+                G$3,000,000
+              </span>
+            </div>
+            <p className="m-0 text-[18px] leading-[1.5] text-[#eaf0f9] [text-wrap:pretty]">
+              For small and medium enterprises ready to scale — in agriculture,
+              agro-processing, manufacturing, tourism, services, technology and
+              the creative industries.
+            </p>
+            <Dashes
+              tone="navy"
+              items={[
+                "Details prefilled from your National ID record where available",
+                "List how you'll use the funds",
+                "Track every step in My applications",
+              ]}
+            />
+            <Needs items={NEED_SME} tone="navy" />
+            <div className="mt-auto flex flex-wrap gap-2.5">
+              <Link
+                to="/apply/new/sme"
+                className={`${PILL} bg-[#f2c14e] px-[22px] py-3.5 text-[16px] text-[#0b2654] hover:bg-[#f5cd6a]`}
+              >
+                Start SME Loan application
+              </Link>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <section
+      id="how"
+      className={`scroll-mt-20 bg-[#0b2654] text-white ${SECTION_Y} ${GUTTER}`}
+    >
+      <div className={`${WRAP} flex flex-col gap-12`}>
+        <div className="flex max-w-[640px] flex-col gap-3">
+          <span className="text-[14px] font-bold uppercase tracking-[0.08em] text-[#f2c14e]">
+            How it works
+          </span>
+          <h2 className="m-0 text-[clamp(34px,4vw,52px)] font-extrabold leading-[1.04] tracking-[-0.03em] [text-wrap:balance]">
+            From application to money in your account.
+          </h2>
+        </div>
+        <ol className="m-0 grid list-none gap-0.5 overflow-hidden rounded-[20px] bg-[#284c86] p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
+          {STEPS.map((s) => (
+            <li
+              key={s.n}
+              className="flex min-h-[220px] flex-col gap-3.5 bg-[#0f3068] p-7"
+            >
+              <span className="text-[28px] font-extrabold leading-none text-[#f2c14e]">
+                {s.n}
+              </span>
+              <h3 className="m-0 text-[22px] font-bold">{s.title}</h3>
+              <p className="m-0 text-[16px] leading-[1.5] text-[#d0dcef]">
+                {s.body}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+function President() {
+  return (
+    <section id="president" className={`${SECTION_Y} ${GUTTER}`}>
+      <div
+        className={`${WRAP} flex flex-wrap overflow-hidden rounded-[28px] border border-[#e7e3da] bg-white`}
+      >
+        <div className="relative aspect-[554/672] max-w-full flex-[1_1_320px] bg-[#e4dfd2]">
+          <img
+            src={presidentPhoto}
+            alt="H.E. Dr. Mohamed Irfaan Ali"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </div>
+        <div className="flex flex-[1.6_1_420px] flex-col justify-center gap-6 p-[clamp(32px,5vw,64px)]">
+          <span className={EYEBROW}>From the President</span>
+          <blockquote className="m-0 text-[clamp(26px,2.8vw,38px)] font-bold leading-[1.2] tracking-[-0.02em] text-[#0b2654] [text-wrap:pretty]">
+            “You don't have to own anything. You just have to have an idea that
+            we will help you develop, that we will help you to nurture.”
+          </blockquote>
+          <div className="flex flex-col gap-1 border-t border-[#efece5] pt-[18px]">
+            <span className="text-[17px] font-bold text-[#17161d]">
+              H.E. Dr. Mohamed Irfaan Ali
+            </span>
+            <span className="text-[15px] text-[#5e5b6b]">
+              President of the Co-operative Republic of Guyana
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function About() {
+  const cards = [
+    [
+      "Our mission",
+      "To provide Guyanese small and medium enterprises with affordable capital and support to start up, sustain, scale and grow.",
+    ],
+    [
+      "Our vision",
+      "A Guyana where every business with the will to grow has access to the capital to do it — from Region 1 to Region 10.",
+    ],
+    [
+      "Who we serve",
+      "Farmers, vendors, manufacturers, service providers and enterprises — from Region 1 to Region 10.",
+    ],
+  ];
+  return (
+    <section
+      id="about"
+      className={`scroll-mt-20 border-t border-[#ece8de] bg-white ${SECTION_Y} ${GUTTER}`}
+    >
+      <div className={`${WRAP} flex flex-col gap-12`}>
+        <div className="grid items-end gap-[clamp(32px,5vw,72px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
+          <div className="flex flex-col gap-3">
+            <span className={EYEBROW}>About the Bank</span>
+            <h2 className={H2}>
+              A bank built for the businesses that develop Guyana.
+            </h2>
+          </div>
+          <p className="m-0 text-[18px] leading-[1.55] text-[#3d3a4a] [text-wrap:pretty]">
+            A Government of Guyana institution under the Ministry of Finance,
+            serving small and medium businesses from Region 1 to Region 10.
+          </p>
+        </div>
+        <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">
+          {cards.map(([title, body]) => (
+            <div
+              key={title}
+              className="flex flex-col gap-3 rounded-[20px] bg-[#faf8f4] p-8"
+            >
+              <span className="text-[14px] font-bold text-[#b8860b]">
+                {title}
+              </span>
+              <p className="m-0 text-[21px] font-semibold leading-[1.4] text-[#0b2654] [text-wrap:pretty]">
+                {body}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Faqs() {
+  const [open, setOpen] = useState(0);
+  return (
+    <section id="help" className={`scroll-mt-20 ${SECTION_Y} ${GUTTER}`}>
+      <div className="mx-auto flex max-w-[960px] flex-col gap-8">
+        <h2 className={H2}>FAQs</h2>
+        <div className="flex flex-col border-t border-[#e1ddd2]">
+          {FAQS.map((f, i) => {
+            const isOpen = open === i;
+            return (
+              <div key={f.q} className="border-b border-[#e1ddd2]">
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={`faq-${i}`}
+                  onClick={() => setOpen(isOpen ? -1 : i)}
+                  className="flex w-full cursor-pointer items-center justify-between gap-5 border-0 bg-transparent py-6 text-left text-[19px] font-bold text-[#0b2654]"
+                >
+                  <span>{f.q}</span>
+                  <span
+                    aria-hidden
+                    className="flex-none text-[26px] font-normal text-[#b8860b]"
+                  >
+                    {isOpen ? "−" : "+"}
+                  </span>
+                </button>
+                {isOpen && (
+                  <p
+                    id={`faq-${i}`}
+                    className="m-0 mb-6 max-w-[46em] text-[17px] leading-[1.6] text-[#3d3a4a]"
+                  >
+                    {f.a}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Booking help in person. A field officer request belongs to a signed-in
+ *  citizen (services/quick_loan.request_field_officer) — the officer's queue,
+ *  consent and assisted draft all hang off that account — so the card takes a
+ *  visitor there rather than collecting details the page could not send. */
+function Appointment() {
+  const step = (n: string, body: ReactNode) => (
+    <li className="flex gap-3.5">
+      <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-[#f2c14e] text-[15px] font-extrabold text-[#0b2654]">
+        {n}
+      </span>
+      <span className="pt-1 text-[16px] leading-[1.5] text-[#2c2a38]">
+        {body}
+      </span>
+    </li>
+  );
+  return (
+    <section id="appointment" className={`scroll-mt-20 ${SECTION_Y} ${GUTTER}`}>
+      <div
+        className={`${WRAP} grid items-center gap-[clamp(32px,5vw,72px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]`}
+      >
+        <div className="flex flex-col gap-5">
+          <span className={EYEBROW}>Book an appointment</span>
+          <h2 className={H2}>Prefer to apply with a GDB team member?</h2>
+          <p className="m-0 max-w-[32em] text-[18px] leading-[1.55] text-[#3d3a4a] [text-wrap:pretty]">
+            Book an appointment and a member of the GDB team will confirm a time
+            with you and help you complete your loan application.
+          </p>
+          <div className="relative aspect-video overflow-hidden rounded-[20px] bg-[#e4dfd2]">
+            <img
+              src={appointmentPhoto}
+              alt="A GDB team member with a customer at a market stall"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-5 rounded-[24px] border border-[#e7e3da] bg-white p-[clamp(24px,3vw,40px)] shadow-[0_20px_50px_rgba(11,38,84,0.06)]">
+          <div className="flex flex-col gap-1.5">
+            <h3 className="m-0 text-[24px] font-extrabold text-[#0b2654]">
+              Book an appointment
+            </h3>
+            <p className="m-0 text-[15px] text-[#5e5b6b]">
+              We'll contact you within two working days.
+            </p>
+          </div>
+          <ol className="m-0 flex list-none flex-col gap-4 p-0">
+            {step(
+              "1",
+              <>
+                Create your account with your National ID — or sign in if you
+                have one.
+              </>,
+            )}
+            {step(
+              "2",
+              <>
+                Open the Quick Loan application and choose{" "}
+                <b className="font-bold">“I need help from a field officer”</b>.
+                Tell us your region, your business and the best time to call.
+              </>,
+            )}
+            {step(
+              "3",
+              <>
+                A GDB team member calls you to confirm a time and helps you
+                finish your application.
+              </>,
+            )}
+          </ol>
+          <div className="flex flex-wrap gap-2.5">
+            <Link
+              to="/signup"
+              className={`${PILL} h-14 flex-1 bg-[#123a7a] px-6 text-[17px] text-white hover:bg-[#0b2654]`}
+            >
+              Create an account
+            </Link>
+            <Link
+              to="/login"
+              state={{ from: "/apply/quick" }}
+              className={`${PILL} h-14 flex-1 border-[1.5px] border-[#123a7a] px-6 text-[17px] text-[#123a7a] hover:bg-[#123a7a]/5`}
+            >
+              Sign in
+            </Link>
+          </div>
+          <p className="m-0 text-[13px] leading-[1.5] text-[#6b6878]">
+            Please bring a valid ID and a few photos of your business to your
+            appointment.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReadyBand() {
+  return (
+    <section className={`pb-[clamp(56px,7vw,96px)] ${GUTTER}`}>
+      <div
+        className={`${WRAP} flex flex-wrap items-center justify-between gap-7 rounded-[28px] bg-[#f2c14e] p-[clamp(32px,5vw,64px)]`}
+      >
+        <h2 className="m-0 max-w-[16em] text-[clamp(30px,3.6vw,46px)] font-extrabold leading-[1.05] tracking-[-0.03em] text-[#0b2654] [text-wrap:balance]">
+          Ready to grow? Your application takes minutes to start.
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href="#loans"
+            className={`${PILL} bg-[#0b2654] px-[26px] py-4 text-[17px] text-white hover:bg-[#123a7a]`}
+          >
+            Apply for a loan
+          </a>
+          <Link
+            to="/apply"
+            className={`${PILL} border-[1.5px] border-[#0b2654] px-[26px] py-4 text-[17px] text-[#0b2654] hover:bg-[#0b2654]/5`}
+          >
+            Check my application
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Footer() {
+  const link = "text-[#c9d6ec] hover:text-white";
+  return (
+    <footer className={`bg-[#0b2654] pt-14 pb-8 text-[#c9d6ec] ${GUTTER}`}>
+      <div className={`${WRAP} flex flex-col gap-10`}>
+        <div className="grid gap-8 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
+          <div className="flex flex-col gap-3">
+            <span className="text-[18px] font-bold text-white">
+              Guyana Development Bank
+            </span>
+            <span className="text-[15px] leading-[1.5]">
+              Zero-interest financing for Guyanese small and medium businesses.
+              Government of Guyana · Ministry of Finance.
+            </span>
+          </div>
+          <div className="flex flex-col gap-2.5 text-[15px]">
+            <span className="font-bold text-white">Loans</span>
+            <Link to="/apply/quick" className={link}>
+              Quick Loan
+            </Link>
+            <Link to="/apply/new/sme" className={link}>
+              SME Loan
+            </Link>
+            <a href="#appointment" className={link}>
+              Book an appointment
+            </a>
+          </div>
+          <div className="flex flex-col gap-2.5 text-[15px]">
+            <span className="font-bold text-white">Your account</span>
+            <Link to="/login" className={link}>
+              Sign in
+            </Link>
+            <Link to="/apply" className={link}>
+              My applications
+            </Link>
+            <Link to="/signup" className={link}>
+              Create an account
+            </Link>
+          </div>
+          <div className="flex flex-col gap-2.5 text-[15px]">
+            <span className="font-bold text-white">The Bank</span>
+            <a href="#about" className={link}>
+              About
+            </a>
+            <a href="#help" className={link}>
+              Help &amp; FAQs
+            </a>
+            <a href="#appointment" className={link}>
+              Contact
+            </a>
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-between gap-4 border-t border-[#284c86] pt-6 text-[13px]">
+          <span>© 2026 Guyana Development Bank</span>
+          <span className="flex gap-5">
+            <span>Privacy</span>
+            <span>Terms</span>
+            <span>Accessibility</span>
+          </span>
+        </div>
+      </div>
+    </footer>
   );
 }

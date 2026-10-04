@@ -10,6 +10,7 @@ export function Drawer({
   subtitle,
   footer,
   children,
+  wide,
 }: {
   open: boolean;
   onClose: () => void;
@@ -17,6 +18,8 @@ export function Drawer({
   subtitle?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
+  /** A roomier panel, for a form with more to it than a few fields. */
+  wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -32,7 +35,7 @@ export function Drawer({
       ref={ref}
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
-      className="m-0 ml-auto h-dvh max-h-dvh w-full max-w-md bg-white p-0 shadow-2xl backdrop:bg-slate-900/40"
+      className={`m-0 ml-auto h-dvh max-h-dvh w-full ${wide ? "max-w-xl" : "max-w-md"} bg-white p-0 shadow-2xl backdrop:bg-slate-900/40`}
     >
       <div className="flex h-full flex-col">
         <div className="flex items-start justify-between gap-3 px-6 pb-3 pt-5">

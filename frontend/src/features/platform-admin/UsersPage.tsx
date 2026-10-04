@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { roleLabel } from '../../shared/personas';
-import { Badge } from '../../components/ui/Badge';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
+import { Drawer } from '../../components/ui/Drawer';
 import { PlusIcon } from '../../components/ui/icons';
+import { Pager } from '../../components/ui/Pager';
+import { roleLabel } from '../../shared/personas';
 import { AccountPanel } from './AccountPanel';
-import { listAccounts } from './api';
+import { adminOverview, listAccounts } from './api';
 import { CreateStaffForm } from './CreateStaffForm';
-import type { AccountKind, AccountPage, KeycloakOutcome } from './types';
-import { errorText, formatDateTime, Notice, PageHeader } from './ui';
+import { ChevronRightIcon, SearchIcon } from './icons';
+import type { AccountKind, AccountPage, AdminOverview, KeycloakOutcome } from './types';
+import { Avatar, errorText, formatDateTime, inputClass, Notice, PageHeader, relativeTime, RoleChip, selectClass, StatusPill } from './ui';
 
 /** The one-time password rides here only between the create call and the
  *  panel that shows it; choosing any other row drops it. */
@@ -19,49 +21,86 @@ type Side =
   | { mode: 'account'; name: string; outcome?: KeycloakOutcome; oneTimePassword?: string | null };
 
 const SEARCH_DELAY_MS = 300;
+const PAGE_SIZES = [10, 25, 50];
 
 export function UsersPage() {
-  const [kind, setKind] = useState<AccountKind>('staff');
-  const [typed, setTyped] = useState('');
-  const [search, setSearch] = useState('');
+  // Which list, its filters and its page size live in the address bar, so a
+  // filtered list survives a reload and the overview can link straight to one.
+  // The account opened stays in state only: its name is an email address.
+  const [params, setParams] = useSearchParams();
+  const kind: AccountKind = params.get('kind') === 'citizens' ? 'citizens' : 'staff';
+  const status = (params.get('status') ?? '') as '' | 'active' | 'disabled';
+  const role = kind === 'staff' ? (params.get('role') ?? '') : '';
+  const search = params.get('q') ?? '';
+  const pageLength = PAGE_SIZES.includes(Number(params.get('rows'))) ? Number(params.get('rows')) : 25;
+
+  const [typed, setTyped] = useState(search);
   const [start, setStart] = useState(0);
   const [page, setPage] = useState<AccountPage | null>(null);
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [side, setSide] = useState<Side>({ mode: 'none' });
+  const [side, setSide] = useState<Side>(() => (params.get('new') ? { mode: 'create' } : { mode: 'none' }));
+
+  const update = useCallback(
+    (changes: Record<string, string>) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          Object.entries(changes).forEach(([k, v]) => (v ? next.set(k, v) : next.delete(k)));
+          next.delete('new');
+          return next;
+        },
+        { replace: true },
+      );
+      setStart(0);
+    },
+    [setParams],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(typed.trim());
-      setStart(0);
+      if (typed.trim() !== search) update({ q: typed.trim() });
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [typed]);
+  }, [typed, search, update]);
 
   const load = useCallback(() => {
     setError(null);
-    listAccounts(kind, search, start)
+    listAccounts(kind, search, start, { status, role, pageLength })
       .then(setPage)
       .catch((err) => setError(errorText(err, 'Could not load accounts.')));
-  }, [kind, search, start]);
+  }, [kind, search, start, status, role, pageLength]);
+
+  const loadCounts = useCallback(() => {
+    adminOverview()
+      .then(setOverview)
+      .catch(() => setOverview(null));
+  }, []);
 
   useEffect(load, [load]);
+  useEffect(loadCounts, [loadCounts]);
+
+  const changed = () => {
+    load();
+    loadCounts();
+  };
 
   const switchKind = (next: AccountKind) => {
-    setKind(next);
-    setStart(0);
+    update({ kind: next === 'staff' ? '' : next, role: '' });
     setSide({ mode: 'none' });
   };
 
-  const tabClass = (value: AccountKind) =>
-    `rounded-full px-4 py-1.5 text-sm font-semibold ${
-      kind === value ? 'bg-brand text-white' : 'text-slate-500 hover:bg-slate-100'
-    }`;
+  const filtered = Boolean(search || status || role);
+  const tabs: { id: AccountKind; label: string; count?: number }[] = [
+    { id: 'staff', label: 'Staff', count: overview?.staff.total },
+    { id: 'citizens', label: 'Citizens', count: overview?.citizens.total },
+  ];
 
   return (
     <div>
       <PageHeader
-        title="Users"
-        lede="Staff accounts are created here and sign in with their work email. Citizen accounts open on a citizen's first e-ID sign-in, and can be disabled here — the kill switch holds even while Keycloak still accepts their password."
+        title="Users & roles"
+        lede="Staff accounts are created here and sign in with their work email. Citizen accounts open on a citizen's first sign-in and can be disabled here — the kill switch holds even while Keycloak still accepts their password."
         action={
           <Button onClick={() => setSide({ mode: 'create' })} disabled={!page}>
             <PlusIcon className="h-4 w-4" /> New staff account
@@ -69,145 +108,219 @@ export function UsersPage() {
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="p-0">
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
-            <div className="flex gap-1 rounded-full bg-slate-100 p-1" role="tablist" aria-label="Account kind">
-              <button type="button" role="tab" aria-selected={kind === 'staff'} className={tabClass('staff')} onClick={() => switchKind('staff')}>
-                Staff
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 px-4 pt-3">
+          <div className="flex gap-6" role="tablist" aria-label="Account kind">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={kind === t.id}
+                onClick={() => switchKind(t.id)}
+                className={`-mb-px flex items-center gap-2 border-b-2 px-1 pb-3 text-sm font-semibold transition-colors ${
+                  kind === t.id ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {t.label}
+                {t.count !== undefined && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] tabular-nums ${
+                      kind === t.id ? 'bg-brand-light text-brand-text' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {t.count.toLocaleString()}
+                  </span>
+                )}
               </button>
-              <button type="button" role="tab" aria-selected={kind === 'citizens'} className={tabClass('citizens')} onClick={() => switchKind('citizens')}>
-                Citizens
-              </button>
-            </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 border-b border-slate-100 bg-slate-50/60 px-4 py-3">
+          <label className="relative min-w-[220px] flex-[2]">
+            <span className="sr-only">Search accounts</span>
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
+              type="search"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={kind === 'staff' ? 'Search name, email or e-ID' : 'Search name or e-ID'}
-              aria-label="Search accounts"
-              className="min-w-[200px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+              className={`${inputClass} pl-9`}
             />
-          </div>
-
-          {error && (
-            <div className="p-4">
-              <Notice tone="error">{error}</Notice>
-            </div>
+          </label>
+          <select
+            value={status}
+            onChange={(e) => update({ status: e.target.value })}
+            aria-label="Status"
+            className={`${selectClass} min-w-[130px] flex-1 sm:flex-none`}
+          >
+            <option value="">Any status</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          {kind === 'staff' && (
+            <select
+              value={role}
+              onChange={(e) => update({ role: e.target.value })}
+              aria-label="Role"
+              className={`${selectClass} min-w-[160px] flex-1 sm:flex-none`}
+            >
+              <option value="">Any role</option>
+              {[...(page?.grantable_roles ?? []), 'Platform Admin'].map((r) => (
+                <option key={r} value={r}>
+                  {roleLabel(r)}
+                </option>
+              ))}
+            </select>
           )}
-
-          <DataTable
-            bare
-            caption={kind === 'staff' ? 'GDB staff accounts' : 'Citizen accounts'}
-            columns={[
-              {
-                key: 'name',
-                header: 'Name',
-                cell: (u) => (
-                  <>
-                    <span className="font-medium text-slate-800">{u.full_name}</span>
-                    {kind === 'staff' && (
-                      <span className="block text-xs text-slate-400">{u.name}</span>
-                    )}
-                  </>
-                ),
-              },
-              {
-                key: 'identity',
-                // Staff sign in by work email and citizens by e-ID, so the
-                // column that identifies an account is a different fact for
-                // each — named as the one it actually holds.
-                header: kind === 'staff' ? 'Roles' : 'e-ID',
-                nowrap: kind !== 'staff',
-                className: kind === 'staff' ? '' : 'font-mono',
-                cell: (u) =>
-                  kind === 'staff' ? (
-                    <span className="flex flex-wrap gap-1">
-                      {u.roles.length ? (
-                        u.roles.map((r) => <Badge key={r}>{roleLabel(r)}</Badge>)
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </span>
-                  ) : (
-                    (u.eid ?? '—')
-                  ),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                cell: (u) => (
-                  <Badge tone={u.enabled ? 'success' : 'danger'}>
-                    {u.enabled ? 'Active' : 'Disabled'}
-                  </Badge>
-                ),
-              },
-              {
-                key: 'last_login',
-                header: 'Last sign-in',
-                nowrap: true,
-                className: 'text-slate-500',
-                cell: (u) => formatDateTime(u.last_login),
-              },
-            ]}
-            rows={page?.users ?? []}
-            rowKey={(u) => u.name}
-            onRowClick={(u) => setSide({ mode: 'account', name: u.name })}
-            rowClassName={(u) =>
-              side.mode === 'account' && side.name === u.name ? 'bg-brand-light/40' : ''
-            }
-            minWidth="36rem"
-            footnote={false}
-            empty="No accounts match."
-          />
-
-          {page && (start > 0 || page.has_more) && (
-            <div className="flex justify-between border-t border-slate-100 p-3">
-              <Button variant="secondary" disabled={start === 0} onClick={() => setStart(Math.max(0, start - 50))}>
-                Previous
-              </Button>
-              <Button variant="secondary" disabled={!page.has_more} onClick={() => setStart(start + 50)}>
-                Next
-              </Button>
-            </div>
-          )}
-        </Card>
-
-        <div>
-          {side.mode === 'create' && page && (
-            <CreateStaffForm
-              grantableRoles={page.grantable_roles}
-              regions={page.regions}
-              onCancel={() => setSide({ mode: 'none' })}
-              onCreated={(result) => {
-                setKind('staff');
-                setSide({
-                  mode: 'account',
-                  name: result.user.name,
-                  outcome: result.keycloak,
-                  oneTimePassword: result.one_time_password,
-                });
-                load();
+          {filtered && (
+            <button
+              type="button"
+              onClick={() => {
+                setTyped('');
+                update({ q: '', status: '', role: '' });
               }}
-            />
-          )}
-          {side.mode === 'account' && (
-            <AccountPanel
-              name={side.name}
-              initialOutcome={side.outcome}
-              initialOneTimePassword={side.oneTimePassword}
-              onChanged={load}
-              onClose={() => setSide({ mode: 'none' })}
-            />
-          )}
-          {side.mode === 'none' && (
-            <Card>
-              <p className="text-sm text-slate-500">
-                Choose an account to see its roles and status, or create a staff account.
-              </p>
-            </Card>
+              className="text-sm font-medium text-slate-500 hover:text-slate-800"
+            >
+              Clear
+            </button>
           )}
         </div>
+
+        {error && (
+          <div className="p-4">
+            <Notice tone="error">{error}</Notice>
+          </div>
+        )}
+
+        <DataTable
+          bare
+          caption={kind === 'staff' ? 'GDB staff accounts' : 'Citizen accounts'}
+          columns={[
+            {
+              key: 'name',
+              header: 'Person',
+              cell: (u) => (
+                <span className="flex items-center gap-3">
+                  <Avatar name={u.full_name} muted={!u.enabled} />
+                  <span className="min-w-0">
+                    <span className={`block truncate font-semibold ${u.enabled ? 'text-slate-900' : 'text-slate-400'}`}>
+                      {u.full_name}
+                    </span>
+                    <span className="block truncate text-xs text-slate-400">
+                      {kind === 'staff' ? u.name : (u.eid ?? 'No e-ID')}
+                    </span>
+                  </span>
+                </span>
+              ),
+            },
+            ...(kind === 'staff'
+              ? [
+                  {
+                    key: 'roles',
+                    header: 'Roles',
+                    cell: (u: AccountPage['users'][number]) => (
+                      <span className="flex flex-wrap gap-1">
+                        {u.roles.length ? u.roles.map((r) => <RoleChip key={r} role={r} />) : <span className="text-slate-400">—</span>}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'region',
+                    header: 'Region',
+                    className: 'text-slate-500',
+                    cell: (u: AccountPage['users'][number]) => u.region ?? '—',
+                  },
+                ]
+              : []),
+            {
+              key: 'status',
+              header: 'Status',
+              cell: (u) => <StatusPill enabled={u.enabled} />,
+            },
+            {
+              key: 'last_login',
+              header: 'Last sign-in',
+              nowrap: true,
+              className: 'text-slate-500',
+              cell: (u) => (
+                <span title={formatDateTime(u.last_login)} className={u.last_login ? '' : 'text-amber-600'}>
+                  {relativeTime(u.last_login)}
+                </span>
+              ),
+            },
+            {
+              key: 'open',
+              header: <span className="sr-only">Open</span>,
+              align: 'right',
+              cell: () => <ChevronRightIcon className="ml-auto h-4 w-4 text-slate-300" />,
+            },
+          ]}
+          rows={page?.users ?? []}
+          rowKey={(u) => u.name}
+          onRowClick={(u) => setSide({ mode: 'account', name: u.name })}
+          rowClassName={(u) => (side.mode === 'account' && side.name === u.name ? 'bg-brand-light/40' : '')}
+          minWidth="44rem"
+          footnote={false}
+          empty={!page ? 'Loading accounts…' : filtered ? 'No accounts match these filters.' : 'No accounts yet.'}
+        />
+
+        {page && (
+          <div className="border-t border-slate-100 px-4 pb-3">
+            <Pager
+              start={start}
+              pageLength={pageLength}
+              total={page.total}
+              onChange={setStart}
+              pageSizes={PAGE_SIZES}
+              onPageLength={(n) => update({ rows: n === 25 ? '' : String(n) })}
+            />
+          </div>
+        )}
       </div>
+
+      <Drawer
+        open={side.mode === 'create'}
+        onClose={() => setSide({ mode: 'none' })}
+        title="New staff account"
+        subtitle="They sign in with their work email. A one-time password is shown once the account exists."
+        wide
+      >
+        {side.mode === 'create' && page && (
+          <CreateStaffForm
+            grantableRoles={page.grantable_roles}
+            regions={page.regions}
+            onCancel={() => setSide({ mode: 'none' })}
+            onCreated={(result) => {
+              if (kind !== 'staff') switchKind('staff');
+              setSide({
+                mode: 'account',
+                name: result.user.name,
+                outcome: result.keycloak,
+                oneTimePassword: result.one_time_password,
+              });
+              changed();
+            }}
+          />
+        )}
+      </Drawer>
+
+      <Drawer
+        open={side.mode === 'account'}
+        onClose={() => setSide({ mode: 'none' })}
+        title={kind === 'staff' ? 'Staff account' : 'Citizen account'}
+        wide
+      >
+        {side.mode === 'account' && (
+          <AccountPanel
+            name={side.name}
+            initialOutcome={side.outcome}
+            initialOneTimePassword={side.oneTimePassword}
+            onChanged={changed}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }

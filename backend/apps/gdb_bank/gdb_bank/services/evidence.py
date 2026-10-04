@@ -43,6 +43,46 @@ DOCUMENT_TYPES = (
 # stays on the case; `Personal Financials` follows the person.
 PERSONAL_TYPES = ("Identity", "Proof of Address", "Personal Financials")
 
+# Which identity document a file is, and the number printed on it — asked with
+# every Identity upload so the officer verifying it can check the number on the
+# page against what the applicant typed, and against the KYC register.
+ID_DOCUMENT_KINDS = ("National ID Card", "Passport", "Driver's Licence", "e-ID")
+
+
+NATIONAL_ID_CARD = "National ID Card"
+
+
+def require_national_id_match(kind: str, number: str, national_id: str | None) -> None:
+	"""A National ID card's number IS the person's National ID: refuse one that
+	differs from the National ID they signed up with. Nothing to check against
+	for an account opened another way (e-ID)."""
+	from frappe import _
+
+	if kind != NATIONAL_ID_CARD or not national_id:
+		return
+	if number != national_id.upper():
+		frappe.throw(
+			_("The National ID card number must match your National ID number ({0}).").format(national_id)
+		)
+
+
+def clean_id_number(kind: str | None, number: str | None) -> tuple[str, str]:
+	"""(kind, number) for an Identity document, or a clear refusal. The number
+	is kept as letters and digits, uppercased: "r 012-3456" is R0123456."""
+	import re
+
+	from frappe import _
+
+	kind = (kind or "").strip()
+	if kind not in ID_DOCUMENT_KINDS:
+		frappe.throw(_("Choose which identity document you are attaching."))
+	compact = re.sub(r"[\s\-/.]", "", (number or "").strip().upper())
+	if not compact:
+		frappe.throw(_("Enter the number printed on your {0}.").format(kind))
+	if not re.fullmatch(r"[A-Z0-9]{5,20}", compact):
+		frappe.throw(_("Enter the {0} number as printed on it — letters and digits only.").format(kind))
+	return kind, compact
+
 # What every individual on a group's case is asked for — the head and each member.
 PERSONAL_EVIDENCE = ("Identity", "Personal Financials")
 
@@ -53,8 +93,13 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 
 # Photographs, for the two types a trader produces with a phone. A photo of the
 # stall is a photo; receipts may be photographed or scanned.
-PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png")
+# Every format a phone camera saves in: JPEG and PNG, WebP (Android), and
+# HEIC/HEIF (iPhone).
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif")
 ACCEPTED_BY_TYPE = {
+	# An identity document may be a PDF scan or a photo of the card or page
+	# (GDB, 2026-10-03) — most people sign up from a phone.
+	"Identity": ALLOWED_EXTENSIONS + PHOTO_EXTENSIONS,
 	"Trading Photo": PHOTO_EXTENSIONS,
 	"Business Photo": PHOTO_EXTENSIONS,
 	"Receipts or Records": PHOTO_EXTENSIONS + ALLOWED_EXTENSIONS,
@@ -73,6 +118,9 @@ SIGNATURES = {
 }
 
 
+HEIF_BRANDS = (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1")
+
+
 def accepted_extensions(document_type: str | None) -> tuple:
 	"""The file formats GDB accepts for this type of evidence."""
 	return ACCEPTED_BY_TYPE.get(document_type or "", ALLOWED_EXTENSIONS)
@@ -84,6 +132,11 @@ def is_what_it_claims(extension: str, content: bytes) -> bool:
 	A PDF may carry a little junk before its header (the format allows it within
 	the first KB), so only a PDF is searched rather than matched at the start.
 	"""
+	if extension == ".webp":
+		return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+	if extension in (".heic", ".heif"):
+		# An ISO media file: a "ftyp" box naming a HEIF brand.
+		return content[4:8] == b"ftyp" and content[8:12] in HEIF_BRANDS
 	signature = SIGNATURES.get(extension)
 	if not signature:
 		return False

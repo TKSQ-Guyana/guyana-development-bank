@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RecordAccountOffer } from "../components/apply/RecordAccount";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { call } from "../api";
 import { useAuth } from "../auth";
@@ -47,8 +48,14 @@ import {
 import { CONSENT_TEXT, FALSE_INFORMATION_WARNING } from "../shared/consent";
 import { Footer, QButton } from "../components/portal/ui";
 import { formatPhone } from "../components/PhoneInput";
+import {
+  DEBT_STATUSES,
+  EDUCATION_LEVELS,
+  type ExistingDebt,
+} from "../shared/education";
 import { firstRepaymentLine, moratoriumChoice } from "../shared/moratorium";
-import { addDocument } from "../components/DocumentShelf";
+import { addDocument, DocumentShelf } from "../components/DocumentShelf";
+import { useOneAtATime } from "../components/apply/OneAtATime";
 import type { DocumentShelf as Shelf } from "../types";
 
 /** The guided application.
@@ -279,6 +286,9 @@ interface Saved {
   profileRegion?: string;
   profileZone?: string;
   profileCode?: string;
+  profileEducation?: string;
+  profileSkills?: string;
+  existingDebts?: ExistingDebt[];
 }
 
 /** A GDB Field Officer filling this form WITH the applicant, under their
@@ -301,7 +311,11 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // Whose application this is. Assisted, it is the applicant's — never the
   // officer at the keyboard.
   const user = assist
-    ? { full_name: assist.applicantName ?? "", eid: assist.applicantEid }
+    ? {
+        full_name: assist.applicantName ?? "",
+        eid: assist.applicantEid,
+        national_id: null,
+      }
     : signedIn;
   const base = assist?.base ?? "/apply";
   // Assisted: how the officer finished — handed back, or submitted for them.
@@ -316,6 +330,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // abandoned one.
   // `pid` is an unfinished application kept on the profile (`/apply/draft/:pid`).
   const { name: routeName, pid } = useParams<{ name: string; pid: string }>();
+  // One SME Loan at a time: a brand-new application is stopped before it is
+  // filled in when the citizen already has one open (services/eligibility).
+  const blocked = useOneAtATime("standard", !routeName && !pid && !assist);
 
   const [step, setStep] = useState<StepId>("route");
   // The furthest step the applicant has reached. Going back to change an
@@ -336,7 +353,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // can say so at the field instead of the save failing on lending's check.
   const [ceiling, setCeiling] = useState<number | null>(null);
   // The terms and moratoria the server accepts for this product.
-  const [termOptions, setTermOptions] = useState<number[]>([6, 12, 18, 24]);
+  // The SME term: any whole month in this range (up to five years), server-checked.
+  const [termMin, setTermMin] = useState(6);
+  const [termMax, setTermMax] = useState(60);
   const [moratoriumOptions, setMoratoriumOptions] = useState<number[]>([
     1, 2, 3,
   ]);
@@ -370,6 +389,12 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const [profileRegion, setProfileRegion] = useState("");
   const [profileZone, setProfileZone] = useState("");
   const [profileCode, setProfileCode] = useState("");
+  const [profileEducation, setProfileEducation] = useState("");
+  const [profileSkills, setProfileSkills] = useState("");
+  // The debts the applicant already carries, when they say they have any.
+  const [existingDebts, setExistingDebts] = useState<ExistingDebt[]>([
+    { lender: "", amount: 0, status: "" },
+  ]);
   // Case documents picked before the draft exists, uploaded once it does.
   const [queued, setQueued] = useState<QueuedFiles>({});
 
@@ -545,6 +570,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           ? loan.use_of_funds
           : [{ item: "", amount: 0 }],
       );
+      if (loan.existing_debts?.length) setExistingDebts(loan.existing_debts);
       setApplicantShare(
         loan.applicant_share != null ? String(loan.applicant_share) : "",
       );
@@ -623,6 +649,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     setProfileRegion((cur) => s.profileRegion || cur);
     setProfileZone((cur) => s.profileZone || cur);
     setProfileCode((cur) => s.profileCode || cur);
+    setProfileEducation((cur) => s.profileEducation || cur);
+    setProfileSkills((cur) => s.profileSkills || cur);
+    if (s.existingDebts?.length) setExistingDebts(s.existingDebts);
     // A step id from an older wizard would point nowhere, so only a current one is used.
     if (s.step && STEPS.some((st) => st.id === s.step)) {
       setStep(s.step);
@@ -633,13 +662,15 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   useEffect(() => {
     call<{
       ceiling: number;
-      term_options?: number[];
+      min_term?: number;
+      max_term?: number;
       moratorium_options?: number[];
       rate_of_interest?: number;
     }>("gdb_bank.api.sme_loan_terms")
       .then((t) => {
         setCeiling(t.ceiling || null);
-        if (t.term_options?.length) setTermOptions(t.term_options);
+        if (t.min_term) setTermMin(t.min_term);
+        if (t.max_term) setTermMax(t.max_term);
         if (t.moratorium_options?.length)
           setMoratoriumOptions(t.moratorium_options);
         setSmeRate(t.rate_of_interest ?? null);
@@ -699,6 +730,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     profileRegion,
     profileZone,
     profileCode,
+    profileEducation,
+    profileSkills,
+    existingDebts,
   });
 
   /** Save wherever this application lives now: the Loan Application draft
@@ -750,8 +784,18 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         );
         setProfileTown((cur) => cur || p.village_or_town || "");
         setProfileRegion((cur) => cur || p.region || "");
+        // The operating region starts at the region on record, until the
+        // business registry or the applicant says otherwise.
+        if (p.region)
+          setSections((sec) => ({
+            ...sec,
+            operating_location:
+              sec.operating_location || matchRegion(p.region!),
+          }));
         setProfileZone((cur) => cur || p.address_zone || "");
         setProfileCode((cur) => cur || p.address_code || "");
+        setProfileEducation((cur) => cur || p.education_level || "");
+        setProfileSkills((cur) => cur || p.skills_qualifications || "");
       })
       .catch(() => {});
   }, []);
@@ -1000,6 +1044,11 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 .join(", ")
             : "",
         use_of_funds: encodeUseOfFunds(useOfFunds),
+        // The debts, only when the answer is Yes — a No carries none.
+        existing_debts:
+          sections.has_existing_debts === "Yes"
+            ? existingDebts.filter((d) => d.lender.trim())
+            : [],
         // Shares only where shares exist. A sole trader owns the whole thing
         // and a cluster is not owned in percentages, so sending a figure for
         // either would put a number in the Bank's record that means nothing.
@@ -1074,6 +1123,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       // (services/application.py), so "No" cannot go on as one.
       if (stage === "Existing" && !dcra.trim())
         return "Enter the business registration number.";
+      if (stage === "Existing" && !text("date_established"))
+        return "Give the date your business was established.";
       if (registryPending && looking) return "Checking the register…";
       if (!structure) return "Select the legal structure.";
       if (structure === "Other" && !text("legal_structure_other").trim())
@@ -1115,6 +1166,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       if (!profileEmail.trim()) return "Enter your email address.";
       if (!profileAddress.trim()) return "Enter your residential address.";
       if (!profileRegion) return "Select the region you live in.";
+      if (!profileEducation) return "Choose your highest level of education.";
     }
     if (step === "business") {
       if (!text("executive_summary").trim())
@@ -1128,12 +1180,25 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         return "Enter the business registration number.";
       if (!text("sector").trim()) return "Select the sector.";
     }
+    if (step === "finances") {
+      const has = text("has_existing_debts");
+      if (!has) return "Tell us whether you have any existing debts.";
+      if (has === "Yes") {
+        const named = existingDebts.filter((d) => d.lender.trim());
+        if (!named.length)
+          return "Give the lender, amount and status of each existing debt.";
+        if (named.some((d) => !(Number(d.amount) > 0)))
+          return "Give the amount outstanding on each existing debt.";
+        if (named.some((d) => !d.status))
+          return "Choose the status of each existing debt.";
+      }
+    }
     if (step === "funding") {
       if (!amount || Number(amount) <= 0) return "Enter the loan amount.";
       if (ceiling && Number(amount) > ceiling)
         return `The SME Direct Loan is up to ${formatGyd(ceiling)}.`;
-      if (!termOptions.includes(Number(term)))
-        return `Choose a repayment term of ${termOptions.slice(0, -1).join(", ")} or ${termOptions[termOptions.length - 1]} months.`;
+      if (!(Number(term) >= termMin && Number(term) <= termMax))
+        return `Choose a repayment term of ${termMin} to ${termMax} months.`;
       if (!moratoriumOptions.includes(moratorium))
         return "Choose when you want to start repaying.";
       if (!purpose.trim()) return "Enter the purpose of the loan.";
@@ -1172,6 +1237,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
             region: profileRegion,
             address_zone: profileZone,
             address_code: profileCode,
+            education_level: profileEducation,
+            skills_qualifications: profileSkills,
           }),
         );
       } catch (err) {
@@ -1367,11 +1434,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       hint: "For items to be financed · Funding",
     },
     {
-      type: "Identity",
-      title: "Identity document",
-      hint: "National ID or passport · Your details",
-    },
-    {
       type: "Proof of Address",
       title: "Proof of address",
       hint: "Utility bill or bank letter · Your details",
@@ -1473,12 +1535,49 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     }
   };
 
+  const assetsN = Number(sections.total_assets || 0);
+  const debtN = Number(sections.total_debt || 0);
+  const equityN = Number(sections.total_equity || 0);
+  const equityHint =
+    assetsN > 0 || debtN > 0
+      ? equityN && Math.abs(equityN - (assetsN - debtN)) > 1
+        ? `Assets minus debt is ${formatGyd(assetsN - debtN)} — check your figures.`
+        : `Assets minus debt: ${formatGyd(assetsN - debtN)}.`
+      : "What the business owns, less what it owes.";
+
+  const debtAnswers = (): [string, string][] => {
+    const has = text("has_existing_debts");
+    if (has !== "Yes") return [["Existing debts", has || "—"]];
+    return [
+      [
+        "Existing debts",
+        existingDebts
+          .filter((d) => d.lender.trim())
+          .map(
+            (d) =>
+              `${d.lender} — ${formatGyd(Number(d.amount) || 0)} · ${d.status || "—"}`,
+          )
+          .join("\n"),
+      ],
+    ];
+  };
+
   const answersFor = (id: StepId): [string, string][] => {
     switch (id) {
       case "route":
         return [
           ...answersFor("about"),
           ["Application type", show(stageLabel)],
+          ...(stage === "Existing"
+            ? ([
+                [
+                  "Date business established",
+                  text("date_established")
+                    ? formatDate(text("date_established"))
+                    : "—",
+                ],
+              ] as [string, string][])
+            : []),
           [
             "Legal structure",
             show(
@@ -1521,6 +1620,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           ],
           ["Zone", show(profileZone)],
           ["Address code", show(profileCode)],
+          ["Highest level of education", show(profileEducation)],
+          ["Skills, qualifications and education", show(profileSkills)],
         ];
       case "business":
         return [
@@ -1561,6 +1662,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
               ["Operating expenses", money("operating_expenses")],
               ["Annual debt service", money("existing_obligations")],
               ["Cash and bank balances", money("cash_position")],
+              ["Total assets", money("total_assets")],
+              ["Total debt", money("total_debt")],
+              ["Total equity", money("total_equity")],
+              ...debtAnswers(),
             ]
           : stage === "New"
             ? [
@@ -1573,6 +1678,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   money("expected_cash_position"),
                 ],
                 ["Key assumptions", show(val("assumptions"))],
+                ["Total assets", money("total_assets")],
+                ["Total debt", money("total_debt")],
+                ["Total equity", money("total_equity")],
+                ...debtAnswers(),
               ]
             : [];
       case "funding":
@@ -1670,6 +1779,14 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     (s, i) => i < reached && issuesIn(s.id) === 0,
   ).length;
   const amountValue = Number(amount) || 0;
+  // The monthly instalment, as an estimate: lending's own figure is on the offer.
+  const monthlyEstimate = monthlyRepayment(
+    amountValue,
+    Number(term),
+    smeRate ?? 0,
+  );
+
+  if (blocked) return <>{blocked}</>;
 
   return (
     <div className="space-y-4">
@@ -1899,9 +2016,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                               "—",
                           ],
                           [
-                            "e-ID",
+                            user?.eid || profile?.eid ? "e-ID" : "National ID",
                             user?.eid ||
                               profile?.eid ||
+                              user?.national_id ||
                               (user && "tin" in user ? user.tin : null) ||
                               "—",
                           ],
@@ -1933,6 +2051,17 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         </div>
                       ))}
                     </dl>
+
+                    {/* The identity document from registration — shown, not
+                        asked for again. */}
+                    <div className="mt-3 border-t border-emerald-100 pt-3">
+                      <DocumentShelf
+                        only="Identity"
+                        title="Identity document"
+                        compact
+                        viewOnly
+                      />
+                    </div>
 
                     {(!profileHas.dob ||
                       !profileHas.phone ||
@@ -2016,6 +2145,29 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                             placeholder="e.g. 4-AB-102"
                           />
                         </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 border-t border-emerald-100 pt-3">
+                      <p className="mb-2 text-[13px] font-extrabold text-slate-900">
+                        Education and skills
+                      </p>
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <SelectField
+                          label="Highest level of education"
+                          required
+                          value={profileEducation}
+                          onChange={setProfileEducation}
+                          options={EDUCATION_LEVELS}
+                          placeholder="Choose one"
+                        />
+                        <TextAreaField
+                          label="Skills, qualifications and education"
+                          value={profileSkills}
+                          onChange={setProfileSkills}
+                          rows={2}
+                          max={1000}
+                          placeholder="Certificates, trades, courses, experience — in your own words"
+                        />
                       </div>
                     </div>
                   </section>
@@ -2107,6 +2259,16 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                               value={dcra}
                               onChange={onDcraChange}
                               placeholder="BN-2024-004512"
+                            />
+                          </div>
+                          <div className="sm:max-w-xs">
+                            <TextField
+                              label="Date business established"
+                              required
+                              type="date"
+                              value={text("date_established")}
+                              onChange={set("date_established")}
+                              hint="When the business started trading."
                             />
                           </div>
                           {dcraChecking && (
@@ -2619,6 +2781,22 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       value={val("cash_position")}
                       onChange={set("cash_position")}
                     />
+                    <MoneyField
+                      label="Total assets"
+                      value={val("total_assets")}
+                      onChange={set("total_assets")}
+                    />
+                    <MoneyField
+                      label="Total debt"
+                      value={val("total_debt")}
+                      onChange={set("total_debt")}
+                    />
+                    <MoneyField
+                      label="Total equity"
+                      value={val("total_equity")}
+                      onChange={set("total_equity")}
+                      hint={equityHint}
+                    />
                   </div>
                 </Section>
               )}
@@ -2659,6 +2837,22 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       value={val("expected_cash_position")}
                       onChange={set("expected_cash_position")}
                     />
+                    <MoneyField
+                      label="Total assets"
+                      value={val("total_assets")}
+                      onChange={set("total_assets")}
+                    />
+                    <MoneyField
+                      label="Total debt"
+                      value={val("total_debt")}
+                      onChange={set("total_debt")}
+                    />
+                    <MoneyField
+                      label="Total equity"
+                      value={val("total_equity")}
+                      onChange={set("total_equity")}
+                      hint={equityHint}
+                    />
                   </div>
                   <TextAreaField
                     label="Key assumptions"
@@ -2666,6 +2860,110 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     onChange={set("assumptions")}
                     placeholder="Prices, volumes, demand, supply"
                   />
+                </Section>
+              )}
+
+              {step === "finances" && stage && (
+                <Section
+                  letter="D"
+                  title="Existing debts"
+                  blurb="Loans, credit, hire purchase or money owed to suppliers or people — yours or the business's."
+                >
+                  <fieldset>
+                    <legend className="mb-1.5 text-[13px] font-bold text-slate-800">
+                      Do you have any existing debts?
+                      <span className="ml-0.5 text-rose-500">*</span>
+                    </legend>
+                    <div className="grid gap-3 sm:max-w-md sm:grid-cols-2">
+                      <ChoiceCard
+                        title="Yes"
+                        selected={text("has_existing_debts") === "Yes"}
+                        onSelect={() => set("has_existing_debts")("Yes")}
+                      />
+                      <ChoiceCard
+                        title="No"
+                        selected={text("has_existing_debts") === "No"}
+                        onSelect={() => set("has_existing_debts")("No")}
+                      />
+                    </div>
+                  </fieldset>
+                  {text("has_existing_debts") === "Yes" && (
+                    <div className="space-y-2">
+                      {existingDebts.map((d, i) => (
+                        <div
+                          key={i}
+                          className="grid items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                        >
+                          <TextField
+                            label="Lender"
+                            required
+                            value={d.lender}
+                            placeholder="e.g. Republic Bank"
+                            onChange={(v) =>
+                              setExistingDebts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, lender: v } : r,
+                                ),
+                              )
+                            }
+                          />
+                          <MoneyField
+                            label="Amount outstanding"
+                            required
+                            value={d.amount ? String(d.amount) : ""}
+                            onChange={(v) =>
+                              setExistingDebts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i
+                                    ? { ...r, amount: Number(v) || 0 }
+                                    : r,
+                                ),
+                              )
+                            }
+                          />
+                          <SelectField
+                            label="Status"
+                            required
+                            value={d.status}
+                            options={DEBT_STATUSES}
+                            placeholder="Choose"
+                            onChange={(v) =>
+                              setExistingDebts((rows) =>
+                                rows.map((r, j) =>
+                                  j === i ? { ...r, status: v } : r,
+                                ),
+                              )
+                            }
+                          />
+                          <button
+                            type="button"
+                            disabled={existingDebts.length === 1}
+                            onClick={() =>
+                              setExistingDebts((rows) =>
+                                rows.filter((_, j) => j !== i),
+                              )
+                            }
+                            className="mb-1 rounded-lg px-2 py-2 text-xs font-bold text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30"
+                            aria-label={`Remove debt ${i + 1}`}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExistingDebts((rows) => [
+                            ...rows,
+                            { lender: "", amount: 0, status: "" },
+                          ])
+                        }
+                        className="text-sm font-bold text-brand hover:underline"
+                      >
+                        + Add another debt
+                      </button>
+                    </div>
+                  )}
                 </Section>
               )}
 
@@ -2724,11 +3022,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     {/* Closed answers, the programme's own: a term and when
                     repayments begin. Both are checked again by the server. */}
                     <div className="grid gap-4 lg:grid-cols-2">
-                      <ChipGroup
-                        label="Repayment term"
-                        hint="How long you will take to repay."
-                        options={termOptions.map((t) => [t, `${t} months`])}
-                        value={Number(term)}
+                      <TermSlider
+                        min={termMin}
+                        max={termMax}
+                        value={Number(term) || termMin}
                         onChange={(v) => setTerm(String(v))}
                       />
                       <ChipGroup
@@ -2890,6 +3187,17 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     title="Disbursement account"
                     blurb="Must be held in your name."
                   >
+                    <RecordAccountOffer
+                      currentAccountNo={accountNo}
+                      onUse={(a) => {
+                        setBank(a.bank ?? "");
+                        setAccountNo(a.account_number);
+                        setBranchCode(a.routing_number ?? "");
+                        setManualAccount(true);
+                        setAccountCheck(null);
+                        setAccountNote(null);
+                      }}
+                    />
                     {accountsLoading && (
                       <p className="text-sm text-slate-500">
                         Retrieving your accounts…
@@ -3202,17 +3510,25 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/90">
                   Term
                 </dt>
-                <dd className="font-black">{term ? `${term} months` : "—"}</dd>
+                <dd className="font-black">
+                  {term ? termLabel(Number(term)) : "—"}
+                </dd>
               </div>
               <div className="px-5 py-2.5">
                 <dt className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/90">
-                  First instalment
+                  Monthly
                 </dt>
                 <dd className="truncate font-black">
-                  {moratorium ? `${moratorium + 1} months after release` : "—"}
+                  {monthlyEstimate ? `≈ ${formatGyd(monthlyEstimate)}` : "—"}
                 </dd>
               </div>
             </dl>
+            <p className="relative border-t border-white/10 px-5 py-2 text-xs text-emerald-100">
+              {moratorium
+                ? `First instalment ${moratorium + 1} months after release`
+                : "Choose your moratorium on Funding"}
+              {smeRate === 0 ? " · interest-free" : ""}
+            </p>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
@@ -3345,6 +3661,128 @@ function ChipGroup({
         ))}
       </div>
       {hint && <p className="mt-1.5 text-xs text-slate-500">{hint}</p>}
+    </fieldset>
+  );
+}
+
+/** "18 months" / "2 years" / "2 yrs 3 mo" — a term as a person says it. */
+function termLabel(months: number): string {
+  if (!months) return "—";
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  if (!y) return `${m} month${m === 1 ? "" : "s"}`;
+  if (!m) return `${y} year${y === 1 ? "" : "s"}`;
+  return `${y} yr${y === 1 ? "" : "s"} ${m} mo`;
+}
+
+/** An equal monthly instalment: principal over the term when interest-free,
+ *  the standard annuity otherwise. An estimate — the offer states lending's. */
+function monthlyRepayment(
+  amount: number,
+  months: number,
+  annualRate: number,
+): number {
+  if (!(amount > 0) || !(months > 0)) return 0;
+  const r = annualRate / 100 / 12;
+  if (!r) return Math.ceil(amount / months);
+  return Math.ceil((amount * r) / (1 - Math.pow(1 + r, -months)));
+}
+
+/** The repayment term on a slider, in months or in whole years. */
+function TermSlider({
+  min,
+  max,
+  value,
+  onChange,
+}: {
+  min: number;
+  max: number;
+  value: number;
+  onChange: (months: number) => void;
+}) {
+  const [unit, setUnit] = useState<"months" | "years">("months");
+  const yearMin = Math.max(1, Math.ceil(min / 12));
+  const yearMax = Math.floor(max / 12);
+  const pct = ((value - min) / Math.max(max - min, 1)) * 100;
+  return (
+    <fieldset>
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <legend className="text-[13px] font-bold text-slate-800">
+          Repayment term<span className="ml-0.5 text-rose-500">*</span>
+        </legend>
+        <div
+          className="inline-flex rounded-lg bg-slate-100 p-0.5"
+          role="radiogroup"
+          aria-label="Term in"
+        >
+          {(["months", "years"] as const).map((u) => (
+            <button
+              key={u}
+              type="button"
+              role="radio"
+              aria-checked={unit === u}
+              onClick={() => {
+                setUnit(u);
+                // Years move in whole years: round to the nearest one in range.
+                if (u === "years")
+                  onChange(
+                    Math.min(
+                      Math.max(Math.round(value / 12), yearMin),
+                      yearMax,
+                    ) * 12,
+                  );
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-bold capitalize transition-all ${
+                unit === u
+                  ? "bg-white text-brand-dark shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <div className="flex items-baseline justify-between">
+          <p className="text-2xl font-black tracking-tight text-slate-900">
+            {unit === "years"
+              ? `${value / 12} year${value === 12 ? "" : "s"}`
+              : `${value} months`}
+          </p>
+          <p className="text-xs font-semibold text-slate-500">
+            {termLabel(value)}
+          </p>
+        </div>
+        <input
+          type="range"
+          aria-label={`Repayment term in ${unit}`}
+          min={unit === "years" ? yearMin : min}
+          max={unit === "years" ? yearMax : max}
+          step={1}
+          value={unit === "years" ? Math.round(value / 12) : value}
+          onChange={(e) =>
+            onChange(
+              unit === "years"
+                ? Number(e.target.value) * 12
+                : Number(e.target.value),
+            )
+          }
+          className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full accent-emerald-700"
+          style={{
+            background: `linear-gradient(to right, #047857 ${pct}%, #e2e8f0 ${pct}%)`,
+          }}
+        />
+        <div className="mt-1 flex justify-between text-[11px] font-semibold text-slate-400">
+          <span>{unit === "years" ? `${yearMin} yr` : `${min} mo`}</span>
+          <span>
+            {unit === "years" ? `${yearMax} yrs` : `${max} mo (5 yrs)`}
+          </span>
+        </div>
+      </div>
+      <p className="mt-1.5 text-xs text-slate-500">
+        How long you will take to repay — up to 5 years.
+      </p>
     </fieldset>
   );
 }

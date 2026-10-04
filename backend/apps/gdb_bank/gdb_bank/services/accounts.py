@@ -153,14 +153,32 @@ def _warnings(roles) -> list[str]:
 # -- reads ---------------------------------------------------------------------
 
 
-def list_users(actor: str, kind: str = STAFF, search: str | None = None, start=0, page_length=50) -> dict:
+def list_users(
+	actor: str,
+	kind: str = STAFF,
+	search: str | None = None,
+	start=0,
+	page_length=50,
+	status: str | None = None,
+	role: str | None = None,
+) -> dict:
+	"""One page of accounts. `status` is "active" or "disabled"; `role` keeps
+	the accounts holding that role. `total` counts every match — accounts are
+	a list that grows by people, not by transactions, so counting it is cheap."""
 	user_type = USER_TYPES.get(kind)
 	if not user_type:
 		frappe.throw(_("Choose staff or citizens."))
 	page_length = max(1, min(cint(page_length) or 50, MAX_PAGE))
 	start = max(0, cint(start))
 
-	filters = {"user_type": user_type, "name": ["not in", list(role_policy.STANDARD_USERS)]}
+	filters = [["user_type", "=", user_type], ["name", "not in", list(role_policy.STANDARD_USERS)]]
+	if status in ("active", "disabled"):
+		filters.append(["enabled", "=", 1 if status == "active" else 0])
+	if role:
+		if role not in _SHOWN_ROLES:
+			frappe.throw(_("Unknown role: {0}").format(role))
+		holders = frappe.get_all("Has Role", filters={"parenttype": "User", "role": role}, pluck="parent")
+		filters.append(["name", "in", holders or [""]])
 	or_filters = None
 	term = (search or "").strip()[:100]
 	if term:
@@ -183,14 +201,51 @@ def list_users(actor: str, kind: str = STAFF, search: str | None = None, start=0
 	)
 	page = rows[:page_length]
 	roles = _roles_by_user([r.name for r in page])
+	total = (
+		start + len(rows)
+		if len(rows) <= page_length
+		else len(frappe.get_all("User", filters=filters, or_filters=or_filters, pluck="name"))
+	)
 	return {
 		"users": [_summary(r, roles.get(r.name, []), actor) for r in page],
 		"has_more": len(rows) > page_length,
+		"total": total,
 		# The create form offers exactly what the server will accept, rather
 		# than keeping a second copy of role_policy in the client.
 		"grantable_roles": list(role_policy.GRANTABLE_ROLES),
 		"regions": _regions(),
 	}
+
+
+def overview() -> dict:
+	"""The console's landing figures: how many accounts of each kind are open
+	or switched off, and how many staff hold each role."""
+	out = {}
+	for kind, user_type in USER_TYPES.items():
+		base = {"user_type": user_type, "name": ["not in", list(role_policy.STANDARD_USERS)]}
+		active = frappe.db.count("User", {**base, "enabled": 1})
+		disabled = frappe.db.count("User", {**base, "enabled": 0})
+		out[kind] = {"active": active, "disabled": disabled, "total": active + disabled}
+	staff = frappe.get_all(
+		"User",
+		filters={"user_type": USER_TYPES[STAFF], "enabled": 1, "name": ["not in", list(role_policy.STANDARD_USERS)]},
+		pluck="name",
+	)
+	by_role = {role: 0 for role in (*role_policy.GRANTABLE_ROLES, PLATFORM_ADMIN_ROLE)}
+	if staff:
+		for role in frappe.get_all(
+			"Has Role",
+			filters={"parenttype": "User", "parent": ["in", staff], "role": ["in", list(by_role)]},
+			pluck="role",
+		):
+			by_role[role] += 1
+	out["roles"] = [{"role": role, "count": n} for role, n in by_role.items()]
+	never = frappe.db.count(
+		"User",
+		{"user_type": USER_TYPES[STAFF], "enabled": 1, "last_login": ["is", "not set"], "name": ["not in", list(role_policy.STANDARD_USERS)]},
+	)
+	out["staff_never_signed_in"] = never
+	return out
 
 
 def get_user(actor: str, user: str) -> dict:

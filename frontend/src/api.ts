@@ -143,25 +143,64 @@ export interface OtpChallenge {
   demo_code?: string;
 }
 
-/** A TIN sign-up, as the form holds it. The document travels as base64 with
- *  the final call, so nothing is stored until the code is right. */
+/** An online sign-up, as the form holds it. The document travels as base64
+ *  with the final call, so nothing is stored until the code is right. */
 export interface TinSignupForm {
   first_name: string;
   last_name: string;
   email: string;
   phone: string;
+  /** The National ID number the KYC register knows them by — the account's
+   *  sign-in name. */
+  national_id: string;
+  /** Their GRA TIN. Optional. */
   tin: string;
   password: string;
   confirm_password: string;
   document_kind: string;
+  /** The number printed on that document, for the officer to cross-check. */
+  document_number: string;
   /** YYYY-MM-DD. At least 18 (tin_auth.MIN_AGE). */
   date_of_birth: string;
   /** 1 when the code goes to the phone on the KYC register, which the person
    *  confirmed is theirs — `phone` is then left empty: the form never had it. */
   use_registry_phone?: 0 | 1;
+  /** The pass from the face check, where one applies (gdb_bank.face_check). */
+  face_token?: string;
 }
 
-/** What the KYC register holds for a TIN (tin_auth.lookup_tin). */
+/** Whether this National ID needs a face check before its code, and the prompts. */
+export interface FaceCheckStart {
+  required: boolean;
+  check?: string;
+  /** "center", then "left" and "right" in a random order. */
+  steps?: string[];
+  attempts_left?: number;
+}
+
+export interface FaceCheckResult {
+  passed: boolean;
+  face_token?: string;
+  messages?: string[];
+  attempts_left?: number;
+  give_up?: string | null;
+}
+
+export const startFaceCheck = (nationalId: string) =>
+  call<FaceCheckStart>("gdb_bank.tin_auth.start_face_check", {
+    national_id: nationalId,
+  });
+
+export const submitFaceCheck = (
+  check: string,
+  frames: { step: string; image: string }[],
+) =>
+  call<FaceCheckResult>("gdb_bank.tin_auth.submit_face_check", {
+    check,
+    frames,
+  });
+
+/** What the KYC register holds for a National ID (tin_auth.lookup_national_id). */
 export interface KycMatch {
   found: boolean;
   has_account?: boolean;
@@ -173,11 +212,17 @@ export interface KycMatch {
   has_phone?: boolean;
   /** The phone on record, last four digits only: "•••-5532". */
   phone_masked?: string;
+  /** False when this person is on the register with no photo to verify their
+   *  face against: they finish at a branch, not online. */
+  online_signup?: boolean;
+  message?: string;
 }
 
 /** Fill sign-up from the KYC register. Writes nothing. */
-export const lookupTin = (tin: string) =>
-  call<KycMatch>("gdb_bank.tin_auth.lookup_tin", { tin });
+export const lookupNationalId = (nationalId: string) =>
+  call<KycMatch>("gdb_bank.tin_auth.lookup_national_id", {
+    national_id: nationalId,
+  });
 
 /** Sign-up, step one: check the form and send the code. Creates nothing. */
 export const requestSignupOtp = (form: TinSignupForm) =>
@@ -198,15 +243,15 @@ export const completeSignup = (
     document_data: document.data,
   });
 
-/** TIN sign-in, step one: TIN + password. Right ones answer a code challenge;
- *  no session exists yet. */
-export const tinLogin = (tin: string, password: string) =>
-  call<OtpChallenge & { otp_required: true }>("gdb_bank.tin_auth.tin_login", {
-    tin,
-    password,
-  });
+/** National ID sign-in, step one: National ID + password. Right ones answer a
+ *  code challenge; no session exists yet. */
+export const nationalIdLogin = (nationalId: string, password: string) =>
+  call<OtpChallenge & { otp_required: true }>(
+    "gdb_bank.tin_auth.national_id_login",
+    { national_id: nationalId, password },
+  );
 
-/** TIN sign-in, step two: the code, then the session. */
+/** National ID sign-in, step two: the code, then the session. */
 export const verifyLoginOtp = (challenge: string, otp: string) =>
   call<unknown>("gdb_bank.tin_auth.verify_login_otp", { challenge, otp });
 

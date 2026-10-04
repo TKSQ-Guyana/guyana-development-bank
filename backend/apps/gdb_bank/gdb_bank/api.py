@@ -107,6 +107,15 @@ def save_application(
 
 
 @frappe.whitelist()
+def my_loan_eligibility(acting: str | None = None):
+	"""Per product, whether this citizen may start an application now — one
+	SME Loan and one Quick Loan at a time, each cleared before the next."""
+	from gdb_bank.services import eligibility
+
+	return eligibility.summary(subject_for(acting))
+
+
+@frappe.whitelist()
 def submit_application(name: str, accept_terms=None, credit_check_consent=None):
 	"""Put a draft before the Bank. Evidence is EXPECTED but never blocking.
 
@@ -189,6 +198,14 @@ def all_loans(
 	sort: str | None = None,
 	start=0,
 	page_length=None,
+	search: str | None = None,
+	product: str | None = None,
+	business_stage: str | None = None,
+	evidence: str | None = None,
+	min_amount=None,
+	max_amount=None,
+	from_date: str | None = None,
+	to_date: str | None = None,
 ):
 	"""One page of the Bank's queue, with the counts for the whole of it.
 
@@ -196,7 +213,22 @@ def all_loans(
 	review queue, `queue` picks one of the disbursement officer's lists.
 	"""
 	_require_staff()
-	return underwriting_service.all_loans(status, stage, queue, sort, start, page_length)
+	return underwriting_service.all_loans(
+		status,
+		stage,
+		queue,
+		sort,
+		start,
+		page_length,
+		search=search,
+		product=product,
+		business_stage=business_stage,
+		evidence=evidence,
+		min_amount=min_amount,
+		max_amount=max_amount,
+		from_date=from_date,
+		to_date=to_date,
+	)
 
 
 @frappe.whitelist()
@@ -603,8 +635,8 @@ def sme_loan_terms():
 	)
 	return {
 		"ceiling": flt(product.maximum_loan_amount) if product else policy.sme_loan_ceiling(),
-		"max_term": max(policy.sme_loan_terms()),
-		"term_options": policy.sme_loan_terms(),
+		"min_term": policy.sme_term_bounds()[0],
+		"max_term": policy.sme_term_bounds()[1],
 		"moratorium_options": policy.moratorium_options(),
 		"rate_of_interest": flt(product.rate_of_interest) if product else policy.rate_of_interest(),
 	}
@@ -731,6 +763,65 @@ def my_bank_details(acting: str | None = None):
 		"Bank Account", {"party_type": "Customer", "party": customer}, BANK_ACCOUNT_FIELDS, as_dict=True
 	)
 	return row or None
+
+
+@frappe.whitelist()
+def my_kyc_bank_account(acting: str | None = None):
+	"""The bank account the KYC register holds for the signed-in person, in the
+	payout form's terms — to offer as "use this account", or None.
+
+	Found by the National ID they signed up with, else the one they declared
+	on their profile. The bank and branch are matched
+	to the portal's own lists; a bank GDB does not pay into is offered as
+	unknown, and the form asks for another."""
+	from gdb_bank.integrations import kyc_registry
+
+	user = subject_for(acting)
+	number = (
+		frappe.db.get_value("User", user, "gdb_national_id")
+		or frappe.db.get_value("GDB Citizen Profile", {"user": user}, "national_id")
+		or frappe.db.get_value("User", user, "gdb_tin")
+	)
+	person = kyc_registry.lookup(number) if number else None
+	if not person or not person.get("account_number"):
+		return None
+
+	register_bank = person["bank"]
+	bank = frappe.db.get_value("Bank", {"name": register_bank, "gdb_enabled": 1}) or next(
+		(
+			b
+			for b in frappe.get_all("Bank", filters={"gdb_enabled": 1}, pluck="name")
+			if b.lower() == register_bank.lower()
+		),
+		None,
+	)
+	branch = None
+	if bank and person["bank_branch"]:
+		# The register writes "Republic Bank - Water Street"; the list, "Water Street".
+		wanted = person["bank_branch"]
+		if wanted.lower().startswith(register_bank.lower()):
+			wanted = wanted[len(register_bank) :].lstrip(" -–").strip()
+		for row in frappe.get_all(
+			"GDB Bank Branch", filters={"bank": bank}, fields=["name", "branch_name", "routing_number"]
+		):
+			if row.branch_name.lower() == wanted.lower() or wanted.lower() in row.branch_name.lower():
+				branch = row
+				break
+	account_type = person["account_type"].title() if person["account_type"].title() in ("Checking", "Savings") else ""
+	number_digits = person["account_number"]
+	_logger().info(f"kyc bank account offered to {user}")
+	return {
+		"bank": bank,
+		"bank_on_register": register_bank,
+		"bank_known": bool(bank),
+		"branch": branch.name if branch else None,
+		"branch_name": branch.branch_name if branch else person["bank_branch"],
+		"routing_number": branch.routing_number if branch else None,
+		"account_number": number_digits,
+		"masked": f"••••{number_digits[-4:]}" if len(number_digits) >= 4 else number_digits,
+		"holder": person["name_on_account"] or person["full_name"].title(),
+		"account_type": account_type,
+	}
 
 
 @frappe.whitelist()

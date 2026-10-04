@@ -1,0 +1,25 @@
+{
+ "actions": [],
+ "creation": "2026-10-03 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["lender", "amount", "status"],
+ "fields": [
+  {"fieldname": "lender", "fieldtype": "Data", "label": "Lender", "in_list_view": 1, "reqd": 1, "description": "Who the debt is owed to — a bank, a credit union, a supplier, a person."},
+  {"fieldname": "amount", "fieldtype": "Currency", "label": "Amount Outstanding", "in_list_view": 1, "non_negative": 1},
+  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "in_list_view": 1, "options": "\nCurrent\nIn arrears\nRestructured\nPaid off"}
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "GDB Bank",
+ "name": "GDB Existing Debt Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -170,6 +170,10 @@ def verify_condition(name: str, status: str, note: str | None = None):
 		frappe.throw(_("Status must be Outstanding, Met or Waived."))
 
 	doc = frappe.get_doc("GDB Loan Condition", name)
+	# Settled is settled: a met condition is not then waived, nor a waived one
+	# met. Reopen it first (back to Outstanding) to change the answer.
+	if doc.status in SETTLED and status in SETTLED:
+		frappe.throw(_("This condition is already {0}. Reopen it to change that.").format(doc.status.lower()))
 	with _as_system():
 		doc.status = status
 		doc.note = (note or "").strip()

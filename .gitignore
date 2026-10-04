@@ -31,3 +31,6 @@ docx_utf8.txt
 # Playwright MCP's own screenshots/session artifacts — testing tool output,
 # not project code.
 .playwright-mcp/
+
+# Reference face photos (real people) — never in git; see docker-compose `face`.
+/face/photos/

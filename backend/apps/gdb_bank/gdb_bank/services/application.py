@@ -46,6 +46,7 @@ from gdb_bank.services.cluster import (
 	notify_group_submitted,
 	roster_split,
 )
+from gdb_bank.services import eligibility
 from gdb_bank.services.evidence import missing_evidence
 from gdb_bank.services.user import _get_or_create_customer
 
@@ -160,6 +161,8 @@ def _section_values(sections) -> dict:
 	# key from — the ownership table was a table from the start.
 	if "ownership_lines" in sections:
 		values["gdb_ownership_lines"] = _ownership_lines(sections.get("ownership_lines"))
+	if "existing_debts" in sections:
+		values["gdb_existing_debt_lines"] = _existing_debt_lines(sections.get("existing_debts"))
 	for key, (fieldname, fieldtype) in SECTION_KEYS.items():
 		if key not in sections:
 			continue
@@ -169,13 +172,46 @@ def _section_values(sections) -> dict:
 			# amount is then a Currency column Frappe can SUM.
 			values["gdb_use_of_funds_lines"] = _use_of_funds_lines(raw)
 			continue
+		if key == "existing_debts":
+			continue
 		if fieldtype in ("Currency", "Percent", "Float"):
 			values[fieldname] = flt(raw)
+		elif fieldtype == "Date":
+			# "" is not a date: MySQL refuses it. Unanswered is NULL.
+			values[fieldname] = (raw.strip() if isinstance(raw, str) else raw) or None
 		elif fieldtype in ("Int", "Check"):
 			values[fieldname] = cint(raw)
 		else:
 			values[fieldname] = (raw or "").strip() if isinstance(raw, str) else (raw or "")
 	return values
+
+
+DEBT_STATUSES = ("Current", "In arrears", "Restructured", "Paid off")
+
+
+def _existing_debt_lines(raw) -> list[dict]:
+	"""The debts the applicant declared, as child-table rows. A row with no lender
+	is a blank line in the form, and dropped."""
+	if isinstance(raw, str):
+		try:
+			raw = frappe.parse_json(raw) if raw.strip() else []
+		except Exception:
+			return []
+	lines = []
+	for row in raw if isinstance(raw, list) else []:
+		if not isinstance(row, dict):
+			continue
+		lender = (row.get("lender") or "").strip() if isinstance(row.get("lender"), str) else ""
+		if not lender:
+			continue
+		amount = flt(row.get("amount"))
+		if amount < 0:
+			frappe.throw(_("An existing debt cannot be a negative amount."))
+		status = (row.get("status") or "").strip()
+		if status and status not in DEBT_STATUSES:
+			frappe.throw(_("Choose the status of each existing debt."))
+		lines.append({"lender": lender[:140], "amount": amount, "status": status})
+	return lines
 
 
 def _ownership_lines(raw) -> list[dict]:
@@ -287,9 +323,9 @@ def _validated(
 			)
 	elif not cluster and not group:
 		# An SME Direct Loan is repaid over one of the programme's terms.
-		allowed = policy.sme_loan_terms()
-		if term_months not in allowed:
-			frappe.throw(_("Choose a term of {0} months.").format(policy.months_phrase(allowed)))
+		low, high = policy.sme_term_bounds()
+		if not (low <= term_months <= high):
+			frappe.throw(_("Choose a term of {0} to {1} months.").format(low, high))
 	elif not (1 <= term_months <= longest):
 		frappe.throw(_("Term must be between 1 and {0} months.").format(longest))
 	if not purpose:
@@ -363,6 +399,7 @@ def _validated(
 		values.update(_blanked(SME_ONLY))
 		values["gdb_use_of_funds_lines"] = []
 		values["gdb_ownership_lines"] = []
+		values["gdb_existing_debt_lines"] = []
 		# A supporting contact's number is a GUYANA number: seven digits, with or
 		# without the 592 the portal shows as a fixed prefix. Held as +592 and the
 		# seven digits; anything else is dropped, so the check below asks for one.
@@ -462,6 +499,11 @@ def save_application(
 	if assisted_by:
 		values["gdb_assisted_by"] = assisted_by
 
+	if not name and not cluster:
+		# One of each kind at a time: a second draft of the same product is
+		# refused before it exists, not discovered at submission.
+		eligibility.require_none_open(user, _product(product))
+
 	if name:
 		_own_draft(name, user)
 		doc = frappe.get_doc("Loan Application", name)
@@ -514,8 +556,23 @@ def submit_application(
 	outstanding = missing_evidence(name)
 
 	doc = frappe.get_doc("Loan Application", name)
+	# Drafts do not count here — this IS the draft — but a case already with
+	# the Bank, or a loan not yet repaid, does.
+	eligibility.require_none_open(
+		user, _portal_product(doc.loan_product), include_drafts=False, except_name=name
+	)
 	if not doc.gdb_cluster and cint(doc.gdb_moratorium_months) not in policy.moratorium_options():
 		frappe.throw(_(MORATORIUM_MESSAGE).format(policy.months_phrase(policy.moratorium_options())))
+	if not doc.gdb_cluster and _portal_product(doc.loan_product) != QUICK_PRODUCT:
+		if doc.gdb_has_existing_debts not in ("Yes", "No"):
+			frappe.throw(_("Tell us whether you have any existing debts."))
+		if doc.gdb_has_existing_debts == "Yes":
+			if not doc.get("gdb_existing_debt_lines"):
+				frappe.throw(_("Give the lender, amount and status of each existing debt."))
+			if any(not row.status for row in doc.gdb_existing_debt_lines):
+				frappe.throw(_("Choose the status of each existing debt."))
+		if (doc.gdb_business_stage or "").title() == "Existing" and not doc.gdb_date_established:
+			frappe.throw(_("Give the date your business was established."))
 	if _portal_product(doc.loan_product) == QUICK_PRODUCT:
 		if not cint(accept_terms):
 			frappe.throw(_("Accept the terms to submit."))

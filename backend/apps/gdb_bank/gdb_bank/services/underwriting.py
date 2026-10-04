@@ -11,7 +11,7 @@ from frappe.utils import cint, flt, now_datetime
 from gdb_bank.security.conflict import is_same_person
 from gdb_bank.services.evidence import missing_by_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_FROM_PORTAL, STATUS_TO_PORTAL
-from gdb_bank.utils.formatters import _portal_dict, _stage_context, _stage_for
+from gdb_bank.utils.formatters import _portal_dict, _portal_product, _stage_context, _stage_for
 from gdb_bank.utils.session import _as_system, _eids, _logger
 
 
@@ -42,6 +42,9 @@ _QUEUE_FIELDS = [
 	"gdb_owner",
 	"gdb_cluster",
 	"gdb_business_stage",
+	"applicant_name",
+	"gdb_business_name",
+	"gdb_submitted_on",
 ]
 
 
@@ -90,8 +93,26 @@ def all_loans(
 	sort: str | None = None,
 	start=0,
 	page_length=None,
+	search: str | None = None,
+	product: str | None = None,
+	business_stage: str | None = None,
+	evidence: str | None = None,
+	min_amount=None,
+	max_amount=None,
+	from_date: str | None = None,
+	to_date: str | None = None,
 ) -> dict:
 	"""One page of the SUBMITTED applications, with the counts for all of them.
+
+	The review queue's filters narrow everything, the stage counts included —
+	so the tabs say how many of THESE cases sit in each stage:
+
+	  search          applicant or business name, application ID, e-ID or TIN
+	  product         "standard" (SME) or "quick"
+	  business_stage  "Existing" or "New"
+	  min/max_amount  the amount asked for, inclusive
+	  from/to_date    when it was submitted, inclusive
+	  evidence        "complete" or "missing" documents
 
 	Drafts are never before the Bank, so they are never in the queue.
 
@@ -113,7 +134,19 @@ def all_loans(
 	filters = {"docstatus": 1}
 	if status:
 		filters["status"] = STATUS_FROM_PORTAL.get(status, status)
-	light = frappe.get_all("Loan Application", filters=filters, fields=_QUEUE_FIELDS)
+	light = _narrowed(
+		frappe.get_all("Loan Application", filters=filters, fields=_QUEUE_FIELDS),
+		search,
+		product,
+		business_stage,
+		min_amount,
+		max_amount,
+		from_date,
+		to_date,
+	)
+	if evidence in ("complete", "missing"):
+		gaps = missing_by_application(light)
+		light = [r for r in light if bool(gaps.get(r.name)) == (evidence == "missing")]
 
 	facts = _queue_facts()
 	counts = {"All": len(light), **{s: 0 for s in STAGES}}
@@ -178,6 +211,57 @@ def all_loans(
 		"queues": queues,
 		"totals": totals,
 	}
+
+
+def _narrowed(rows, search, product, business_stage, min_amount, max_amount, from_date, to_date):
+	"""The queue's rows that pass the review queue's filters."""
+	from frappe.utils import getdate
+
+	text = (search or "").strip().lower()
+	owners = set()
+	if text:
+		# An e-ID or a TIN is held on the user, with or without its dashes.
+		digits = "".join(c for c in text if c.isdigit())
+		like = [
+			["gdb_eid", "like", f"%{text}%"],
+			["gdb_tin", "like", f"%{text}%"],
+			["gdb_national_id", "like", f"%{text}%"],
+		]
+		if len(digits) >= 3 and digits != text:
+			like.append(["gdb_tin", "like", f"%{digits}%"])
+		owners = set(frappe.get_all("User", or_filters=like, pluck="name"))
+		if len(digits) >= 3:
+			for user, eid in frappe.get_all("User", filters={"gdb_eid": ["is", "set"]}, fields=["name", "gdb_eid"], as_list=True):
+				if digits in "".join(c for c in (eid or "") if c.isdigit()):
+					owners.add(user)
+	low = flt(min_amount) if min_amount not in (None, "") else None
+	high = flt(max_amount) if max_amount not in (None, "") else None
+	since = getdate(from_date) if from_date else None
+	until = getdate(to_date) if to_date else None
+	wanted_product = (product or "").strip().lower()
+	wanted_stage = (business_stage or "").strip().title()
+
+	out = []
+	for r in rows:
+		if text and not (
+			text in (r.name or "").lower()
+			or text in (r.applicant_name or "").lower()
+			or text in (r.gdb_business_name or "").lower()
+			or r.gdb_owner in owners
+		):
+			continue
+		if wanted_product in ("standard", "quick") and _portal_product(r.loan_product) != wanted_product:
+			continue
+		if wanted_stage in ("Existing", "New") and (r.gdb_business_stage or "").title() != wanted_stage:
+			continue
+		amount = flt(r.loan_amount)
+		if (low is not None and amount < low) or (high is not None and amount > high):
+			continue
+		submitted = getdate(r.gdb_submitted_on or r.creation)
+		if (since and submitted < since) or (until and submitted > until):
+			continue
+		out.append(r)
+	return out
 
 
 def _drawable(ctx: dict) -> dict:

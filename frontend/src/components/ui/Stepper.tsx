@@ -7,7 +7,7 @@ import { CheckIcon } from './icons';
 const STEP_NAMES: Record<LoanStage, string> = {
   Draft: 'Started',
   Review: 'Under review',
-  Approved: 'Decision',
+  Approved: 'Credit risk',
   Signing: 'Signing',
   Disbursed: 'Funds released',
   Rejected: 'Not approved',

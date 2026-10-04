@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RecordAccountOffer } from "./RecordAccount";
 import { call } from "../../api";
 import type { BankAccountRecord } from "../../types";
 import { ChoiceCard, Notice, SelectField, TextField } from "./fields";
@@ -30,9 +31,12 @@ export interface PayoutValue {
 export function PayoutAccount({
   value,
   onChange,
+  onAccountType,
 }: {
   value: PayoutValue;
   onChange: (next: PayoutValue) => void;
+  /** Checking / Savings, when the account on record says which. */
+  onAccountType?: (type: string) => void;
 }) {
   const [banks, setBanks] = useState<string[]>([]);
   const [mine, setMine] = useState<BankAccountRecord[] | null>(null);
@@ -187,6 +191,25 @@ export function PayoutAccount({
 
   return (
     <div className="space-y-4">
+      <RecordAccountOffer
+        currentAccountNo={value.accountNo}
+        onUse={(a) => {
+          setManual(true);
+          setCheck(null);
+          setNote(null);
+          onChange({
+            ...value,
+            bank: a.bank ?? "",
+            branch: a.branch ?? "",
+            branchCode: a.routing_number ?? "",
+            accountNo: a.account_number,
+            confirmNo: a.account_number,
+            holder: a.holder,
+            manual: true,
+          });
+          if (a.account_type) onAccountType?.(a.account_type);
+        }}
+      />
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField
           label="Bank"

@@ -74,9 +74,10 @@ DEFAULT_SME_CEILING = 3000000.0
 
 # A Quick Loan is repaid over one of a fixed set of terms, not any number of
 # months: comma-separated months in configuration ("6,12,18,24").
-SME_TERMS_KEY = "gdb_sme_loan_terms"
-SME_TERMS_ENV = "GDB_SME_LOAN_TERMS"
-DEFAULT_SME_TERMS = (6, 12, 18, 24)
+# An SME Direct Loan is repaid over any whole number of months in this range —
+# up to five years (GDB, 2026-10-03; it was 6/12/18/24 before).
+SME_MIN_TERM_KEY, SME_MIN_TERM_ENV, DEFAULT_SME_MIN_TERM = "gdb_sme_min_term", "GDB_SME_MIN_TERM", 6
+SME_MAX_TERM_KEY, SME_MAX_TERM_ENV, DEFAULT_SME_MAX_TERM = "gdb_sme_max_term", "GDB_SME_MAX_TERM", 60
 # How long a borrower may ask to wait before the first repayment, in months —
 # one of these, always (GDB, 2026-10-02): the first instalment then falls this
 # many months after the usual one, a month after disbursement.
@@ -202,9 +203,21 @@ def _month_list(key: str, env: str, default: tuple, minimum: int = 1) -> list[in
 	return sorted({int(p) for p in parts})
 
 
-def sme_loan_terms() -> list[int]:
-	"""The terms, in months, an SME Direct Loan may be repaid over — ascending."""
-	return _month_list(SME_TERMS_KEY, SME_TERMS_ENV, DEFAULT_SME_TERMS)
+def _months(key: str, env: str, default: int) -> int:
+	value, source = _configured(key, env)
+	if not value:
+		return default
+	if not value.isdigit() or not (1 <= int(value) <= MAX_TERM):
+		_refused(key, source, value, default)
+		return default
+	return int(value)
+
+
+def sme_term_bounds() -> tuple[int, int]:
+	"""(shortest, longest) term in months an SME Direct Loan may be repaid over."""
+	low = _months(SME_MIN_TERM_KEY, SME_MIN_TERM_ENV, DEFAULT_SME_MIN_TERM)
+	high = _months(SME_MAX_TERM_KEY, SME_MAX_TERM_ENV, DEFAULT_SME_MAX_TERM)
+	return (low, high) if low <= high else (DEFAULT_SME_MIN_TERM, DEFAULT_SME_MAX_TERM)
 
 
 def moratorium_options() -> list[int]:

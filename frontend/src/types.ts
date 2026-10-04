@@ -147,6 +147,8 @@ export interface LoanApplication {
   reviewed_on: string | null;
   creation: string;
   modified: string;
+  /** The debts the applicant declared (GDB Existing Debt Line). */
+  existing_debts?: { lender: string; amount: number; status: string }[];
 }
 
 /** The disbursement officer's four lists, as `all_loans` names them. */
@@ -179,6 +181,15 @@ export interface ApplicantDocument {
   application: string | null;
   document_type: string;
   status: "Received" | "Accepted" | "Rejected" | "Replaced";
+  /** Identity only: which document, and the number typed from it. */
+  id_document_kind?: string | null;
+  id_document_number?: string | null;
+  /** Staff only: the typed number against the KYC register. */
+  register_check?: {
+    status: "match" | "mismatch" | "not_on_register" | "no_number";
+    id_type?: string | null;
+    hint?: string;
+  };
   request: string | null;
   file_url: string | null;
   file_name: string | null;
@@ -192,6 +203,8 @@ export interface ApplicantDocument {
 }
 
 export interface DocumentSettings {
+  /** The identity documents an Identity upload may be. */
+  id_document_kinds?: string[];
   types: string[];
   personal_types: string[];
   accepts: string;
@@ -252,6 +265,8 @@ export interface MemberProfileSummary extends DeclaredFinancials {
   region: string | null;
   village_or_town: string | null;
   occupation: string | null;
+  education_level?: string | null;
+  skills_qualifications?: string | null;
   verified_phone: string | null;
 }
 
@@ -296,6 +311,8 @@ export interface CitizenProfile extends DeclaredFinancials {
   /** Declared by the applicant on the Quick Loan's About you step. */
   national_id: string | null;
   occupation: string | null;
+  education_level?: string | null;
+  skills_qualifications?: string | null;
   region: string | null;
   village_or_town: string | null;
   address: string | null;
@@ -528,8 +545,11 @@ export interface Whoami {
   /** The e-ID this login is bound to, when they signed in that way. Null for
    *  an email/password session — the portal keeps both doors open. */
   eid: string | null;
-  /** The TIN, for a citizen who signed up with one (gdb_bank.tin_auth). */
+  /** The TIN, for a citizen who gave one at sign-up (optional). */
   tin?: string | null;
+  /** The National ID an online sign-up opened the account with, and signs in
+   *  with (gdb_bank.tin_auth). */
+  national_id?: string | null;
   roles: string[];
   is_underwriter: boolean;
   /** The books: the ledger, portfolio reporting, reconciling receipts, and

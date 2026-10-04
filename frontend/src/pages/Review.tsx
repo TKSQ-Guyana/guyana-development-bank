@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../components/ui/Badge";
 import { DataTable } from "../components/ui/DataTable";
 import { Pager } from "../components/ui/Pager";
@@ -42,24 +42,314 @@ function stageSince(loan: LoanApplication): string | null {
   return loan.reviewed_on ?? loan.creation;
 }
 
-export function Review() {
-  const [stage, setStage] = useState<LoanStage | "All">("Review");
-  const [sort, setSort] = useState<SortKey>("age_asc");
+const PAGE_SIZES = [10, 25, 50];
 
-  // The server filters by stage, sorts and counts, and sends one page. The
-  // queue grows for as long as the Bank lends, so it is never fetched whole.
-  const { page, error, start, setStart } = useLoanQueue({
-    stage: stage === "All" ? undefined : stage,
-    sort,
+/** The filters the review queue accepts, as they sit in the address bar — so
+ *  a filtered queue survives opening a case and coming back, and can be
+ *  shared with a colleague. */
+const FILTER_KEYS = [
+  "search",
+  "product",
+  "business_stage",
+  "evidence",
+  "min_amount",
+  "max_amount",
+  "from_date",
+  "to_date",
+] as const;
+type FilterKey = (typeof FILTER_KEYS)[number];
+type Filters = Partial<Record<FilterKey, string>>;
+
+const PRODUCT_LABEL: Record<string, string> = { standard: "SME Loan", quick: "Quick Loan" };
+const STAGE_LABEL: Record<string, string> = { Existing: "Existing business", New: "New venture" };
+const EVIDENCE_LABEL: Record<string, string> = { complete: "Evidence complete", missing: "Missing documents" };
+
+/** What an active filter reads as in its chip. */
+function chipLabel(key: FilterKey, value: string): string {
+  switch (key) {
+    case "search":
+      return `"${value}"`;
+    case "product":
+      return PRODUCT_LABEL[value] ?? value;
+    case "business_stage":
+      return STAGE_LABEL[value] ?? value;
+    case "evidence":
+      return EVIDENCE_LABEL[value] ?? value;
+    case "min_amount":
+      return `From ${formatGyd(Number(value))}`;
+    case "max_amount":
+      return `Up to ${formatGyd(Number(value))}`;
+    case "from_date":
+      return `Submitted from ${formatDate(value)}`;
+    case "to_date":
+      return `Submitted to ${formatDate(value)}`;
+  }
+}
+
+const FIELD =
+  "w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <label className="block text-xs font-medium text-slate-500">
+      {label}
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={`${FIELD} mt-1`}>
+        <option value="">All</option>
+        {options.map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** An amount box that filters when the reader leaves it or presses Enter, not
+ *  on every keystroke. */
+function AmountFilter({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <label className="block text-xs font-medium text-slate-500">
+      {label}
+      <input
+        type="number"
+        min={0}
+        step={10000}
+        inputMode="numeric"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => draft !== value && onChange(draft)}
+        onKeyDown={(e) => e.key === "Enter" && onChange(draft)}
+        placeholder={placeholder}
+        className={`${FIELD} mt-1`}
+      />
+    </label>
+  );
+}
+
+export function Review() {
+  const [params, setParams] = useSearchParams();
+  const stage = (params.get("stage") as LoanStage | "All" | null) ?? "Review";
+  const sort = (params.get("sort") as SortKey | null) ?? "age_asc";
+  const pageLength = PAGE_SIZES.includes(Number(params.get("rows")))
+    ? Number(params.get("rows"))
+    : PAGE_LENGTH;
+  const filters: Filters = {};
+  FILTER_KEYS.forEach((k) => {
+    const v = params.get(k);
+    if (v) filters[k] = v;
   });
+  const active = FILTER_KEYS.filter((k) => filters[k]);
+  const [showMore, setShowMore] = useState(() =>
+    Boolean(filters.min_amount || filters.max_amount || filters.from_date || filters.to_date),
+  );
+
+  /** Change some of the queue's settings in the address bar; an empty value
+   *  removes its key. Replaces the history entry so Back leaves the page.
+   *  Starts from the address as it is NOW (the ref), not as this render saw
+   *  it — the search box's delayed update must not put back filters that
+   *  Clear filters has just removed. */
+  const latest = useRef(params);
+  latest.current = params;
+  const update = (changes: Record<string, string>) => {
+    const next = new URLSearchParams(latest.current);
+    Object.entries(changes).forEach(([k, v]) => (v ? next.set(k, v) : next.delete(k)));
+    latest.current = next;
+    setParams(next, { replace: true });
+  };
+  const setStage = (s: LoanStage | "All") => update({ stage: s === "Review" ? "" : s });
+  const setSort = (s: SortKey) => update({ sort: s === "age_asc" ? "" : s });
+
+  // The search box is typed into; the queue is asked once typing pauses.
+  const [text, setText] = useState(filters.search ?? "");
+  useEffect(() => setText(filters.search ?? ""), [filters.search]);
+  useEffect(() => {
+    const wait = setTimeout(() => {
+      if (text.trim() !== (latest.current.get("search") ?? "")) update({ search: text.trim() });
+    }, 350);
+    return () => clearTimeout(wait);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  const clearAll = () => {
+    setText("");
+    update(Object.fromEntries(FILTER_KEYS.map((k) => [k, ""])));
+  };
+
+  // The server filters, counts each stage under the filters, sorts and sends
+  // one page. The queue grows for as long as the Bank lends, so it is never
+  // fetched whole.
+  const { page, error, start, setStart } = useLoanQueue(
+    { stage: stage === "All" ? undefined : stage, sort, ...filters },
+    pageLength,
+  );
   const counts = page?.counts ?? {};
   const rows = page?.rows;
+  const amountsBackwards =
+    filters.min_amount && filters.max_amount && Number(filters.min_amount) > Number(filters.max_amount);
+  const datesBackwards = filters.from_date && filters.to_date && filters.from_date > filters.to_date;
 
   return (
     <div>
       <p className="text-sm text-slate-500">
         Cases submitted to GDB. Pick a row to open the case.
       </p>
+
+      <section
+        aria-label="Filters"
+        className="mt-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4"
+      >
+        <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+          <label className="block text-xs font-medium text-slate-500">
+            Search
+            <span className="relative mt-1 block">
+              <svg
+                aria-hidden
+                viewBox="0 0 20 20"
+                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <circle cx="9" cy="9" r="6" />
+                <path d="m14 14 4 4" strokeLinecap="round" />
+              </svg>
+              <input
+                type="search"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Name, business, application ID, e-ID, National ID or TIN"
+                className={`${FIELD} pl-8`}
+              />
+            </span>
+          </label>
+          <FilterSelect
+            label="Product"
+            value={filters.product ?? ""}
+            onChange={(v) => update({ product: v })}
+            options={Object.entries(PRODUCT_LABEL)}
+          />
+          <FilterSelect
+            label="Business"
+            value={filters.business_stage ?? ""}
+            onChange={(v) => update({ business_stage: v })}
+            options={Object.entries(STAGE_LABEL)}
+          />
+          <FilterSelect
+            label="Evidence"
+            value={filters.evidence ?? ""}
+            onChange={(v) => update({ evidence: v })}
+            options={Object.entries(EVIDENCE_LABEL)}
+          />
+        </div>
+
+        {showMore && (
+          <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+            <AmountFilter
+              label="Amount from (GYD)"
+              value={filters.min_amount ?? ""}
+              placeholder="0"
+              onChange={(v) => update({ min_amount: v })}
+            />
+            <AmountFilter
+              label="Amount up to (GYD)"
+              value={filters.max_amount ?? ""}
+              placeholder="Any"
+              onChange={(v) => update({ max_amount: v })}
+            />
+            <label className="block text-xs font-medium text-slate-500">
+              Submitted from
+              <input
+                type="date"
+                value={filters.from_date ?? ""}
+                max={filters.to_date || undefined}
+                onChange={(e) => update({ from_date: e.target.value })}
+                className={`${FIELD} mt-1`}
+              />
+            </label>
+            <label className="block text-xs font-medium text-slate-500">
+              Submitted to
+              <input
+                type="date"
+                value={filters.to_date ?? ""}
+                min={filters.from_date || undefined}
+                onChange={(e) => update({ to_date: e.target.value })}
+                className={`${FIELD} mt-1`}
+              />
+            </label>
+          </div>
+        )}
+        {(amountsBackwards || datesBackwards) && (
+          <p className="mt-2 text-xs text-amber-700">
+            {amountsBackwards ? "The lowest amount is above the highest, so nothing can match. " : ""}
+            {datesBackwards ? "The start date is after the end date, so nothing can match." : ""}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowMore((v) => !v)}
+            aria-expanded={showMore}
+            className="text-sm font-medium text-brand hover:underline"
+          >
+            {showMore ? "Hide amount and date filters" : "Amount and date filters"}
+          </button>
+          {active.length > 0 && (
+            <>
+              <span className="mx-1 h-4 w-px bg-slate-200" aria-hidden />
+              {active.map((k) => (
+                <span
+                  key={k}
+                  className="inline-flex items-center gap-1 rounded-full bg-brand/10 py-0.5 pl-2.5 pr-1 text-xs font-medium text-brand"
+                >
+                  {chipLabel(k, filters[k]!)}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (k === "search") setText("");
+                      update({ [k]: "" });
+                    }}
+                    aria-label={`Remove filter ${chipLabel(k, filters[k]!)}`}
+                    className="rounded-full px-1 leading-none hover:bg-brand/20"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={clearAll}
+                className="ml-auto text-sm font-medium text-slate-500 hover:text-slate-800"
+              >
+                Clear filters
+              </button>
+            </>
+          )}
+        </div>
+      </section>
 
       <div className="mb-3 mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1" role="tablist">
@@ -192,15 +482,17 @@ export function Review() {
           rowKey={(loan) => loan.name}
           minWidth="58rem"
           footnote={false}
-          empty="No cases here."
+          empty={active.length ? "No cases match these filters." : "No cases here."}
         />
       )}
       {page && (
         <Pager
           start={start}
-          pageLength={PAGE_LENGTH}
+          pageLength={pageLength}
           total={page.total}
           onChange={setStart}
+          pageSizes={PAGE_SIZES}
+          onPageLength={(n) => update({ rows: n === PAGE_LENGTH ? "" : String(n) })}
         />
       )}
     </div>

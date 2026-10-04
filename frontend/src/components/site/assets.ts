@@ -19,3 +19,12 @@ export { default as sectorTourism } from '../../assets/landing/sector-tourism.pn
 export { default as sectorManufacturing } from '../../assets/landing/sector-manufacturing.png';
 export { default as sectorTechnology } from '../../assets/landing/sector-technology.png';
 export { default as sectorOrangeCare } from '../../assets/landing/sector-orange-care.png';
+
+// The home page (pages/Landing.tsx, design "Home v3"). Illustrations of the
+// kinds of businesses GDB lends to — not photographs of actual borrowers.
+export { default as homeCrest } from '../../assets/landing/coat-of-arms-v3.png';
+export { default as heroVendor } from '../../assets/landing/hero-vendor.png';
+export { default as heroTrade } from '../../assets/landing/hero-trade.png';
+export { default as heroFarmer } from '../../assets/landing/hero-farmer.png';
+export { default as appointmentPhoto } from '../../assets/landing/appointment.png';
+export { default as presidentPhoto } from '../../assets/landing/president.webp';

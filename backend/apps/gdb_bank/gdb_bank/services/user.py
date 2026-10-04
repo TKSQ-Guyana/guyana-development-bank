@@ -37,6 +37,9 @@ def whoami(user: str) -> dict:
 		# place of the e-ID, and in place of the placeholder email such an
 		# account carries when they gave none.
 		"tin": frappe.db.get_value("User", user, "gdb_tin"),
+		# The National ID an online sign-up opened their account with, and signs
+		# in with (tin_auth.py).
+		"national_id": frappe.db.get_value("User", user, "gdb_national_id"),
 		"roles": frappe.get_roles(user),
 		"is_underwriter": _is_underwriter(user),
 		# Separate capability, separate flag. The SPA gates the money pages on

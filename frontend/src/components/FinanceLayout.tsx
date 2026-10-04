@@ -1,5 +1,6 @@
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Sidebar, type SidebarGroup, type SidebarItem } from './ui/Sidebar';
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { STAFF_LOGIN } from "../shared/staffRoutes";
+import { Sidebar, type SidebarGroup, type SidebarItem } from "./ui/Sidebar";
 import {
   LedgerIcon,
   LogoutIcon,
@@ -7,25 +8,32 @@ import {
   ReconcileIcon,
   ReviewIcon,
   RulesIcon,
-} from './ui/icons';
-import { useAuth } from '../auth';
+} from "./ui/icons";
+import { useAuth } from "../auth";
 
 const NAV_ITEMS: SidebarItem[] = [
-  { to: '/finance/reconciliation', label: 'Reconciliation', icon: <ReconcileIcon /> },
-  { to: '/finance/portfolio', label: 'Portfolio', icon: <PortfolioIcon /> },
-  { to: '/finance/ledger', label: 'Ledger', icon: <LedgerIcon /> },
-  { to: '/finance/rules', label: 'Lending Rules', icon: <RulesIcon /> },
+  {
+    to: "/finance/reconciliation",
+    label: "Reconciliation",
+    icon: <ReconcileIcon />,
+  },
+  { to: "/finance/portfolio", label: "Portfolio", icon: <PortfolioIcon /> },
+  { to: "/finance/ledger", label: "Ledger", icon: <LedgerIcon /> },
+  { to: "/finance/rules", label: "Lending Rules", icon: <RulesIcon /> },
 ];
 
 const MODULE_TITLES: [string, string][] = [
-  ['/finance/reconciliation', 'Reconciliation'],
-  ['/finance/portfolio', 'Portfolio'],
-  ['/finance/ledger', 'Ledger'],
-  ['/finance/rules', 'Lending rules'],
+  ["/finance/reconciliation", "Reconciliation"],
+  ["/finance/portfolio", "Portfolio"],
+  ["/finance/ledger", "Ledger"],
+  ["/finance/rules", "Lending rules"],
 ];
 
 function moduleTitle(pathname: string): string {
-  return MODULE_TITLES.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? 'Finance';
+  return (
+    MODULE_TITLES.find(([prefix]) => pathname.startsWith(prefix))?.[1] ??
+    "Finance"
+  );
 }
 
 /** Chrome for the Finance persona's own section.
@@ -48,7 +56,7 @@ export function FinanceLayout() {
 
   const onLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate(STAFF_LOGIN);
   };
 
   // A finance officer who also releases funds works out of two sections; the
@@ -60,8 +68,14 @@ export function FinanceLayout() {
   const groups: SidebarGroup[] = user?.is_disbursement
     ? [
         {
-          label: 'Elsewhere',
-          items: [{ to: '/disbursements', label: 'Disbursements', icon: <ReviewIcon /> }],
+          label: "Elsewhere",
+          items: [
+            {
+              to: "/disbursements",
+              label: "Disbursements",
+              icon: <ReviewIcon />,
+            },
+          ],
         },
       ]
     : [];
@@ -70,25 +84,31 @@ export function FinanceLayout() {
     <div className="flex min-h-screen">
       <Sidebar
         variant="wide"
-        brand={{ title: 'Guyana Development Bank', subtitle: 'Finance' }}
+        brand={{ title: "Guyana Development Bank", subtitle: "Finance" }}
         items={NAV_ITEMS}
         groups={groups}
         account={
           <div className="flex items-center gap-3 rounded-xl px-3 py-2">
             <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-brand-light text-xs font-bold text-brand-text">
-              {(user?.full_name ?? '?').slice(0, 1).toUpperCase()}
+              {(user?.full_name ?? "?").slice(0, 1).toUpperCase()}
             </span>
             <span className="min-w-0 leading-tight">
               <span className="block truncate text-sm font-semibold text-slate-800">
                 {user?.full_name}
               </span>
               <span className="block truncate text-[11px] text-slate-400">
-                {user?.is_disbursement ? 'Disbursement Officer' : 'Finance Officer'}
+                {user?.is_disbursement
+                  ? "Disbursement Officer"
+                  : "Finance Officer"}
               </span>
             </span>
           </div>
         }
-        footer={{ label: 'Log out', icon: <LogoutIcon />, onClick: () => void onLogout() }}
+        footer={{
+          label: "Log out",
+          icon: <LogoutIcon />,
+          onClick: () => void onLogout(),
+        }}
       />
 
       {/* `min-w-0` is load-bearing: a flex child defaults to min-width:auto,
@@ -102,7 +122,9 @@ export function FinanceLayout() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
               Finance
             </p>
-            <h1 className="text-lg font-bold text-slate-900">{moduleTitle(pathname)}</h1>
+            <h1 className="text-lg font-bold text-slate-900">
+              {moduleTitle(pathname)}
+            </h1>
           </div>
           <div className="flex items-center gap-2 text-sm">
             {user?.is_finance && (

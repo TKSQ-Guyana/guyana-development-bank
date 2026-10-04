@@ -45,6 +45,8 @@ DECLARED_FIELDS = (
 	"date_of_birth",
 	"national_id",
 	"occupation",
+	"education_level",
+	"skills_qualifications",
 	"region",
 	"village_or_town",
 	"address",

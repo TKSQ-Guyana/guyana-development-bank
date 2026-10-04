@@ -72,9 +72,6 @@ export function ApplicantProfile({
 
       <div className="grid gap-6 sm:grid-cols-2">
         <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            From the e-ID directory
-          </h3>
           <Line label="Name" value={profile.verified_full_name} />
           <Line label="Email" value={profile.verified_email} />
           <Line
@@ -95,9 +92,6 @@ export function ApplicantProfile({
         </section>
 
         <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Declared by the applicant
-          </h3>
           <Line
             label="Phone"
             value={profile.phone ? formatPhone(profile.phone) : profile.phone}
@@ -107,11 +101,20 @@ export function ApplicantProfile({
           {profile.date_of_birth &&
             profile.date_of_birth !== profile.verified_birth_date && (
               <Line
-                label={profile.verified_birth_date ? "Date of birth (differs)" : "Date of birth"}
+                label={
+                  profile.verified_birth_date
+                    ? "Date of birth (differs)"
+                    : "Date of birth"
+                }
                 value={profile.date_of_birth}
               />
             )}
           <Line label="Occupation" value={profile.occupation} />
+          <Line label="Education" value={profile.education_level} />
+          <Line
+            label="Skills and qualifications"
+            value={profile.skills_qualifications}
+          />
           <Line label="Region" value={profile.region} />
           <Line label="Village or town" value={profile.village_or_town} />
           <Line label="Address" value={profile.address} />

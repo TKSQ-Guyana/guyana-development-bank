@@ -1,13 +1,26 @@
 import { useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
 import { EidBoxes } from '../../components/EidBoxes';
 import { RequiredMark } from '../../components/ui/RequiredMark';
 import { EMPTY_EID, isCompleteEid } from '../../eid';
 import { createStaffAccount } from './api';
 import type { CreateStaffResult } from './types';
-import { errorText, hasReason, inputClass, Notice, ReasonField } from './ui';
+import { errorText, hasReason, inputClass, Notice, ReasonField, RolePicker } from './ui';
+
+const EXCLUSIVE = ['Facilitator', 'Field Officer'];
+
+function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <section className="relative pl-10">
+      <span className="absolute left-0 top-0 flex h-7 w-7 items-center justify-center rounded-full bg-brand-light text-xs font-bold text-brand-text">
+        {n}
+      </span>
+      <h3 className="pt-1 text-sm font-semibold text-slate-900">{title}</h3>
+      <div className="mt-3 space-y-4">{children}</div>
+    </section>
+  );
+}
 
 /** A new GDB staff account: the Frappe account with its roles here, and — when
  *  the portal manages Keycloak — the Keycloak account, set with a one-time
@@ -34,6 +47,7 @@ export function CreateStaffForm({
 
   const eidTyped = eid !== EMPTY_EID;
   const ready = fullName.trim() && email.trim() && roles.length > 0 && hasReason(reason) && (!eidTyped || isCompleteEid(eid));
+  const exclusiveClash = roles.length > 1 && roles.some((r) => EXCLUSIVE.includes(r));
 
   const toggle = (role: string) =>
     setRoles((current) => (current.includes(role) ? current.filter((r) => r !== role) : [...current, role]));
@@ -60,17 +74,10 @@ export function CreateStaffForm({
   };
 
   return (
-    <Card>
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">New staff account</h2>
-          <p className="text-sm text-slate-500">
-            They sign in with their work email. A one-time password is shown once the account is
-            created; at their first sign-in they choose their own.
-          </p>
-        </div>
-        {error && <Notice tone="error">{error}</Notice>}
+    <form onSubmit={(e) => void onSubmit(e)} className="space-y-7 pb-4">
+      {error && <Notice tone="error">{error}</Notice>}
 
+      <Step n={1} title="The person">
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-slate-700">
             Full name
@@ -92,6 +99,7 @@ export function CreateStaffForm({
             placeholder="name@gdb.gov.gy"
             className={inputClass}
           />
+          <span className="mt-1 block text-xs text-slate-400">This is what they sign in with.</span>
         </label>
         <div>
           <span className="mb-1 block text-sm font-medium text-slate-700">National e-ID</span>
@@ -104,26 +112,17 @@ export function CreateStaffForm({
             describedBy="staff-eid-help"
           />
           <p id="staff-eid-help" className="mt-1 text-xs text-slate-500">
-            Not used to sign in. Recorded so this person can never decide or release a loan of their
-            own, filed from their citizen account.
+            Optional, not used to sign in. Recorded so this person can never decide or release a loan
+            they applied for themselves.
           </p>
         </div>
+      </Step>
 
-        <fieldset>
-          <legend className="mb-1 text-sm font-medium text-slate-700">
-            Roles
-            <RequiredMark />
-          </legend>
-          <div className="flex flex-wrap gap-3">
-            {grantableRoles.map((role) => (
-              <label key={role} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <input type="checkbox" checked={roles.includes(role)} onChange={() => toggle(role)} disabled={busy} />
-                {role}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
+      <Step n={2} title="Access">
+        <RolePicker roles={grantableRoles} selected={roles} onToggle={toggle} disabled={busy} />
+        {exclusiveClash && (
+          <Notice tone="warning">Facilitator and Field Officer must be held alone — the server will refuse this combination.</Notice>
+        )}
         {roles.includes('Field Officer') && (
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-slate-700">Region</span>
@@ -135,20 +134,23 @@ export function CreateStaffForm({
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs text-slate-400">A Field Officer sees only applicants in their region.</span>
           </label>
         )}
+      </Step>
 
+      <Step n={3} title="Record why">
         <ReasonField value={reason} onChange={setReason} disabled={busy} placeholder="e.g. New hire, credit team, starts 1 Oct" />
+      </Step>
 
-        <div className="flex gap-2">
-          <Button type="submit" disabled={busy || !ready}>
-            {busy ? 'Creating…' : 'Create account'}
-          </Button>
-          <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </Card>
+      <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+        <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={busy || !ready}>
+          {busy ? 'Creating…' : 'Create account'}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { STAFF_LOGIN } from "../shared/staffRoutes";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { tinLogin, verifyLoginOtp, type OtpChallenge } from "../api";
+import { nationalIdLogin, verifyLoginOtp, type OtpChallenge } from "../api";
 import { useAuth } from "../auth";
 import { EidBoxes } from "../components/EidBoxes";
 import { OtpInput } from "../components/OtpInput";
@@ -11,7 +12,6 @@ import {
   BankMark,
   FlagRibbon,
   goldActionClass,
-  NotOpenIcon,
 } from "../components/site/atoms";
 import { ArrowRight } from "../components/site/atoms";
 import { EMPTY_EID, isCompleteEid } from "../eid";
@@ -20,8 +20,8 @@ import type { Whoami } from "../types";
 /**
  * KEYCLOAK AUTHENTICATES EVERYBODY — three doors:
  *
- *   citizens   TIN + password, then a one-time code
- *                                     -> gdb_bank.tin_auth.tin_login / verify_login_otp
+ *   citizens   National ID + password, then a one-time code
+ *                                     -> gdb_bank.tin_auth.national_id_login / verify_login_otp
  *   citizens   e-ID + password        -> gdb_bank.identity.password_login
  *   GDB staff  work email + password  -> gdb_bank.identity.staff_login
  *
@@ -30,12 +30,13 @@ import type { Whoami } from "../types";
  * (security/sign_in_policy.py): the e-ID door never opens a staff account and
  * the staff door never opens a citizen's, whatever this page offers.
  *
- * A citizen opens an account by signing up with their TIN (/signup) or by
+ * A citizen opens an account by signing up with their National ID (/signup) or by
  * their first e-ID sign-in; a staff account is made by the platform administrator, who is shown a
  * one-time password for it. That password opens no session: the staff pane
  * then asks the person to choose their own (identity.staff_set_password).
  */
 
+// "tin" is the National ID door: the id stays, so ?method=tin links keep working.
 type Method = "tin" | "eid" | "staff";
 
 // Mirrors identity.NEW_PASSWORD_MIN so the button can wait for it; the server
@@ -46,19 +47,25 @@ const NEW_PASSWORD_MIN = 12;
 // so each lands on the desk they work from, even when `from` points at an
 // application page (a bookmark, or an earlier unauthenticated attempt).
 function landingFor(whoami: Whoami | null, from: string): string {
-  if (whoami?.is_platform_admin) return "/admin/users";
+  if (whoami?.is_platform_admin) return "/admin/overview";
   if (whoami?.is_underwriter) return "/review";
   if (whoami?.is_field_officer) return "/field";
   return from;
 }
 
-export function Login() {
+export function Login({
+  audience = "citizen",
+}: { audience?: "citizen" | "staff" } = {}) {
+  const staffOnly = audience === "staff";
   const { loginAsStaff, loginWithEid, setStaffPassword, refresh } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Two pages, two audiences: /login is the citizens' (TIN, e-ID), /staff/login
+  // the staff's — never a tab of the other.
+  const asked = (location.state as { method?: Method } | null)?.method;
   const [method, setMethod] = useState<Method>(
-    (location.state as { method?: Method } | null)?.method ?? "tin",
+    staffOnly ? "staff" : asked && asked !== "staff" ? asked : "tin",
   );
 
   // TIN door: TIN + password, then the code. No session exists until the code.
@@ -89,14 +96,16 @@ export function Login() {
   // /signup is this page with the sign-up card in place of sign-in, so the
   // invitation stays put and the browser's Back button moves between them.
   const signingUp = location.pathname === "/signup";
-  const tinReady = tin.replace(/\D/g, "").length === 9 && !!tinPassword;
+  const tinReady =
+    /^[A-Z0-9]{6,15}$/.test(tin.toUpperCase().replace(/[^A-Z0-9]/g, "")) &&
+    !!tinPassword;
 
   const onTinSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
     setTinError(null);
     setTinBusy(true);
     try {
-      setTinChallenge(await tinLogin(tin, tinPassword));
+      setTinChallenge(await nationalIdLogin(tin, tinPassword));
       setTinOtp("");
     } catch (err) {
       setTinError(err instanceof Error ? err.message : "Sign-in failed");
@@ -248,11 +257,6 @@ export function Login() {
             should be charging you a fee to apply.
           </p>
 
-          <div className="mt-[34px] flex items-center gap-[11px] text-[16px] font-extrabold text-gdb-ink/85">
-            <NotOpenIcon />
-            The programme is not yet open.
-          </div>
-
           <div className="mt-13 flex items-center gap-[18px] text-[15px] font-extrabold text-gdb-ink/60">
             <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
             Guyana, built forward
@@ -275,22 +279,38 @@ export function Login() {
               <div className="w-full max-w-[452px] rounded-[28px] bg-white px-[38px] pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.09)]">
                 <BankMark className="h-11 w-11 rounded-[14px]" />
 
-                <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
-                  Welcome back.
-                </h2>
-                <p className="mt-1.5 text-[16px] leading-[1.5] text-gdb-ink/65">
-                  Sign in to continue your application.
-                </p>
+                {staffOnly ? (
+                  <>
+                    <p className="mt-5 text-[12px] font-black tracking-[0.14em] text-amber-600 uppercase">
+                      GDB staff
+                    </p>
+                    <h2 className="mt-1 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
+                      Staff sign-in
+                    </h2>
+                    <p className="mt-1.5 text-[16px] leading-[1.5] text-gdb-ink/65">
+                      Sign in with your work email. Your workspace opens on the
+                      roles your account holds.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
+                      Welcome back.
+                    </h2>
+                    <p className="mt-1.5 text-[16px] leading-[1.5] text-gdb-ink/65">
+                      Sign in to continue your application.
+                    </p>
 
-                <div
-                  role="tablist"
-                  aria-label="Choose how to sign in"
-                  className="mt-[26px] flex gap-1 rounded-[13px] bg-gdb-rail p-1"
-                >
-                  {tab("tin", "TIN")}
-                  {tab("eid", "e-ID")}
-                  {tab("staff", "GDB staff")}
-                </div>
+                    <div
+                      role="tablist"
+                      aria-label="Choose how to sign in"
+                      className="mt-[26px] flex gap-1 rounded-[13px] bg-gdb-rail p-1"
+                    >
+                      {tab("tin", "National ID")}
+                      {tab("eid", "e-ID")}
+                    </div>
+                  </>
+                )}
 
                 {/* TIN credential set — then the one-time code */}
                 <form
@@ -371,24 +391,29 @@ export function Login() {
                         )}
                         <label className="block">
                           <span className={fieldLabel}>
-                            TIN
+                            National ID number
                             <RequiredMark />
                           </span>
                           <input
-                            inputMode="numeric"
                             autoComplete="username"
                             placeholder="123456789"
-                            maxLength={11}
+                            maxLength={20}
+                            spellCheck={false}
                             value={tin}
                             onChange={(e) =>
-                              setTin(e.target.value.replace(/[^\d\s-]/g, ""))
+                              setTin(
+                                e.target.value
+                                  .toUpperCase()
+                                  .replace(/[^A-Z0-9\s-]/g, ""),
+                              )
                             }
                             disabled={tinBusy}
                             className={`${textInput} font-mono tracking-wider`}
                           />
                         </label>
                         <p className={fieldHelp}>
-                          Your 9-digit Taxpayer Identification Number.
+                          The Identity No. on your National ID card — the number
+                          you signed up with.
                         </p>
                       </div>
                       <label className="mt-4 block">
@@ -651,7 +676,7 @@ export function Login() {
                       to="/signup"
                       className="font-extrabold text-gdb-indigo hover:underline"
                     >
-                      Create an account with your TIN
+                      Create an account with your National ID
                     </Link>
                     .
                   </p>
@@ -666,10 +691,27 @@ export function Login() {
               disbursement desk, the ledger and the administration console are
               a grant on the staff account, made by the platform administrator. */}
               <p className="max-w-[452px] text-[15px] leading-[1.5] text-gdb-ink/55">
-                GDB team member? Choose{" "}
-                <strong className="font-extrabold">GDB staff</strong> and sign
-                in with your work email — your workspace opens on the roles your
-                account holds.
+                {staffOnly ? (
+                  <>
+                    Applying for a loan?{" "}
+                    <Link
+                      to="/login"
+                      className="font-extrabold text-gdb-indigo hover:underline"
+                    >
+                      Citizen sign-in
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    GDB team member?{" "}
+                    <Link
+                      to={STAFF_LOGIN}
+                      className="font-extrabold text-gdb-indigo hover:underline"
+                    >
+                      Staff sign-in
+                    </Link>
+                  </>
+                )}
               </p>
             </>
           )}

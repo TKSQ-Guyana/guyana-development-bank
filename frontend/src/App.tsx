@@ -1,11 +1,19 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { Fragment, Suspense, lazy } from 'react';
-import type { ComponentType, ReactNode } from 'react';
-import { AuthProvider, useAuth } from './auth';
-import { deskFor, isStaff } from './shared/personas';
-import { ApplicantLayout } from './components/ApplicantLayout';
-import { FinanceLayout } from './components/FinanceLayout';
-import { AdminLayout } from './features/platform-admin/AdminLayout';
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
+import { loginFor, STAFF_LOGIN } from "./shared/staffRoutes";
+import { Fragment, Suspense, lazy } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { AuthProvider, useAuth } from "./auth";
+import { deskFor, isStaff } from "./shared/personas";
+import { ApplicantLayout } from "./components/ApplicantLayout";
+import { FinanceLayout } from "./components/FinanceLayout";
+import { AdminLayout } from "./features/platform-admin/AdminLayout";
 
 const LOADING = <p className="p-8 text-center text-slate-500">Loading…</p>;
 
@@ -24,65 +32,155 @@ function page(load: () => Promise<{ default: ComponentType }>) {
   };
 }
 
-const Landing = page(() => import('./pages/Landing').then((m) => ({ default: m.Landing })));
-const Login = page(() => import('./pages/Login').then((m) => ({ default: m.Login })));
-const Dashboard = page(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
-const Applications = page(() => import('./pages/Applications').then((m) => ({ default: m.Applications })));
-const Apply = page(() => import('./pages/Apply').then((m) => ({ default: m.Apply })));
-const ChooseLoan = page(() => import('./pages/ChooseLoan').then((m) => ({ default: m.ChooseLoan })));
+const Landing = page(() =>
+  import("./pages/Landing").then((m) => ({ default: m.Landing })),
+);
+const Login = page(() =>
+  import("./pages/Login").then((m) => ({ default: m.Login })),
+);
+const StaffLogin = page(() =>
+  import("./pages/Login").then((m) => ({
+    default: function StaffLoginPage() {
+      return <m.Login audience="staff" />;
+    },
+  })),
+);
+const Dashboard = page(() =>
+  import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })),
+);
+const Applications = page(() =>
+  import("./pages/Applications").then((m) => ({ default: m.Applications })),
+);
+const Apply = page(() =>
+  import("./pages/Apply").then((m) => ({ default: m.Apply })),
+);
+const ChooseLoan = page(() =>
+  import("./pages/ChooseLoan").then((m) => ({ default: m.ChooseLoan })),
+);
 const QuickApplyPage = page(() =>
-  import('./features/quick-loan/QuickApplyPage').then((m) => ({ default: m.QuickApplyPage })),
+  import("./features/quick-loan/QuickApplyPage").then((m) => ({
+    default: m.QuickApplyPage,
+  })),
 );
-const LoanDetail = page(() => import('./pages/LoanDetail').then((m) => ({ default: m.LoanDetail })));
+const LoanDetail = page(() =>
+  import("./pages/LoanDetail").then((m) => ({ default: m.LoanDetail })),
+);
 const MyFinancialsPage = page(() =>
-  import('./features/personal-financials/MyFinancialsPage').then((m) => ({ default: m.MyFinancialsPage })),
+  import("./features/personal-financials/MyFinancialsPage").then((m) => ({
+    default: m.MyFinancialsPage,
+  })),
 );
-const Payments = page(() => import('./pages/Payments').then((m) => ({ default: m.Payments })));
+const Payments = page(() =>
+  import("./pages/Payments").then((m) => ({ default: m.Payments })),
+);
 const PaymentHistoryPage = page(() =>
-  import('./features/payment-history/PaymentHistoryPage').then((m) => ({ default: m.PaymentHistoryPage })),
+  import("./features/payment-history/PaymentHistoryPage").then((m) => ({
+    default: m.PaymentHistoryPage,
+  })),
 );
-const Statements = page(() => import('./pages/Statements').then((m) => ({ default: m.Statements })));
-const Training = page(() => import('./pages/Training').then((m) => ({ default: m.Training })));
-const Cluster = page(() => import('./pages/Cluster').then((m) => ({ default: m.Cluster })));
-const Profile = page(() => import('./pages/Profile').then((m) => ({ default: m.Profile })));
-const Review = page(() => import('./pages/Review').then((m) => ({ default: m.Review })));
-const GroupsPage = page(() => import('./features/facilitator/GroupsPage').then((m) => ({ default: m.GroupsPage })));
-const GroupWizard = page(() => import('./features/facilitator/GroupWizard').then((m) => ({ default: m.GroupWizard })));
-const FieldDesk = page(() => import('./features/field-officer/FieldDesk').then((m) => ({ default: m.FieldDesk })));
+const Statements = page(() =>
+  import("./pages/Statements").then((m) => ({ default: m.Statements })),
+);
+const Training = page(() =>
+  import("./pages/Training").then((m) => ({ default: m.Training })),
+);
+const Cluster = page(() =>
+  import("./pages/Cluster").then((m) => ({ default: m.Cluster })),
+);
+const Profile = page(() =>
+  import("./pages/Profile").then((m) => ({ default: m.Profile })),
+);
+const Review = page(() =>
+  import("./pages/Review").then((m) => ({ default: m.Review })),
+);
+const GroupsPage = page(() =>
+  import("./features/facilitator/GroupsPage").then((m) => ({
+    default: m.GroupsPage,
+  })),
+);
+const GroupWizard = page(() =>
+  import("./features/facilitator/GroupWizard").then((m) => ({
+    default: m.GroupWizard,
+  })),
+);
+const FieldDesk = page(() =>
+  import("./features/field-officer/FieldDesk").then((m) => ({
+    default: m.FieldDesk,
+  })),
+);
 const AssistRequestPage = page(() =>
-  import('./features/field-officer/AssistRequestPage').then((m) => ({ default: m.AssistRequestPage })),
+  import("./features/field-officer/AssistRequestPage").then((m) => ({
+    default: m.AssistRequestPage,
+  })),
 );
 const FindApplicant = page(() =>
-  import('./features/field-officer/FindApplicant').then((m) => ({ default: m.FindApplicant })),
+  import("./features/field-officer/FindApplicant").then((m) => ({
+    default: m.FindApplicant,
+  })),
 );
 const AssistConsentPage = page(() =>
-  import('./features/field-officer/AssistConsentPage').then((m) => ({ default: m.AssistConsentPage })),
+  import("./features/field-officer/AssistConsentPage").then((m) => ({
+    default: m.AssistConsentPage,
+  })),
 );
 const AssistedApply = page(() =>
-  import('./features/field-officer/AssistedApply').then((m) => ({ default: m.AssistedApply })),
+  import("./features/field-officer/AssistedApply").then((m) => ({
+    default: m.AssistedApply,
+  })),
 );
 const FieldTaskPage = page(() =>
-  import('./features/field-officer/FieldTaskPage').then((m) => ({ default: m.FieldTaskPage })),
+  import("./features/field-officer/FieldTaskPage").then((m) => ({
+    default: m.FieldTaskPage,
+  })),
 );
 const FieldCaseView = page(() =>
-  import('./features/field-officer/FieldCaseView').then((m) => ({ default: m.FieldCaseView })),
+  import("./features/field-officer/FieldCaseView").then((m) => ({
+    default: m.FieldCaseView,
+  })),
 );
-const Disbursements = page(() => import('./pages/Disbursements').then((m) => ({ default: m.Disbursements })));
+const Disbursements = page(() =>
+  import("./pages/Disbursements").then((m) => ({ default: m.Disbursements })),
+);
 const Reconciliation = page(() =>
-  import('./pages/Finance/Reconciliation').then((m) => ({ default: m.Reconciliation })),
+  import("./pages/Finance/Reconciliation").then((m) => ({
+    default: m.Reconciliation,
+  })),
 );
-const Portfolio = page(() => import('./pages/Finance/Portfolio').then((m) => ({ default: m.Portfolio })));
-const Ledger = page(() => import('./pages/Finance/Ledger').then((m) => ({ default: m.Ledger })));
+const Portfolio = page(() =>
+  import("./pages/Finance/Portfolio").then((m) => ({ default: m.Portfolio })),
+);
+const Ledger = page(() =>
+  import("./pages/Finance/Ledger").then((m) => ({ default: m.Ledger })),
+);
 const RuleProposals = page(() =>
-  import('./pages/Finance/RuleProposals').then((m) => ({ default: m.RuleProposals })),
+  import("./pages/Finance/RuleProposals").then((m) => ({
+    default: m.RuleProposals,
+  })),
 );
-const UsersPage = page(() => import('./features/platform-admin/UsersPage').then((m) => ({ default: m.UsersPage })));
-const HealthPage = page(() => import('./features/platform-admin/HealthPage').then((m) => ({ default: m.HealthPage })));
+const OverviewPage = page(() =>
+  import("./features/platform-admin/OverviewPage").then((m) => ({
+    default: m.OverviewPage,
+  })),
+);
+const UsersPage = page(() =>
+  import("./features/platform-admin/UsersPage").then((m) => ({
+    default: m.UsersPage,
+  })),
+);
+const HealthPage = page(() =>
+  import("./features/platform-admin/HealthPage").then((m) => ({
+    default: m.HealthPage,
+  })),
+);
 const IntegrationsPage = page(() =>
-  import('./features/platform-admin/IntegrationsPage').then((m) => ({ default: m.IntegrationsPage })),
+  import("./features/platform-admin/IntegrationsPage").then((m) => ({
+    default: m.IntegrationsPage,
+  })),
 );
 const AccessHistoryPage = page(() =>
-  import('./features/platform-admin/AccessHistoryPage').then((m) => ({ default: m.AccessHistoryPage })),
+  import("./features/platform-admin/AccessHistoryPage").then((m) => ({
+    default: m.AccessHistoryPage,
+  })),
 );
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -90,7 +188,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (loading) return LOADING;
   if (!user) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    return (
+      <Navigate
+        to={loginFor(location.pathname)}
+        state={{ from: location.pathname }}
+        replace
+      />
+    );
   }
   // Keyed on who is signed in: if the session changes under an open tab, every
   // page below remounts and re-reads its data as the person it now is.
@@ -117,8 +221,14 @@ function ApplicantShell() {
   const location = useLocation();
   if (loading) return LOADING;
   if (!user) {
-    if (location.pathname === '/') return <Landing />;
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    if (location.pathname === "/") return <Landing />;
+    return (
+      <Navigate
+        to={loginFor(location.pathname)}
+        state={{ from: location.pathname }}
+        replace
+      />
+    );
   }
   // Keyed on who is signed in, for the same reason as RequireAuth.
   return <ApplicantLayout key={user.user} />;
@@ -210,6 +320,12 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* GDB staff sign in on their own page, apart from citizens. */}
+          <Route path={STAFF_LOGIN} element={<StaffLogin />} />
+          <Route
+            path="/staff"
+            element={<Navigate to={STAFF_LOGIN} replace />}
+          />
           {/* The same page with the sign-up card in place of sign-in. */}
           <Route path="/signup" element={<Login />} />
           <Route element={<ApplicantShell />}>
@@ -243,14 +359,20 @@ export function App() {
               <Route path="/apply/draft/:pid" element={<Apply />} />
               <Route path="/apply/:name" element={<Apply />} />
               <Route path="/payments" element={<Payments />} />
-              <Route path="/payments/history" element={<PaymentHistoryPage />} />
+              <Route
+                path="/payments/history"
+                element={<PaymentHistoryPage />}
+              />
               <Route path="/statements" element={<Statements />} />
               <Route path="/training" element={<Training />} />
               <Route path="/cluster" element={<Cluster />} />
               <Route path="/profile" element={<Profile />} />
               {/* Declaring your own financials is the member's own act — staff
                   read the same figures from the case workspace instead. */}
-              <Route path="/loans/:name/my-financials" element={<MyFinancialsPage />} />
+              <Route
+                path="/loans/:name/my-financials"
+                element={<MyFinancialsPage />}
+              />
             </Route>
             {/* The shared case URL. Staff get the workspace, the applicant gets
                 their own case — LoanDetail decides which. */}
@@ -380,7 +502,10 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route path="/finance/reconciliation" element={<Reconciliation />} />
+            <Route
+              path="/finance/reconciliation"
+              element={<Reconciliation />}
+            />
             <Route path="/finance/portfolio" element={<Portfolio />} />
             <Route path="/finance/ledger" element={<Ledger />} />
             <Route path="/finance/rules" element={<RuleProposals />} />
@@ -394,7 +519,11 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route path="/admin" element={<Navigate to="/admin/users" replace />} />
+            <Route
+              path="/admin"
+              element={<Navigate to="/admin/overview" replace />}
+            />
+            <Route path="/admin/overview" element={<OverviewPage />} />
             <Route path="/admin/users" element={<UsersPage />} />
             <Route path="/admin/health" element={<HealthPage />} />
             <Route path="/admin/integrations" element={<IntegrationsPage />} />

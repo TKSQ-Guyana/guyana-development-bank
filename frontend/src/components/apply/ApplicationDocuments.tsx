@@ -8,6 +8,7 @@ import {
   formatsLabel,
   sizeLabel,
 } from "../DocumentShelf";
+import { IdNumberLine, useIdentityPrompt } from "../IdentityDetails";
 
 /** The application's evidence as one tile per document type, each its own drop
  *  zone — the wizard's Documents tab, the Financial information step, and the
@@ -62,6 +63,7 @@ export function ApplicationDocuments({
   const [shelf, setShelf] = useState<Shelf | null>(null);
   const [busyType, setBusyType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const identityPrompt = useIdentityPrompt(shelf?.settings.id_document_kinds);
 
   const load = useCallback(async () => {
     try {
@@ -116,14 +118,27 @@ export function ApplicationDocuments({
       });
       return;
     }
+    // An identity document says which it is and its number first — one
+    // file at a time, each its own document.
+    const identities: ({ kind: string; number: string } | undefined)[] = [];
+    for (const file of files) {
+      if (type !== "Identity") {
+        identities.push(undefined);
+        continue;
+      }
+      const answer = await identityPrompt.ask(file.name);
+      if (!answer) return;
+      identities.push(answer);
+    }
     setBusyType(type);
     try {
-      for (const file of files) {
+      for (const [i, file] of files.entries()) {
         await addDocument(
           file,
           type,
           shelf.settings,
           PERSONAL.has(type) ? undefined : (application ?? undefined),
+          identities[i],
         );
       }
     } catch (err) {
@@ -176,6 +191,7 @@ export function ApplicationDocuments({
 
   return (
     <div className="space-y-3">
+      {identityPrompt.prompt}
       {summary && shown.length > 1 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-2.5">
           <p className="text-sm font-bold text-slate-800">
@@ -360,6 +376,7 @@ function DocTile({
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
+                <IdNumberLine doc={d} />
                 {d.review_note && (
                   <span className="block text-[11px] font-medium text-rose-600">
                     {d.review_note}

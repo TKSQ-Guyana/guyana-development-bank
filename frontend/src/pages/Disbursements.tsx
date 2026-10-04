@@ -11,7 +11,7 @@ import {
 } from "../components/ui/DataTable";
 import { Pager } from "../components/ui/Pager";
 import { SegmentedControl } from "../components/ui/SegmentedControl";
-import { PAGE_LENGTH, useLoanQueue } from "../shared/useLoanQueue";
+import { useLoanQueue } from "../shared/useLoanQueue";
 import type { LoanApplication } from "../types";
 import { formatGyd, formatDate } from "../utils";
 
@@ -79,6 +79,11 @@ const APPLICANT: Column<LoanApplication> = {
   ),
 };
 
+/** Three tables share the page, so each starts short; the officer can ask any
+ *  one of them for more rows. */
+const PAGE_SIZES = [10, 25, 50];
+type ListId = "release" | "booking" | "released";
+
 export function Disbursements() {
   const [view, setView] = useState<"queue" | "file">("queue");
   const [company, setCompany] = useState<string | null>(null);
@@ -92,9 +97,16 @@ export function Disbursements() {
   // Three lists, three pages. "Released" is everything with a loan that is no
   // longer awaiting a draw — closed and written-off facilities land there
   // too, which is correct: it is "money already out", not "still running".
-  const release = useLoanQueue({ queue: "release" });
-  const booking = useLoanQueue({ queue: "booking" });
-  const released = useLoanQueue({ queue: "released" });
+  const [sizes, setSizes] = useState<Record<ListId, number>>({
+    release: PAGE_SIZES[0],
+    booking: PAGE_SIZES[0],
+    released: PAGE_SIZES[0],
+  });
+  const release = useLoanQueue({ queue: "release" }, sizes.release);
+  const booking = useLoanQueue({ queue: "booking" }, sizes.booking);
+  const released = useLoanQueue({ queue: "released" }, sizes.released);
+  const resize = (id: ListId) => (n: number) =>
+    setSizes((prev) => ({ ...prev, [id]: n }));
 
   const lists = [release, booking, released];
   const error = lists.find((l) => l.error)?.error ?? null;
@@ -225,9 +237,11 @@ export function Disbursements() {
             />
             <Pager
               start={release.start}
-              pageLength={PAGE_LENGTH}
+              pageLength={sizes.release}
               total={release.page?.total ?? 0}
               onChange={release.setStart}
+              pageSizes={PAGE_SIZES}
+              onPageLength={resize("release")}
             />
           </TableSection>
 
@@ -284,9 +298,11 @@ export function Disbursements() {
             />
             <Pager
               start={booking.start}
-              pageLength={PAGE_LENGTH}
+              pageLength={sizes.booking}
               total={booking.page?.total ?? 0}
               onChange={booking.setStart}
+              pageSizes={PAGE_SIZES}
+              onPageLength={resize("booking")}
             />
           </TableSection>
 
@@ -350,9 +366,11 @@ export function Disbursements() {
             />
             <Pager
               start={released.start}
-              pageLength={PAGE_LENGTH}
+              pageLength={sizes.released}
               total={released.page?.total ?? 0}
               onChange={released.setStart}
+              pageSizes={PAGE_SIZES}
+              onPageLength={resize("released")}
             />
           </TableSection>
         </>

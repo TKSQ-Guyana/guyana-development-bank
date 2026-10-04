@@ -37,6 +37,8 @@ export interface AccountDetail extends AccountSummary {
 export interface AccountPage {
   users: AccountSummary[];
   has_more: boolean;
+  /** Every account matching the filters, not only this page. */
+  total: number;
   /** What the server will let an administrator grant. */
   grantable_roles: string[];
   regions: string[];
@@ -141,4 +143,19 @@ export interface IntegrationTest {
   ok: boolean | null;
   latency_ms: number | null;
   detail: string;
+}
+
+export interface AccountCounts {
+  active: number;
+  disabled: number;
+  total: number;
+}
+
+/** gdb_bank.platform_admin.admin_overview — the console's landing figures. */
+export interface AdminOverview {
+  staff: AccountCounts;
+  citizens: AccountCounts;
+  roles: { role: string; count: number }[];
+  staff_never_signed_in: number;
+  recent: AccessChange[];
 }

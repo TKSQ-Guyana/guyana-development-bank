@@ -171,6 +171,17 @@ def _stage_context(names: list[str]) -> dict:
 	):
 		ctx[total.parent]["use_of_funds_total"] = flt(total.total)
 
+	# The debts the applicant declared, read back the same way.
+	for line in frappe.get_all(
+		EXISTING_DEBT_LINE,
+		filters={"parent": ["in", wanted], "parenttype": "Loan Application", "parentfield": EXISTING_DEBT_FIELD},
+		fields=["parent", "lender", "amount", "status"],
+		order_by="idx asc",
+	):
+		ctx[line.parent].setdefault("existing_debts", []).append(
+			{"lender": line.lender, "amount": flt(line.amount), "status": line.status or ""}
+		)
+
 	# Section B's declared partners and shareholders, read back the same way —
 	# so a half-finished application resumes with its co-owners still on it,
 	# and an underwriter reading the case sees who else owns the business.
@@ -191,6 +202,8 @@ def _stage_context(names: list[str]) -> dict:
 
 
 USE_OF_FUNDS_LINE = "GDB Use Of Funds Line"
+EXISTING_DEBT_LINE = "GDB Existing Debt Line"
+EXISTING_DEBT_FIELD = "gdb_existing_debt_lines"
 USE_OF_FUNDS_FIELD = "gdb_use_of_funds_lines"
 OWNERSHIP_LINE = "GDB Ownership Line"
 OWNERSHIP_FIELD = "gdb_ownership_lines"
@@ -376,6 +389,8 @@ def _portal_dict(row, eids: dict | None = None, ctx: dict | None = None) -> dict
 		# every case so the wizard can resume them and the review screen can
 		# show who else owns the business a loan is going to.
 		"ownership_lines": case.get("ownership_lines") or [],
+		# The debts the applicant declared, when they said they have any.
+		"existing_debts": case.get("existing_debts") or [],
 		"applicant_share": get("gdb_applicant_share"),
 		"underwriter_remarks": get("gdb_remarks"),
 		"reviewed_by": get("gdb_reviewed_by"),

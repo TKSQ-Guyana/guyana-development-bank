@@ -29,8 +29,25 @@ from gdb_bank.utils.session import _require_platform_admin
 
 
 @frappe.whitelist()
-def list_users(kind: str = accounts_service.STAFF, search: str | None = None, start=0, page_length=50):
-	return accounts_service.list_users(_require_platform_admin(), kind, search, start, page_length)
+def list_users(
+	kind: str = accounts_service.STAFF,
+	search: str | None = None,
+	start=0,
+	page_length=50,
+	status: str | None = None,
+	role: str | None = None,
+):
+	return accounts_service.list_users(
+		_require_platform_admin(), kind, search, start, page_length, status=status, role=role
+	)
+
+
+@frappe.whitelist()
+def admin_overview():
+	"""The console's landing page: account counts, staff by role, and the
+	latest changes from the access trail."""
+	_require_platform_admin()
+	return {**accounts_service.overview(), "recent": audit_service.history(None, 0, 6)["rows"]}
 
 
 @frappe.whitelist()

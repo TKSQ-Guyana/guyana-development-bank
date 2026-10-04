@@ -126,6 +126,34 @@ class TestPlatformAdmin(IntegrationTestCase):
 			(access_audit.ACCOUNT_CREATED, "Loan Underwriter", REASON, ADMIN),
 		])
 
+	def test_the_account_list_filters_by_role_and_status_and_counts(self):
+		with self.set_user(ADMIN):
+			platform_admin.set_user_enabled(user=DISBURSER, enabled=0, reason=REASON)
+			underwriters = platform_admin.list_users(role="Loan Underwriter", search="test-gdb-")
+			disabled = platform_admin.list_users(status="disabled", search="test-gdb-")
+			active = platform_admin.list_users(status="active", search="test-gdb-")
+			with self.assertRaises(frappe.ValidationError):
+				platform_admin.list_users(role="Administrator")
+		self.assertEqual([u["name"] for u in underwriters["users"]], [UNDERWRITER])
+		self.assertEqual(underwriters["total"], 1)
+		self.assertEqual([u["name"] for u in disabled["users"]], [DISBURSER])
+		self.assertNotIn(DISBURSER, [u["name"] for u in active["users"]])
+		self.assertEqual(active["total"], len(active["users"]))
+
+	def test_the_overview_counts_accounts_and_roles(self):
+		with self.set_user(ADMIN):
+			before = platform_admin.admin_overview()
+			platform_admin.set_user_enabled(user=DISBURSER, enabled=0, reason=REASON)
+			after = platform_admin.admin_overview()
+		self.assertEqual(after["staff"]["disabled"], before["staff"]["disabled"] + 1)
+		self.assertEqual(after["staff"]["total"], before["staff"]["total"])
+		roles = {r["role"]: r["count"] for r in after["roles"]}
+		self.assertEqual(roles["Disbursement Officer"], {r["role"]: r["count"] for r in before["roles"]}["Disbursement Officer"] - 1)
+		self.assertEqual(after["recent"][0]["subject_user"], DISBURSER)
+		for user in (UNDERWRITER, CITIZEN):
+			with self.set_user(user), self.assertRaises(frappe.PermissionError):
+				platform_admin.admin_overview()
+
 	def test_superuser_and_admin_roles_are_never_grantable(self):
 		for role in ("System Manager", "Platform Admin", "Administrator", "Loan Manager"):
 			with self.set_user(ADMIN), self.assertRaises(frappe.PermissionError):
@@ -340,7 +368,7 @@ class TestPlatformAdmin(IntegrationTestCase):
 
 		with self.set_user(CITIZEN):
 			application = api.save_application(
-				loan_amount=500000, purpose="Cold store", term_months=12, sections={"moratorium_months": 1}
+				loan_amount=500000, purpose="Cold store", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
 			)["name"]
 			api.submit_application(name=application)
 		with self.set_user(UNDERWRITER), self.assertRaises(frappe.PermissionError):

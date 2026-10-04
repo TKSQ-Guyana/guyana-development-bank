@@ -1,4 +1,5 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { STAFF_LOGIN } from "../shared/staffRoutes";
 import { Sidebar, type SidebarGroup, type SidebarItem } from "./ui/Sidebar";
 import {
   ApplicationsIcon,
@@ -80,8 +81,14 @@ export function ApplicantLayout() {
   const { pathname } = useLocation();
 
   const onLogout = async () => {
+    const staff = Boolean(
+      user?.is_underwriter ||
+      user?.is_finance ||
+      user?.is_disbursement ||
+      user?.is_field_officer,
+    );
     await logout();
-    navigate("/login");
+    navigate(staff ? STAFF_LOGIN : "/login");
   };
 
   // Staff aren't applying for anything themselves, and the routes behind the
@@ -129,7 +136,7 @@ export function ApplicantLayout() {
   }
   if (user?.is_platform_admin) {
     staffItems.push({
-      to: "/admin/users",
+      to: "/admin/overview",
       label: "Administration",
       icon: <UsersIcon />,
     });
@@ -164,7 +171,12 @@ export function ApplicantLayout() {
                 <span className="h-2 w-2 flex-none rounded-full bg-emerald-600" />
               </span>
               <span className="block truncate font-mono text-[11px] tracking-tight text-slate-500">
-                {user?.eid ?? (user?.tin ? `TIN ${user.tin}` : user?.user)}
+                {user?.eid ??
+                  (user?.national_id
+                    ? `National ID ${user.national_id}`
+                    : user?.tin
+                      ? `TIN ${user.tin}`
+                      : user?.user)}
               </span>
               {user?.eid && (
                 <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
@@ -201,11 +213,13 @@ export function ApplicantLayout() {
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2.5 text-sm">
-            {!user?.eid && user?.tin && (
+            {!user?.eid && (user?.national_id || user?.tin) && (
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/70 bg-emerald-50/70 px-3 py-1 text-xs font-semibold text-emerald-950 backdrop-blur">
-                <span className="font-normal text-slate-600">TIN:</span>
+                <span className="font-normal text-slate-600">
+                  {user.national_id ? "National ID:" : "TIN:"}
+                </span>
                 <span className="font-mono font-bold text-brand-dark">
-                  {user.tin}
+                  {user.national_id || user.tin}
                 </span>
               </span>
             )}

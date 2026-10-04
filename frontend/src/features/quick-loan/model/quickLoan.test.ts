@@ -10,7 +10,7 @@ const TERMS: QuickLoanTerms = {
   term_options: [6, 12, 18, 24],
   moratorium_options: [1, 2, 3],
   rate_of_interest: 0,
-  trade_locations: ['From home', 'Fixed location', 'Mobile'],
+  trade_locations: ['From home', 'Market', 'Mobile'],
   trading_since: ['Less than 6 months', '6 months to 1 year', '1 to 3 years', 'More than 3 years'],
 };
 
@@ -24,7 +24,7 @@ const VENDOR: QuickAnswers = {
   tradeActivity: 'Sell vegetables',
   region: 'Region 3 — Essequibo Islands-West Demerara',
   tradingSince: '1 to 3 years',
-  tradeLocation: 'Fixed location',
+  tradeLocation: 'Market',
   lat: 6.8013,
   lng: -58.1551,
   place: 'Stabroek Market, Georgetown',
@@ -169,7 +169,7 @@ describe('what is sent and read back', () => {
         trade_activity: 'Sell vegetables',
         trade_region: 'Region 3 — Essequibo Islands-West Demerara',
         trading_since: '1 to 3 years',
-        trade_location: 'Fixed location',
+        trade_location: 'Market',
         support_1_name: 'Asha Persaud',
         support_1_relationship: 'Neighbour',
         support_1_phone: '+592 600 1111',

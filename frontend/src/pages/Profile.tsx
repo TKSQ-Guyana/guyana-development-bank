@@ -9,8 +9,14 @@ import { call } from "../api";
 import { useAuth } from "../auth";
 import { DocumentShelf } from "../components/DocumentShelf";
 import { formatPhone, isGuyanaPhone } from "../components/PhoneInput";
-import { PhoneField, SelectField, TextField } from "../components/apply/fields";
+import {
+  PhoneField,
+  SelectField,
+  TextAreaField,
+  TextField,
+} from "../components/apply/fields";
 import { REGIONS } from "../components/apply/cluster";
+import { EDUCATION_LEVELS } from "../shared/education";
 import { Footer, QButton } from "../components/portal/ui";
 import type { CitizenProfile } from "../types";
 import { formatDate } from "../utils";
@@ -32,6 +38,8 @@ type Form = {
   email: string;
   date_of_birth: string;
   occupation: string;
+  education_level: string;
+  skills_qualifications: string;
   region: string;
   village_or_town: string;
   address: string;
@@ -46,6 +54,8 @@ const EMPTY: Form = {
   email: "",
   date_of_birth: "",
   occupation: "",
+  education_level: "",
+  skills_qualifications: "",
   region: "",
   village_or_town: "",
   address: "",
@@ -61,6 +71,7 @@ const COUNTED: (keyof Form)[] = [
   "email",
   "date_of_birth",
   "occupation",
+  "education_level",
   "address",
   "village_or_town",
   "region",
@@ -73,6 +84,8 @@ const fromProfile = (p: CitizenProfile): Form => ({
   email: p.email || p.verified_email || "",
   date_of_birth: p.date_of_birth || p.verified_birth_date || "",
   occupation: p.occupation ?? "",
+  education_level: p.education_level ?? "",
+  skills_qualifications: p.skills_qualifications ?? "",
   region: p.region ?? "",
   village_or_town: p.village_or_town ?? "",
   address: p.address ?? "",
@@ -183,6 +196,8 @@ export function Profile() {
   const verified = Boolean(profile.verified_on);
   const name = profile.verified_full_name || user?.full_name || "Your account";
   const tin = user && "tin" in user ? user.tin : null;
+  // What an online sign-up opened the account with, and signs in with.
+  const nationalId = user?.national_id ?? null;
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -213,9 +228,13 @@ export function Profile() {
               {name}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              {(profile.eid || tin) && (
+              {(profile.eid || nationalId || tin) && (
                 <span className="rounded-full bg-white/10 px-2.5 py-1 font-mono font-bold ring-1 ring-white/15">
-                  {profile.eid ? `e-ID ${profile.eid}` : `TIN ${tin}`}
+                  {profile.eid
+                    ? `e-ID ${profile.eid}`
+                    : nationalId
+                      ? `National ID ${nationalId}`
+                      : `TIN ${tin}`}
                 </span>
               )}
               <span
@@ -230,7 +249,7 @@ export function Profile() {
                 />
                 {verified
                   ? `Verified by e-ID · ${formatDate(profile.verified_on)}`
-                  : "Signed up with your TIN"}
+                  : "Signed up with your National ID"}
               </span>
             </div>
           </div>
@@ -312,6 +331,23 @@ export function Profile() {
                 value={form.occupation}
                 onChange={set("occupation")}
                 placeholder="e.g. Market vendor"
+              />
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <SelectField
+                label="Highest level of education"
+                value={form.education_level}
+                onChange={set("education_level")}
+                options={EDUCATION_LEVELS}
+                placeholder="Choose one"
+              />
+              <TextAreaField
+                label="Skills, qualifications and education"
+                value={form.skills_qualifications}
+                onChange={set("skills_qualifications")}
+                rows={2}
+                max={1000}
+                placeholder="Certificates, trades, courses, experience"
               />
             </div>
           </Block>
@@ -466,7 +502,10 @@ export function Profile() {
               {(
                 [
                   ["Name", name],
-                  [verified ? "e-ID" : "TIN", profile.eid || tin || "—"],
+                  verified
+                    ? ["e-ID", profile.eid || "—"]
+                    : ["National ID", nationalId || "—"],
+                  ...(tin ? [["TIN", tin] as [string, string]] : []),
                   [
                     "Email",
                     profile.verified_email ||
@@ -484,7 +523,7 @@ export function Profile() {
                 >
                   <dt className="text-slate-500">{k}</dt>
                   <dd
-                    className={`text-right font-semibold break-all text-slate-900 ${k === "e-ID" || k === "TIN" ? "font-mono" : ""}`}
+                    className={`text-right font-semibold break-all text-slate-900 ${k === "e-ID" || k === "TIN" || k === "National ID" ? "font-mono" : ""}`}
                   >
                     {v}
                   </dd>

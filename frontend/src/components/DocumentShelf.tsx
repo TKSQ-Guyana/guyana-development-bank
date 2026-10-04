@@ -3,6 +3,7 @@ import { call, uploadFile } from "../api";
 import { useAuth } from "../auth";
 import type { ApplicantDocument, DocumentShelf as Shelf } from "../types";
 import { formatDate } from "../utils";
+import { IdNumberLine, useIdentityPrompt } from "./IdentityDetails";
 
 /** The evidence shelf: what the applicant has given GDB, and what is missing.
  *
@@ -69,6 +70,7 @@ export async function addDocument(
   type: string,
   settings: Shelf["settings"],
   application?: string,
+  identity?: { kind: string; number: string },
 ): Promise<void> {
   const accepts = acceptsFor(settings, type);
   const accepted = accepts
@@ -89,6 +91,8 @@ export async function addDocument(
   const row = await call<ApplicantDocument>("gdb_bank.documents.new_document", {
     document_type: type,
     application,
+    id_document_kind: identity?.kind,
+    id_document_number: identity?.number,
   });
   try {
     await uploadFile(file, { doctype: DOCTYPE, docname: row.name });
@@ -110,6 +114,7 @@ export function DocumentShelf({
   onChange,
   title = "Documents",
   compact = false,
+  viewOnly = false,
 }: {
   /** Omit for a personal shelf (identity, proof of address). */
   application?: string;
@@ -124,6 +129,9 @@ export function DocumentShelf({
   title?: string;
   /** Narrow column (a sidebar): the type and the drop area stack, and no top margin. */
   compact?: boolean;
+  /** Show what is on file without asking for it again (the identity document
+   *  from registration). Only when nothing is on file can one be added. */
+  viewOnly?: boolean;
 }) {
   const { user } = useAuth();
   const [shelf, setShelf] = useState<Shelf | null>(null);
@@ -131,6 +139,7 @@ export function DocumentShelf({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const identityPrompt = useIdentityPrompt(shelf?.settings.id_document_kinds);
 
   const load = useCallback(async () => {
     try {
@@ -160,10 +169,17 @@ export function DocumentShelf({
 
   const add = async (file: File) => {
     if (!type || !shelf) return;
-    setBusy(true);
     setError(null);
+    // An identity document says which it is and its number first.
+    const identity =
+      type === "Identity" ? await identityPrompt.ask(file.name) : undefined;
+    if (identity === null) {
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
+    setBusy(true);
     try {
-      await addDocument(file, type, shelf.settings, application);
+      await addDocument(file, type, shelf.settings, application, identity);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -215,12 +231,16 @@ export function DocumentShelf({
 
   if (!shelf) return null;
 
-  const canUpload = shelf.can_upload;
   const maxMb = Math.round(shelf.settings.max_bytes / 1024 / 1024);
   const documents = only
     ? shelf.documents.filter((d) => d.document_type === only)
     : shelf.documents;
   const live = documents.filter((d) => d.status !== "Replaced");
+  // viewOnly: a document already on file (the identity document from
+  // registration) is shown, not asked for again. Only when there is none can
+  // one be added here.
+  const onFile = viewOnly && live.length > 0;
+  const canUpload = shelf.can_upload && !onFile;
   const replaced = documents.filter((d) => d.status === "Replaced");
   const accepts = acceptsFor(shelf.settings, type);
 
@@ -241,9 +261,11 @@ export function DocumentShelf({
             </span>
           )}
         </div>
-        <span className="text-[11px] text-slate-500">
-          {formatsLabel(accepts)} · up to {maxMb} MB each
-        </span>
+        {!onFile && (
+          <span className="text-[11px] text-slate-500">
+            {formatsLabel(accepts)} · up to {maxMb} MB each
+          </span>
+        )}
       </div>
 
       {error && (
@@ -261,6 +283,12 @@ export function DocumentShelf({
       {!canUpload && shelf.missing.length > 0 && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           Not on file: <strong>{shelf.missing.map(docLabel).join(", ")}</strong>
+        </p>
+      )}
+
+      {onFile && (
+        <p className="mb-2 text-xs text-slate-500">
+          From your registration — no need to upload it again.
         </p>
       )}
 
@@ -318,6 +346,7 @@ export function DocumentShelf({
                     {d.file_size ? ` · ${sizeLabel(d.file_size)}` : ""}
                     {d.uploaded_on ? ` · ${formatDate(d.uploaded_on)}` : ""}
                   </p>
+                  <IdNumberLine doc={d} />
                   {d.review_note && (
                     <p className="mt-1 text-xs font-medium text-rose-700">
                       {d.review_note}
@@ -346,26 +375,29 @@ export function DocumentShelf({
                     Remove
                   </button>
                 )}
-                {user?.is_underwriter && d.file_url && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={busy || d.status === "Accepted"}
-                      onClick={() => void review(d.name, "Accepted")}
-                      className="rounded-lg border border-green-600 px-2.5 py-1 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-40"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || d.status === "Rejected"}
-                      onClick={() => void review(d.name, "Rejected")}
-                      className="rounded-lg border border-red-500 px-2.5 py-1 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
-                    >
-                      Reject
-                    </button>
-                  </>
-                )}
+                {/* Reviewed once: Accept / Reject only while it awaits review. */}
+                {user?.is_underwriter &&
+                  d.file_url &&
+                  d.status === "Received" && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void review(d.name, "Accepted")}
+                        className="rounded-lg border border-green-600 px-2.5 py-1 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-40"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void review(d.name, "Rejected")}
+                        className="rounded-lg border border-red-500 px-2.5 py-1 font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
               </div>
             </li>
           ))}
@@ -452,6 +484,7 @@ export function DocumentShelf({
           </ul>
         </details>
       )}
+      {identityPrompt.prompt}
     </section>
   );
 }

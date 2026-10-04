@@ -1,10 +1,21 @@
+import {
+  ID_DOCUMENT_KINDS,
+  idNumberHint,
+  idNumberProblem,
+  NATIONAL_ID_CARD,
+  nationalIdMismatch,
+} from "../components/IdentityDetails";
 import { useEffect, useRef, useState } from "react";
+import { IdSampleLink } from "../components/IdSamples";
 import { isGuyanaPhone, PhoneInput } from "../components/PhoneInput";
 import type { FormEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { FaceCheck } from "../components/FaceCheck";
 import {
   completeSignup,
-  lookupTin,
+  lookupNationalId,
+  startFaceCheck,
+  type FaceCheckStart,
   requestSignupOtp,
   type KycMatch,
   type OtpChallenge,
@@ -20,11 +31,12 @@ import {
 } from "../components/site/atoms";
 
 /**
- * TIN SIGN-UP, as the card the login page shows in place of sign-in at
+ * ONLINE SIGN-UP, as the card the login page shows in place of sign-in at
  * /signup (pages/Login.tsx). Three screens, and nothing is created until the third:
  *
- *   1. details      names, optional email, phone, TIN, one identity document,
- *                   a password                -> tin_auth.request_signup_otp
+ *   1. details      National ID (the KYC register's key, and what they sign in
+ *                   with), names, optional email and TIN, phone, one identity
+ *                   document, a password      -> tin_auth.request_signup_otp
  *   2. code         the one-time code sent to that phone
  *                                             -> tin_auth.complete_signup
  *   3. done         the account exists and this browser is signed in to it
@@ -33,15 +45,28 @@ import {
  * this page only spare a round trip.
  */
 
+// The face check before the code is PAUSED (2026-10-04): details go straight
+// to the phone code. Set true again together with face_check.enabled() on the
+// server to bring it back; the FaceCheck step below is kept for that.
+const FACE_CHECK_ON = false;
+
+// An ID number as the register holds it (tin_auth.NID_SHAPE).
+const NID_SHAPE = /^[A-Z0-9]{6,15}$/;
 // The four documents the server accepts (tin_auth.DOCUMENT_KINDS).
-const DOCUMENT_KINDS = [
-  "National ID Card",
-  "Passport",
-  "Driver's Licence",
-  "e-ID",
-];
+const DOCUMENT_KINDS = ID_DOCUMENT_KINDS;
 // tin_auth.PASSWORD_MIN, and the PDF limit of every identity document.
 const PASSWORD_MIN = 8;
+// What the server accepts for an identity document (evidence.ACCEPTED_BY_TYPE):
+// a PDF scan, or a photo in any format a phone camera saves.
+const DOCUMENT_FORMATS = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".heic",
+  ".heif",
+];
 const MAX_BYTES = 10 * 1024 * 1024;
 // The latest date of birth the form offers: 18 years ago today.
 const ADULT_BY = (() => {
@@ -55,14 +80,16 @@ const EMPTY: TinSignupForm = {
   last_name: "",
   email: "",
   phone: "",
+  national_id: "",
   tin: "",
   password: "",
   confirm_password: "",
   document_kind: "",
+  document_number: "",
   date_of_birth: "",
 };
 
-type Stage = "details" | "code" | "done";
+type Stage = "details" | "face" | "code" | "done";
 
 const fieldLabel =
   "block text-[14px] leading-[1.4] font-extrabold text-gdb-ink";
@@ -88,10 +115,15 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const [stage, setStage] = useState<Stage>("details");
   const [form, setForm] = useState<TinSignupForm>(EMPTY);
   const [file, setFile] = useState<File | null>(null);
+  // The number is checked once the person leaves the box, not while typing.
+  const [numberTouched, setNumberTouched] = useState(false);
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The face check, where the KYC register has a photo to compare with.
+  const [faceStart, setFaceStart] = useState<FaceCheckStart | null>(null);
+  const [faceToken, setFaceToken] = useState("");
 
   const set = (key: keyof TinSignupForm) => (value: string) => {
     setError(null);
@@ -101,28 +133,31 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   };
 
   // The KYC register, asked as soon as a whole TIN is typed. What it knows
-  // fills the form (still editable); the phone on record is shown masked and
-  // used only once the person confirms it is theirs.
+  // fills the form (still editable); the phone on record is shown masked, is
+  // the only number the code can go to, and is used once the person confirms
+  // it is theirs. Changing it is done in person, with a Field Officer.
   const [match, setMatch] = useState<KycMatch | null>(null);
   const [looking, setLooking] = useState(false);
-  const [useRecordPhone, setUseRecordPhone] = useState(true);
   const [phoneConfirmed, setPhoneConfirmed] = useState(false);
+  // "Not your number?" — opens the note on changing it in person.
+  const [notMine, setNotMine] = useState(false);
   const edited = useRef(new Set<string>());
-  const tinNow = form.tin.replace(/\D/g, "");
+  // As the register holds it: letters kept (a passport-style "R1234567").
+  const nidNow = form.national_id.toUpperCase().replace(/[^A-Z0-9]/g, "");
   useEffect(() => {
-    if (tinNow.length !== 9) {
+    if (!NID_SHAPE.test(nidNow)) {
       setMatch(null);
       return;
     }
     let live = true;
     setLooking(true);
     const t = window.setTimeout(() => {
-      lookupTin(tinNow)
+      lookupNationalId(nidNow)
         .then((m) => {
           if (!live) return;
           setMatch(m);
-          setUseRecordPhone(Boolean(m.found && m.has_phone));
           setPhoneConfirmed(false);
+          setNotMine(false);
           if (m.found)
             setForm((f) => ({
               ...f,
@@ -142,18 +177,44 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
         })
         .catch(() => live && setMatch(null))
         .finally(() => live && setLooking(false));
-    }, 350);
+    }, 600);
     return () => {
       live = false;
       window.clearTimeout(t);
     };
-  }, [tinNow]);
-  const recordPhone = Boolean(
-    match?.found && match.has_phone && useRecordPhone,
-  );
-  const payload: TinSignupForm = recordPhone
-    ? { ...form, phone: "", use_registry_phone: 1 }
-    : { ...form, use_registry_phone: 0 };
+  }, [nidNow]);
+  // A phone on record is the only one the code may go to.
+  const recordPhone = Boolean(match?.found && match.has_phone);
+  const payload: TinSignupForm = {
+    ...(recordPhone
+      ? { ...form, phone: "", use_registry_phone: 1 as const }
+      : { ...form, use_registry_phone: 0 as const }),
+    face_token: faceToken,
+  };
+
+  /** Details done: the face check first, when one applies — then the code. */
+  const proceed = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!FACE_CHECK_ON || faceToken) return sendCode();
+    setError(null);
+    setBusy(true);
+    try {
+      const started = await startFaceCheck(form.national_id);
+      if (started.required) {
+        setFaceStart(started);
+        setStage("face");
+        return;
+      }
+    } catch (err) {
+      setBusy(false);
+      return setError(
+        err instanceof Error ? err.message : "Something went wrong. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+    await sendCode();
+  };
 
   const pwShort =
     form.password.length > 0 && form.password.length < PASSWORD_MIN;
@@ -163,15 +224,43 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const mismatch =
     form.confirm_password.length > 0 && form.confirm_password !== form.password;
   const tinDigits = form.tin.replace(/\D/g, "");
+  // The TIN is optional: blank, or the nine GRA digits.
+  const tinOk = tinDigits.length === 0 || tinDigits.length === 9;
+  const numberProblem =
+    numberTouched && form.document_kind
+      ? idNumberProblem(form.document_kind, form.document_number) ||
+        nationalIdMismatch(
+          form.document_kind,
+          form.document_number,
+          form.national_id,
+        )
+      : null;
+  // A National ID card's number is the National ID typed above.
+  const cardMatches =
+    form.document_kind === NATIONAL_ID_CARD &&
+    !!form.document_number &&
+    !nationalIdMismatch(
+      form.document_kind,
+      form.document_number,
+      form.national_id,
+    );
 
   const ready =
     form.first_name.trim() &&
     form.last_name.trim() &&
     (recordPhone ? phoneConfirmed : isGuyanaPhone(form.phone)) &&
     !match?.has_account &&
+    match?.online_signup !== false &&
     form.date_of_birth &&
-    tinDigits.length === 9 &&
+    NID_SHAPE.test(nidNow) &&
+    tinOk &&
     form.document_kind &&
+    !idNumberProblem(form.document_kind, form.document_number) &&
+    !nationalIdMismatch(
+      form.document_kind,
+      form.document_number,
+      form.national_id,
+    ) &&
     file &&
     form.password.length >= PASSWORD_MIN &&
     !pwMix &&
@@ -180,9 +269,12 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const pickFile = (picked: File | null) => {
     setError(null);
     if (!picked) return setFile(null);
-    if (!picked.name.toLowerCase().endsWith(".pdf")) {
+    const ext = picked.name.slice(picked.name.lastIndexOf(".")).toLowerCase();
+    if (!DOCUMENT_FORMATS.includes(ext)) {
       setFile(null);
-      return setError(`${picked.name}: attach a PDF.`);
+      return setError(
+        `${picked.name}: attach a PDF or a photo (JPG, PNG, WEBP or HEIC).`,
+      );
     }
     if (picked.size > MAX_BYTES) {
       setFile(null);
@@ -191,12 +283,14 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
     setFile(picked);
   };
 
-  const sendCode = async (e?: FormEvent) => {
+  const sendCode = async (e?: FormEvent, token?: string) => {
     e?.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      setChallenge(await requestSignupOtp(payload));
+      setChallenge(
+        await requestSignupOtp({ ...payload, face_token: token ?? faceToken }),
+      );
       setOtp("");
       setStage("code");
     } catch (err) {
@@ -240,13 +334,13 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
       </div>
 
       {stage === "details" && (
-        <form onSubmit={(e) => void sendCode(e)} noValidate>
+        <form onSubmit={(e) => void proceed(e)} noValidate>
           <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
             Create your account
           </h2>
           <p className="mt-1 text-[15px] text-gdb-ink/65">
-            Start with your TIN — we fill in what is already on record, and send
-            a code to your phone to confirm it is you.
+            Start with your National ID — we fill in what is already on record,
+            and send a code to your phone to confirm it is you.
           </p>
           {error && (
             <p className={`mt-5 ${errorBox}`} role="alert">
@@ -256,29 +350,56 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
 
           <div className="mt-6">
             <Field
-              label="TIN"
+              label="National ID number"
               required
-              hint="The 9-digit Taxpayer Identification Number from the GRA. You sign in with it."
+              hint="The Identity No. on your National ID card. You sign in with it."
             >
               <input
-                inputMode="numeric"
                 autoComplete="username"
                 placeholder="123456789"
-                maxLength={11}
-                value={form.tin}
-                onChange={(e) =>
-                  set("tin")(e.target.value.replace(/[^\d\s-]/g, ""))
-                }
+                maxLength={20}
+                spellCheck={false}
+                value={form.national_id}
+                onChange={(e) => {
+                  const next = e.target.value
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9\s-]/g, "");
+                  set("national_id")(next);
+                  // A National ID card already chosen below follows it.
+                  if (
+                    form.document_kind === NATIONAL_ID_CARD &&
+                    (!form.document_number ||
+                      form.document_number === form.national_id)
+                  )
+                    set("document_number")(next);
+                }}
                 disabled={busy}
                 className={`${textInput} font-mono tracking-wider`}
               />
+              <IdSampleLink kind="National ID Card" className="mt-1.5" />
             </Field>
             {looking && (
               <p className="mt-2 text-[13px] font-semibold text-gdb-ink/55">
                 Looking up your record…
               </p>
             )}
-            {!looking && match?.found && (
+            {!looking && match?.found && match.online_signup === false && (
+              <div
+                className="mt-3 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3"
+                role="alert"
+              >
+                <span className="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full bg-amber-500 text-[13px] font-black text-white">
+                  !
+                </span>
+                <p className="text-[14px] leading-[1.5] text-amber-900">
+                  <b className="font-extrabold">
+                    We found your record — {match.first_name} {match.last_name}.
+                  </b>{" "}
+                  {match.message}
+                </p>
+              </div>
+            )}
+            {!looking && match?.found && match.online_signup !== false && (
               <div className="mt-3 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
                 <span className="mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full bg-brand text-[12px] font-black text-white">
                   ✓
@@ -294,7 +415,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             )}
             {!looking && match?.has_account && (
               <p className={`mt-3 ${errorBox}`}>
-                This TIN already has an account.{" "}
+                This National ID already has an account.{" "}
                 <button
                   type="button"
                   onClick={onSignIn}
@@ -352,7 +473,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                     +592 {match?.phone_masked}
                   </p>
                   <p className="text-[12px] text-gdb-ink/55">
-                    The number on record for this TIN.
+                    The number on record for this National ID.
                   </p>
                   <label className="mt-2 flex cursor-pointer items-start gap-2 text-[14px] font-semibold text-gdb-ink">
                     <input
@@ -365,35 +486,39 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                     This is my number — send my code to it.
                   </label>
                 </div>
+                {/* The number on record cannot be changed online — the server
+                    refuses any other (tin_auth.PHONE_CHANGE_MESSAGE). */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setUseRecordPhone(false);
-                    setPhoneConfirmed(false);
-                  }}
+                  onClick={() => setNotMine((v) => !v)}
+                  aria-expanded={notMine}
                   disabled={busy}
                   className={`${fieldHelp} cursor-pointer border-0 bg-transparent p-0 font-bold text-gdb-indigo hover:underline`}
                 >
-                  Not your number? Use a different one
+                  Not your number?
                 </button>
+                {notMine && (
+                  <div
+                    role="note"
+                    className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950"
+                  >
+                    <p className="font-bold">
+                      The number can&apos;t be changed online.
+                    </p>
+                    <p className="mt-1">
+                      For your security, your sign-up code can only go to the
+                      phone on record for this National ID. To change it, visit
+                      a <strong>GDB Field Officer</strong> or any GDB branch
+                      with your ID. Once it is updated, come back and sign up.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <Field
                 label="Phone number"
                 required
-                hint={
-                  match?.found && match.has_phone ? (
-                    <button
-                      type="button"
-                      onClick={() => setUseRecordPhone(true)}
-                      className="cursor-pointer border-0 bg-transparent p-0 font-bold text-gdb-indigo hover:underline"
-                    >
-                      Use the number on record ({match.phone_masked}) instead
-                    </button>
-                  ) : (
-                    "Your sign-in code is sent here."
-                  )
-                }
+                hint="Your sign-in code is sent here."
               >
                 <PhoneInput
                   value={form.phone}
@@ -403,6 +528,31 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 />
               </Field>
             )}
+            <Field
+              label="TIN"
+              hint={
+                tinOk ? (
+                  "Optional. Your 9-digit GRA Taxpayer Identification Number, if you have one."
+                ) : (
+                  <span className="text-rose-600">
+                    A TIN is 9 digits — check it, or leave it blank.
+                  </span>
+                )
+              }
+            >
+              <input
+                inputMode="numeric"
+                placeholder="Optional"
+                maxLength={11}
+                value={form.tin}
+                onChange={(e) =>
+                  set("tin")(e.target.value.replace(/[^\d\s-]/g, ""))
+                }
+                disabled={busy}
+                aria-invalid={!tinOk}
+                className={`${textInput} font-mono tracking-wider`}
+              />
+            </Field>
             <Field label="Email" hint="Optional.">
               <input
                 type="email"
@@ -417,7 +567,18 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             <Field label="Identity document" required>
               <select
                 value={form.document_kind}
-                onChange={(e) => set("document_kind")(e.target.value)}
+                onChange={(e) => {
+                  const kind = e.target.value;
+                  set("document_kind")(kind);
+                  // The National ID card's number is the one typed above.
+                  if (kind === NATIONAL_ID_CARD)
+                    set("document_number")(form.national_id);
+                  else if (
+                    form.document_kind === NATIONAL_ID_CARD &&
+                    form.document_number === form.national_id
+                  )
+                    set("document_number")("");
+                }}
                 disabled={busy}
                 className={`${textInput} pr-9`}
               >
@@ -428,6 +589,45 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                   </option>
                 ))}
               </select>
+              {form.document_kind && (
+                <IdSampleLink kind={form.document_kind} className="mt-1.5" />
+              )}
+            </Field>
+            <Field
+              label={
+                form.document_kind
+                  ? `${form.document_kind} number`
+                  : "Document number"
+              }
+              required
+              hint={
+                numberProblem ? (
+                  <span className="text-rose-600">{numberProblem}</span>
+                ) : cardMatches ? (
+                  <span className="text-emerald-700">
+                    ✓ Matches your National ID number
+                  </span>
+                ) : (
+                  idNumberHint(form.document_kind)
+                )
+              }
+            >
+              <input
+                value={form.document_number}
+                onChange={(e) => set("document_number")(e.target.value)}
+                onBlur={() => setNumberTouched(true)}
+                disabled={busy || !form.document_kind}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={30}
+                placeholder={
+                  form.document_kind
+                    ? "As printed on it"
+                    : "Choose the document first"
+                }
+                aria-invalid={!!numberProblem}
+                className={`${textInput} font-mono tracking-wider`}
+              />
             </Field>
             <div>
               <span className={fieldLabel}>
@@ -446,7 +646,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
               >
                 <input
                   type="file"
-                  accept=".pdf,application/pdf"
+                  accept={`${DOCUMENT_FORMATS.join(",")},application/pdf,image/*`}
                   className="sr-only"
                   disabled={busy}
                   onChange={(e) => {
@@ -455,13 +655,16 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                   }}
                 />
                 <span className="min-w-0 truncate text-[14px] font-semibold text-gdb-ink/80">
-                  {file ? `✓ ${file.name}` : "Choose a PDF"}
+                  {file ? `✓ ${file.name}` : "Choose a PDF or photo"}
                 </span>
                 <span className="rounded-lg bg-brand-dark px-3 py-1.5 text-[12px] font-extrabold text-white">
                   {file ? "Replace" : "Browse"}
                 </span>
               </label>
-              <p className={fieldHelp}>PDF, up to 10 MB.</p>
+              <p className={fieldHelp}>
+                A PDF, or a clear photo of the document (JPG, PNG, WEBP, HEIC) —
+                up to 10 MB.
+              </p>
             </div>
             <Field
               label="Password"
@@ -513,7 +716,12 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             disabled={busy || !ready}
             className={`mt-7 w-full ${goldActionClass("sm")} py-4 text-[16px]`}
           >
-            {busy ? "Checking…" : "Continue — send my code"}
+            {busy
+              ? "Checking…"
+              : // On the register, the face check comes next; off it, the code.
+                FACE_CHECK_ON && match?.found
+                ? "Proceed to face check"
+                : "Continue — send my code"}
             <ArrowRight size={18} />
           </button>
           <p className="mt-4 text-center text-[14px] text-gdb-ink/65">
@@ -527,6 +735,25 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             </button>
           </p>
         </form>
+      )}
+
+      {stage === "face" && faceStart && (
+        <>
+          {error && (
+            <p className={`mt-5 ${errorBox}`} role="alert">
+              {error}
+            </p>
+          )}
+          <FaceCheck
+            nationalId={form.national_id}
+            start={faceStart}
+            onBack={() => setStage("details")}
+            onPassed={(token) => {
+              setFaceToken(token);
+              void sendCode(undefined, token);
+            }}
+          />
+        </>
       )}
 
       {stage === "code" && challenge && (
@@ -600,7 +827,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
           </h2>
           <p className="mt-2 text-[15px] text-gdb-ink/65">
             Your account is ready, {form.first_name}. Next time, sign in with
-            your TIN, your password and a code.
+            your National ID, your password and a code.
           </p>
           <button
             type="button"
@@ -646,6 +873,8 @@ function Field({
 function Steps({ stage }: { stage: Stage }) {
   const steps: [Stage, string][] = [
     ["details", "Your details"],
+    // ["face", "Face check"],  — paused, see FACE_CHECK_ON
+    ...(FACE_CHECK_ON ? [["face", "Face check"] as [Stage, string]] : []),
     ["code", "Verify phone"],
     ["done", "Signed in"],
   ];

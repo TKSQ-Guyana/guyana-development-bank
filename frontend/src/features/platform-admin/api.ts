@@ -10,6 +10,7 @@ import type {
   AccountDetail,
   AccountKind,
   AccountPage,
+  AdminOverview,
   ChangeResult,
   CreateStaffResult,
   IntegrationGroup,
@@ -20,8 +21,23 @@ import type {
 
 const M = 'gdb_bank.platform_admin';
 
-export const listAccounts = (kind: AccountKind, search: string, start = 0) =>
-  call<AccountPage>(`${M}.list_users`, { kind, search: search || undefined, start, page_length: 50 });
+export interface AccountFilters {
+  status?: 'active' | 'disabled' | '';
+  role?: string;
+  pageLength?: number;
+}
+
+export const listAccounts = (kind: AccountKind, search: string, start = 0, filters: AccountFilters = {}) =>
+  call<AccountPage>(`${M}.list_users`, {
+    kind,
+    search: search || undefined,
+    start,
+    page_length: filters.pageLength ?? 25,
+    status: filters.status || undefined,
+    role: filters.role || undefined,
+  });
+
+export const adminOverview = () => call<AdminOverview>(`${M}.admin_overview`);
 
 export const getAccount = (user: string) => call<AccountDetail>(`${M}.get_user`, { user });
 

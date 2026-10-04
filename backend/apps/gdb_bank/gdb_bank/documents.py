@@ -44,8 +44,11 @@ from gdb_bank.services.evidence import (  # noqa: F401  (PERSONAL_EVIDENCE, requ
 	REPLACED,
 	REQUEST_DOCTYPE,
 	REVIEWED,
+	ID_DOCUMENT_KINDS,
 	accepted_extensions,
+	clean_id_number,
 	is_what_it_claims,
+	require_national_id_match,
 	missing_evidence,
 	required_types,
 )
@@ -64,6 +67,8 @@ DOCUMENT_FIELDS = [
 	"application",
 	"document_type",
 	"status",
+	"id_document_kind",
+	"id_document_number",
 	"request",
 	"file_url",
 	"file_name",
@@ -91,6 +96,36 @@ REQUEST_FIELDS = [
 ]
 
 
+def _cross_check_identity(owner: str, rows: list) -> None:
+	"""For staff: does each Identity document's number match the KYC register's
+	record of this person? Adds `register_check` to those rows —
+	match / mismatch / not_on_register / no_number — and, on a mismatch, the
+	register's ID type and the last digits of its number to compare with."""
+	identity = [r for r in rows if r.document_type == "Identity"]
+	if not identity:
+		return
+	from gdb_bank.integrations import kyc_registry
+
+	number = frappe.db.get_value("User", owner, "gdb_national_id") or frappe.db.get_value(
+		"User", owner, "gdb_tin"
+	)
+	numbers = kyc_registry.id_numbers(number) if number else None
+	for row in identity:
+		typed = row.id_document_number
+		if not typed:
+			row.register_check = {"status": "no_number"}
+		elif not numbers:
+			row.register_check = {"status": "not_on_register"}
+		elif typed in numbers["numbers"]:
+			row.register_check = {"status": "match", "id_type": numbers["id_type"]}
+		else:
+			row.register_check = {
+				"status": "mismatch",
+				"id_type": numbers["id_type"],
+				"hint": ", ".join(f"…{n[-3:]}" for n in sorted(numbers["numbers"])),
+			}
+
+
 def _settings(types: tuple = DOCUMENT_TYPES) -> dict:
 	"""What the upload control needs, from the server that enforces it."""
 	return {
@@ -100,6 +135,8 @@ def _settings(types: tuple = DOCUMENT_TYPES) -> dict:
 		# Per type, for the types that take photographs as well as PDFs.
 		"accepts_by_type": {t: ",".join(accepted_extensions(t)) for t in types},
 		"max_bytes": MAX_FILE_BYTES,
+		# An Identity upload says which document it is and its number.
+		"id_document_kinds": list(ID_DOCUMENT_KINDS),
 	}
 
 
@@ -140,8 +177,14 @@ def new_document(
 	application: str | None = None,
 	request: str | None = None,
 	acting: str | None = None,
+	id_document_kind: str | None = None,
+	id_document_number: str | None = None,
 ):
 	"""Open a shelf row. The file is uploaded against it next, by the framework.
+
+	An Identity document needs `id_document_kind` and `id_document_number` —
+	which document it is and the number printed on it — so the officer can
+	cross-check them (clean_id_number).
 
 	Returns the row, whose `name` is the `docname` to pass to
 	/api/method/upload_file along with doctype=GDB Applicant Document and
@@ -152,6 +195,12 @@ def new_document(
 	document_type = (document_type or "").strip()
 	if document_type not in DOCUMENT_TYPES:
 		frappe.throw(_("{0} is not a document type GDB accepts.").format(document_type))
+
+	id_fields = {}
+	if document_type == "Identity":
+		kind, number = clean_id_number(id_document_kind, id_document_number)
+		require_national_id_match(kind, number, frappe.db.get_value("User", user, "gdb_national_id"))
+		id_fields = {"id_document_kind": kind, "id_document_number": number}
 
 	if document_type in PERSONAL_TYPES:
 		# About the person, so it follows them rather than one case — which is
@@ -184,6 +233,7 @@ def new_document(
 			"status": RECEIVED,
 			"request": request,
 			"uploaded_by": officer or user,
+			**id_fields,
 		}
 	# The officer holds no create right on the applicant's shelf; their access
 	# was settled by subject_for above, and upload_file then checks the row.
@@ -344,6 +394,8 @@ def list_documents(application: str | None = None, applicant: str | None = None,
 		or (not r.application and r.document_type in PERSONAL_TYPES)
 	]
 	member = case_owner is not None and owner != case_owner
+	if staff:
+		_cross_check_identity(owner, shelf)
 	return {
 		"documents": shelf,
 		"missing": missing_evidence(application, owner) if application else [],
@@ -380,8 +432,14 @@ def review_document(name: str, status: str, note: str | None = None):
 	status = (status or "").strip().title()
 	if status not in REVIEWED:
 		frappe.throw(_("A document is either Accepted or Rejected."))
-	if not frappe.db.exists(DOCTYPE, name):
+	current = frappe.db.get_value(DOCTYPE, name, "status")
+	if current is None:
 		frappe.throw(_("Document {0} not found.").format(name))
+	# A document is reviewed once. An accepted one is not then rejected, nor a
+	# rejected one accepted: a rejection is answered by a new upload, which
+	# arrives Received and is reviewed in its own right.
+	if current in REVIEWED:
+		frappe.throw(_("This document has already been {0}.").format(current.lower()))
 
 	frappe.db.set_value(
 		DOCTYPE,

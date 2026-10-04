@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { call } from "../api";
+import { EID_NOTICE } from "../shared/eidNotice";
 import type { LoanOffer } from "../types";
 
 /** Underwriter-side: issue the Letter of Offer on an approved application.
@@ -13,9 +14,12 @@ export function IssueOffer({
   onIssued,
   defaultAmount,
   defaultTerm,
+  needsEid = false,
 }: {
   application: string;
   onIssued?: () => void;
+  /** The applicant has no e-ID: the conditions start with EID_NOTICE. */
+  needsEid?: boolean;
   /** What the applicant asked for — the form starts there. */
   defaultAmount?: number;
   defaultTerm?: number;
@@ -39,7 +43,7 @@ export function IssueOffer({
       )
       .catch(() => undefined);
   }, []);
-  const [conditions, setConditions] = useState("");
+  const [conditions, setConditions] = useState(needsEid ? EID_NOTICE : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

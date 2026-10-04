@@ -14,6 +14,8 @@
   "column_break_head",
   "document_type",
   "status",
+  "id_document_kind",
+  "id_document_number",
   "request",
   "section_break_file",
   "file_url",
@@ -30,27 +32,162 @@
   "superseded_by"
  ],
  "fields": [
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "GDB-DOC-.YYYY.-", "reqd": 1, "default": "GDB-DOC-.YYYY.-"},
-  {"fieldname": "applicant", "fieldtype": "Link", "options": "User", "label": "Applicant", "reqd": 1, "read_only": 1, "in_standard_filter": 1},
-  {"fieldname": "applicant_name", "fieldtype": "Data", "label": "Applicant Name", "read_only": 1, "in_list_view": 1},
-  {"fieldname": "application", "fieldtype": "Link", "options": "Loan Application", "label": "Loan Application", "in_list_view": 1, "in_standard_filter": 1, "description": "Blank for a personal document held on the applicant's profile rather than against one case."},
-  {"fieldname": "column_break_head", "fieldtype": "Column Break"},
-  {"fieldname": "document_type", "fieldtype": "Select", "label": "Document Type", "options": "Identity\nProof of Address\nPersonal Financials\nFinancials\nCash Flow Projection\nIncome Statement\nBalance Sheet\nBusiness Plan\nBank Statement\nQuotation\nTrading Photo\nReceipts or Records\nBusiness Photo\nOther", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Received\nAccepted\nRejected\nReplaced", "default": "Received", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "request", "fieldtype": "Link", "options": "GDB Information Request", "label": "Answers Request", "read_only": 1},
-  {"fieldname": "section_break_file", "fieldtype": "Section Break", "label": "File"},
-  {"fieldname": "file_url", "fieldtype": "Data", "label": "File URL", "read_only": 1},
-  {"fieldname": "file_name", "fieldtype": "Data", "label": "File Name", "read_only": 1},
-  {"fieldname": "column_break_file", "fieldtype": "Column Break"},
-  {"fieldname": "file_size", "fieldtype": "Int", "label": "Size (bytes)", "read_only": 1},
-  {"fieldname": "uploaded_on", "fieldtype": "Datetime", "label": "Uploaded On", "read_only": 1},
-  {"fieldname": "uploaded_by", "fieldtype": "Link", "options": "User", "label": "Uploaded By", "read_only": 1, "description": "Who put the file here: the applicant, or a Field Officer on their behalf."},
-  {"fieldname": "section_break_review", "fieldtype": "Section Break", "label": "Review"},
-  {"fieldname": "reviewed_by", "fieldtype": "Link", "options": "User", "label": "Reviewed By", "read_only": 1},
-  {"fieldname": "reviewed_on", "fieldtype": "Datetime", "label": "Reviewed On", "read_only": 1},
-  {"fieldname": "column_break_review", "fieldtype": "Column Break"},
-  {"fieldname": "review_note", "fieldtype": "Small Text", "label": "Review Note", "read_only": 1},
-  {"fieldname": "superseded_by", "fieldtype": "Link", "options": "GDB Applicant Document", "label": "Replaced By", "read_only": 1}
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-DOC-.YYYY.-",
+   "reqd": 1,
+   "default": "GDB-DOC-.YYYY.-"
+  },
+  {
+   "fieldname": "applicant",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Applicant",
+   "reqd": 1,
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "applicant_name",
+   "fieldtype": "Data",
+   "label": "Applicant Name",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "application",
+   "fieldtype": "Link",
+   "options": "Loan Application",
+   "label": "Loan Application",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Blank for a personal document held on the applicant's profile rather than against one case."
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Select",
+   "label": "Document Type",
+   "options": "Identity\nProof of Address\nPersonal Financials\nFinancials\nCash Flow Projection\nIncome Statement\nBalance Sheet\nBusiness Plan\nBank Statement\nQuotation\nTrading Photo\nReceipts or Records\nBusiness Photo\nOther",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Received\nAccepted\nRejected\nReplaced",
+   "default": "Received",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "id_document_kind",
+   "fieldtype": "Select",
+   "label": "ID Document",
+   "options": "\nNational ID Card\nPassport\nDriver's Licence\ne-ID",
+   "depends_on": "eval:doc.document_type=='Identity'",
+   "read_only": 1
+  },
+  {
+   "fieldname": "id_document_number",
+   "fieldtype": "Data",
+   "label": "ID Document Number",
+   "depends_on": "eval:doc.document_type=='Identity'",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "As the applicant typed it from the document, for the officer to check against the file and the KYC register."
+  },
+  {
+   "fieldname": "request",
+   "fieldtype": "Link",
+   "options": "GDB Information Request",
+   "label": "Answers Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_file",
+   "fieldtype": "Section Break",
+   "label": "File"
+  },
+  {
+   "fieldname": "file_url",
+   "fieldtype": "Data",
+   "label": "File URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "label": "File Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_file",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "file_size",
+   "fieldtype": "Int",
+   "label": "Size (bytes)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uploaded_on",
+   "fieldtype": "Datetime",
+   "label": "Uploaded On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Uploaded By",
+   "read_only": 1,
+   "description": "Who put the file here: the applicant, or a Field Officer on their behalf."
+  },
+  {
+   "fieldname": "section_break_review",
+   "fieldtype": "Section Break",
+   "label": "Review"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Reviewed By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Reviewed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_review",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "review_note",
+   "fieldtype": "Small Text",
+   "label": "Review Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "superseded_by",
+   "fieldtype": "Link",
+   "options": "GDB Applicant Document",
+   "label": "Replaced By",
+   "read_only": 1
+  }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
@@ -61,12 +198,49 @@
  "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"read": 1, "report": 1, "print": 1, "write": 1, "role": "Loan Underwriter"},
-  {"read": 1, "report": 1, "print": 1, "role": "Finance Officer"},
-  {"read": 1, "report": 1, "print": 1, "role": "Disbursement Officer"},
-  {"create": 1, "read": 1, "write": 1, "delete": 1, "role": "Citizen"},
-  {"read": 1, "write": 1, "role": "Field Officer"}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "write": 1,
+   "role": "Loan Underwriter"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "role": "Finance Officer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "role": "Disbursement Officer"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "delete": 1,
+   "role": "Citizen"
+  },
+  {
+   "read": 1,
+   "write": 1,
+   "role": "Field Officer"
+  }
  ],
  "sort_field": "creation",
  "sort_order": "DESC",

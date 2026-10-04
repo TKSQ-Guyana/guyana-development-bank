@@ -53,7 +53,7 @@ TRADER_EID = "592-9100-0001"
 # What a market vendor tells the Quick Loan form about their trade.
 TRADE = {
 	"trade_activity": "Sell vegetables",
-	"trade_location": "Fixed location",
+	"trade_location": "Market",
 	"trading_since": "1 to 3 years",
 	"trade_region": "Region 4",
 	"support_1_name": "Asha Persaud",
@@ -245,7 +245,7 @@ class TestSavingAQuickLoan(QuickLoanCase):
 		self.assertEqual(draft["product"], "quick")
 		self.assertEqual(draft["status"], "Draft")
 		self.assertEqual(draft["sections"]["trade_activity"], "Sell vegetables")
-		self.assertEqual(draft["sections"]["trade_location"], "Fixed location")
+		self.assertEqual(draft["sections"]["trade_location"], "Market")
 		self.assertEqual(draft["sections"]["trading_since"], "1 to 3 years")
 
 	def test_it_is_filed_on_the_quick_loan_product(self):
@@ -269,8 +269,11 @@ class TestSavingAQuickLoan(QuickLoanCase):
 				self.save(sections=sections)
 
 	def test_a_business_name_is_optional_and_kept_when_given(self):
-		self.assertFalse(self.save()["business_name"])
-		self.assertEqual(self.save(business_name="Singh Fresh Greens")["business_name"], "Singh Fresh Greens")
+		draft = self.save()
+		self.assertFalse(draft["business_name"])
+		self.assertEqual(
+			self.save(business_name="Singh Fresh Greens", name=draft["name"])["business_name"], "Singh Fresh Greens"
+		)
 
 	def test_the_priority_groups_are_recorded_as_declared(self):
 		draft = self.save(sections={**TRADE, "youth_entrepreneur": 1, "woman_entrepreneur": 0})
@@ -290,8 +293,11 @@ class TestSavingAQuickLoan(QuickLoanCase):
 			self.save(term_months=10)
 
 	def test_every_allowed_term_is_accepted(self):
+		name = None
 		for term in policy.quick_loan_terms():
-			self.assertEqual(self.save(term_months=term)["term_months"], term)
+			saved = self.save(term_months=term, name=name)
+			name = saved["name"]
+			self.assertEqual(saved["term_months"], term)
 
 	def test_the_applicant_must_declare_they_live_in_guyana(self):
 		with self.assertRaises(frappe.ValidationError):
@@ -308,8 +314,10 @@ class TestSavingAQuickLoan(QuickLoanCase):
 				self.save(sections={**TRADE, "support_1_phone": bad})
 
 	def test_a_supporting_contact_number_is_held_with_592(self):
+		name = None
 		for typed in ("123 4567", "5921234567", "+592 123 4567"):
-			saved = self.save(sections={**TRADE, "support_1_phone": typed})
+			saved = self.save(sections={**TRADE, "support_1_phone": typed}, name=name)
+			name = saved["name"]
 			self.assertEqual(frappe.db.get_value("Loan Application", saved["name"], "gdb_support_1_phone"), "+5921234567", typed)
 
 	def test_the_business_must_be_pinned_in_guyana(self):
@@ -402,7 +410,8 @@ class TestTradingEvidence(QuickLoanCase):
 	def attach(self, document_type: str, file_name: str, content: bytes):
 		"""Open a shelf row and attach a file to it, as Frappe's upload_file does."""
 		with self.set_user(TRADER):
-			row = documents.new_document(document_type=document_type, application=self.application)["name"]
+			identity = {"id_document_kind": "Passport", "id_document_number": "R0123456"} if document_type == "Identity" else {}
+			row = documents.new_document(document_type=document_type, application=self.application, **identity)["name"]
 		return frappe.get_doc(
 			{
 				"doctype": "File",
@@ -434,7 +443,11 @@ class TestTradingEvidence(QuickLoanCase):
 
 	def test_other_evidence_stays_pdf_only(self):
 		with self.assertRaises(frappe.ValidationError):
-			self.attach("Identity", "id.jpg", JPEG)
+			self.attach("Bank Statement", "statement.jpg", JPEG)
+
+	def test_an_identity_document_may_be_a_photo(self):
+		# GDB, 2026-10-03: a photo of the card or page, or a PDF scan.
+		self.attach("Identity", "id.jpg", JPEG)
 
 	def test_a_real_pdf_is_still_accepted_for_other_evidence(self):
 		self.attach("Identity", "id.pdf", PDF)
@@ -442,8 +455,8 @@ class TestTradingEvidence(QuickLoanCase):
 	def test_the_upload_control_is_told_what_each_type_accepts(self):
 		with self.set_user(TRADER):
 			accepts = documents.document_settings()["accepts_by_type"]
-		self.assertEqual(accepts["Trading Photo"], ".jpg,.jpeg,.png")
-		self.assertEqual(accepts["Identity"], ".pdf")
+		self.assertEqual(accepts["Trading Photo"], ".jpg,.jpeg,.png,.webp,.heic,.heif")
+		self.assertEqual(accepts["Identity"], ".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif")
 
 
 DISBURSER = "test-gdb-quick-disburser@example.gy"
@@ -451,7 +464,7 @@ FINANCE = "test-gdb-quick-finance@example.gy"
 REASON = "Stall seen at Bourda Market; trading two years."
 
 
-class TestAQuickLoansRoadToPayment(QuickLoanCase):
+class RoadToPayment(QuickLoanCase):
 	"""Since 2026-10-02 a Quick Loan goes the road every GDB loan goes: the
 	underwriter decides, a Letter of Offer is issued and signed, and a DIFFERENT
 	officer books and pays. The one-step approve-and-pay is retired."""
@@ -518,6 +531,8 @@ class TestAQuickLoansRoadToPayment(QuickLoanCase):
 			as_dict=True,
 		)
 
+
+class TestAQuickLoansRoadToPayment(RoadToPayment):
 	def test_the_underwriter_approves_and_nothing_is_paid_on_approval(self):
 		name = self.approved()
 		decided = frappe.db.get_value("Loan Application", name, ["status", "gdb_reviewed_by"], as_dict=True)
@@ -669,3 +684,107 @@ class TestAskingForAFieldOfficer(QuickLoanCase):
 			api.cancel_field_officer_request(name=request["name"])
 		with self.set_user(TRADER):
 			self.assertEqual(api.cancel_field_officer_request(name=request["name"])["status"], "Cancelled")
+
+
+class TestReviewedOnce(TestAQuickLoansRoadToPayment):
+	"""A settled condition and a reviewed document stay as they were decided."""
+
+	def test_a_met_condition_cannot_be_waived_until_reopened(self):
+		from gdb_bank import conditions
+
+		name, _offer = self.offered()
+		with self.set_user(TRADER):
+			from gdb_bank import offers
+
+			offers.accept_offer(name=_offer, accepted_name=frappe.db.get_value("GDB Loan Offer", _offer, "applicant_name"))
+		with self.set_user(UNDERWRITER):
+			row = conditions.list_conditions(application=name)["conditions"][0]
+			conditions.verify_condition(name=row["name"], status="Met")
+			with self.assertRaisesRegex(frappe.ValidationError, "already met"):
+				conditions.verify_condition(name=row["name"], status="Waived")
+			conditions.verify_condition(name=row["name"], status="Outstanding")
+			self.assertEqual(conditions.verify_condition(name=row["name"], status="Waived")["status"], "Waived")
+
+	def test_an_accepted_document_cannot_then_be_rejected(self):
+		doc = frappe.get_doc(
+			{"doctype": documents.DOCTYPE, "applicant": TRADER, "document_type": "Identity", "status": "Received"}
+		).insert(ignore_permissions=True)
+		with self.set_user(UNDERWRITER):
+			documents.review_document(name=doc.name, status="Accepted")
+			with self.assertRaisesRegex(frappe.ValidationError, "already been accepted"):
+				documents.review_document(name=doc.name, status="Rejected")
+
+
+class TestOneOfEachKindAtATime(RoadToPayment):
+	"""One Quick Loan and one SME Loan per citizen; the next of a kind waits
+	until the last is cleared (services/eligibility.py)."""
+
+	def kinds(self) -> dict:
+		with self.set_user(TRADER):
+			return api.my_loan_eligibility()
+
+	def sme_draft(self) -> dict:
+		with self.set_user(TRADER):
+			return api.save_application(loan_amount=500000, purpose="New oven", term_months=12)
+
+	def test_a_fresh_citizen_may_apply_for_either(self):
+		kinds = self.kinds()
+		self.assertTrue(kinds["quick"]["can_apply"] and kinds["standard"]["can_apply"])
+
+	def test_a_second_draft_of_the_same_kind_is_refused_and_the_first_continues(self):
+		first = self.save()
+		with self.assertRaisesRegex(frappe.ValidationError, "already have a Quick Loan application in progress"):
+			self.save()
+		self.assertEqual(self.save(name=first["name"], loan_amount=120000)["name"], first["name"])
+		self.assertEqual(self.kinds()["quick"]["open_case"]["kind"], "draft")
+
+	def test_a_quick_loan_does_not_block_an_sme_loan(self):
+		self.submitted()
+		self.assertTrue(self.sme_draft()["name"])
+		kinds = self.kinds()
+		self.assertFalse(kinds["quick"]["can_apply"])
+		self.assertEqual(kinds["standard"]["open_case"]["kind"], "draft")
+
+	def test_one_with_the_bank_blocks_the_next_until_it_is_declined(self):
+		name = self.submitted()
+		self.assertEqual(self.kinds()["quick"]["open_case"]["kind"], "review")
+		with self.assertRaisesRegex(frappe.ValidationError, "is with GDB"):
+			self.save()
+		with self.set_user(UNDERWRITER):
+			api.review_loan(name=name, action="reject", remarks=REASON)
+		self.assertTrue(self.kinds()["quick"]["can_apply"])
+		self.assertTrue(self.save()["name"])
+
+	def test_a_loan_not_yet_repaid_blocks_the_next_and_a_closed_one_does_not(self):
+		name, _offer = self.signed()
+		self.assertEqual(self.kinds()["quick"]["open_case"]["kind"], "approved")
+		with self.set_user(DISBURSER):
+			api.book_loan(application=name)
+		loan = self.loan(name)
+		blocking = self.kinds()["quick"]
+		self.assertEqual(blocking["open_case"]["kind"], "loan")
+		self.assertIn("not yet repaid", blocking["message"])
+		with self.assertRaisesRegex(frappe.ValidationError, "Clear it to apply"):
+			self.save()
+		frappe.db.set_value("Loan", loan.name, "status", "Written Off")
+		self.assertFalse(self.kinds()["quick"]["can_apply"])
+		frappe.db.set_value("Loan", loan.name, "status", "Closed")
+		self.assertTrue(self.kinds()["quick"]["can_apply"])
+
+	def test_a_declined_or_lapsed_offer_ends_the_case(self):
+		name, offer = self.offered()
+		self.assertFalse(self.kinds()["quick"]["can_apply"])
+		frappe.db.set_value("GDB Loan Offer", offer, "valid_until", "2020-01-01")
+		self.assertTrue(self.kinds()["quick"]["can_apply"])
+
+	def test_an_old_draft_cannot_be_submitted_past_an_open_case(self):
+		# Two drafts left over from before the rule: the second may not be put
+		# before the Bank while the first is with it.
+		first = self.save()["name"]
+		frappe.db.set_value("Loan Application", first, "creation", "2026-01-01 00:00:00")
+		with patch("gdb_bank.services.eligibility.require_none_open"):
+			second = self.save()["name"]
+		with self.set_user(TRADER):
+			api.submit_application(name=first, accept_terms=1, credit_check_consent=1)
+			with self.assertRaisesRegex(frappe.ValidationError, "is with GDB"):
+				api.submit_application(name=second, accept_terms=1, credit_check_consent=1)
