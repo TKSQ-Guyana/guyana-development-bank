@@ -5,15 +5,32 @@ import { call } from "../../api";
  *
  *  The list is GDB's, kept in the desk (Bank > Facilitated for Applicants
  *  Without an Account) and read from `gdb_bank.api.facilitated_banks` — never
- *  written into the bundle, so it changes without a release. */
+ *  written into the bundle, so it changes without a release. Each links to
+ *  the bank's own site (Bank > Website). */
 export function FacilitatedBanks() {
-  const [banks, setBanks] = useState<string[] | null>(null);
+  const [banks, setBanks] = useState<
+    { name: string; website: string | null }[] | null
+  >(null);
   const [failed, setFailed] = useState(false);
 
+  // One retry before giving up: a blip on a slow connection should not leave
+  // someone without a bank account looking at "could not be loaded".
   useEffect(() => {
-    call<string[]>("gdb_bank.api.facilitated_banks")
-      .then(setBanks)
-      .catch(() => setFailed(true));
+    let live = true;
+    const load = (tries: number) =>
+      call<{ name: string; website: string | null }[]>(
+        "gdb_bank.api.facilitated_bank_sites",
+      )
+        .then((b) => live && setBanks(b))
+        .catch(() => {
+          if (!live) return;
+          if (tries > 0) window.setTimeout(() => void load(tries - 1), 1500);
+          else setFailed(true);
+        });
+    void load(1);
+    return () => {
+      live = false;
+    };
   }, []);
 
   return (
@@ -37,7 +54,21 @@ export function FacilitatedBanks() {
       ) : banks.length ? (
         <ul className="mt-1.5 list-disc pl-5 text-sm font-semibold text-slate-800">
           {banks.map((b) => (
-            <li key={b}>{b}</li>
+            <li key={b.name}>
+              {b.website ? (
+                <a
+                  href={b.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gdb-indigo underline decoration-1 underline-offset-2 hover:text-brand"
+                >
+                  {b.name}
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              ) : (
+                b.name
+              )}
+            </li>
           ))}
         </ul>
       ) : (

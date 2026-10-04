@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { RecordAccountOffer } from "../components/apply/RecordAccount";
+import { eidForBoxes, eidFromBoxes } from "../eid";
+import { EidBoxes } from "../components/EidBoxes";
+import { FocusAlert } from "../shared/FocusAlert";
+import { PayoutAccount } from "../components/apply/PayoutAccount";
 import { FacilitatedBanks } from "../components/apply/FacilitatedBanks";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { call } from "../api";
@@ -32,7 +35,6 @@ import { matchRegion, REGIONS } from "../components/apply/cluster";
 import { OwnershipBlock } from "../components/apply/ownership";
 import { EMPTY_EID, isCompleteEid } from "../eid";
 import type {
-  BankAccountRecord,
   CitizenProfile,
   DcraRecord,
   LoanApplication,
@@ -290,6 +292,10 @@ interface Saved {
  *  consent (features/field-officer/AssistedApply). The form is the same one;
  *  what changes is whose name it shows, where its URLs live, and that it ends
  *  in handing the draft back rather than submitting it. */
+
+/** Today, as a date input reads it: the latest a business can have started. */
+const TODAY = new Date().toISOString().slice(0, 10);
+
 export interface AssistMode {
   consent: string;
   applicantName: string | null;
@@ -392,20 +398,14 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // Case documents picked before the draft exists, uploaded once it does.
   const [queued, setQueued] = useState<QueuedFiles>({});
 
-  const [banks, setBanks] = useState<string[]>([]);
+  // The payout account, asked as the Quick Loan asks it (PayoutAccount).
   const [bank, setBank] = useState("");
   const [accountNo, setAccountNo] = useState("");
   const [branchCode, setBranchCode] = useState("");
-  const [myAccounts, setMyAccounts] = useState<BankAccountRecord[] | null>(
-    null,
-  );
-  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [bankBranch, setBankBranch] = useState("");
+  const [confirmNo, setConfirmNo] = useState("");
+  const [accountType, setAccountType] = useState("");
   const [manualAccount, setManualAccount] = useState(false);
-  const [accountNote, setAccountNote] = useState<string | null>(null);
-  const [accountCheck, setAccountCheck] = useState<BankAccountRecord | null>(
-    null,
-  );
-  const [checking, setChecking] = useState(false);
   const [dcraNote, setDcraNote] = useState<string | null>(null);
   const [dcraRecord, setDcraRecord] = useState<DcraRecord | null>(null);
   const [myBusinesses, setMyBusinesses] = useState<DcraRecord[] | null>(null);
@@ -499,7 +499,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       : ["jobs_created", "employment_impact"];
   // "Do you have a bank account?" — kept with the answers, sent as
   // no_bank_account; a resumed draft answers it from what it holds.
-  const hasBank = text("has_bank_account");
+  const hasBank = text("has_bank_account") || "Yes";
 
   // --- resume -------------------------------------------------------------
   /** Load a draft back from GDB. This is the resume path: the server holds the
@@ -753,10 +753,16 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
 
   // --- reference data -----------------------------------------------------
   useEffect(() => {
-    call<string[]>("gdb_bank.api.bank_options")
-      .then(setBanks)
-      .catch(() => setBanks([]));
-    void loadMyAccounts();
+    // The account type already on file, for an applicant coming back.
+    call<{ account_type?: string | null } | null>(
+      "gdb_bank.api.my_bank_details",
+    )
+      .then((d) => {
+        const t = d?.account_type;
+        if (t === "Checking" || t === "Savings")
+          setAccountType((cur) => cur || t);
+      })
+      .catch(() => {});
     call<CitizenProfile>("gdb_bank.profiles.my_profile")
       .then((p) => {
         setProfile(p);
@@ -797,71 +803,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       })
       .catch(() => {});
   }, []);
-
-  const selectAccount = (a: BankAccountRecord) => {
-    setBank(a.bank);
-    setAccountNo(a.account_number);
-    setBranchCode(a.branch_code ?? "");
-    setAccountCheck(null);
-    setAccountNote(null);
-  };
-
-  // Ask the switch which accounts this applicant holds. One selects itself;
-  // several offer a choice; none falls back to typing, because a switch that
-  // cannot answer must not stop an application.
-  const loadMyAccounts = async () => {
-    setAccountsLoading(true);
-    try {
-      const found = await call<BankAccountRecord[]>(
-        "gdb_bank.api.my_bank_accounts",
-      );
-      setMyAccounts(found ?? []);
-      if (found?.length === 1) selectAccount(found[0]);
-      if (!found?.length) {
-        setManualAccount(true);
-        await call<{
-          bank: string;
-          bank_account_no: string;
-          branch_code: string;
-        } | null>("gdb_bank.api.my_bank_details")
-          .then((d) => {
-            if (!d) return;
-            setBank(d.bank ?? "");
-            setAccountNo(d.bank_account_no ?? "");
-            setBranchCode(d.branch_code ?? "");
-          })
-          .catch(() => undefined);
-        setAccountNote(
-          "No account found in your name. Enter it below; GDB verifies it before disbursement.",
-        );
-      }
-    } catch {
-      setMyAccounts([]);
-      setManualAccount(true);
-      setAccountNote(
-        "Bank unavailable. Enter your account; GDB verifies it before disbursement.",
-      );
-    } finally {
-      setAccountsLoading(false);
-    }
-  };
-
-  const checkTypedAccount = async () => {
-    if (!bank || !accountNo) return;
-    setChecking(true);
-    try {
-      setAccountCheck(
-        await call<BankAccountRecord>("gdb_bank.api.verify_bank_account", {
-          bank,
-          bank_account_no: accountNo,
-        }),
-      );
-    } catch {
-      setAccountCheck(null);
-    } finally {
-      setChecking(false);
-    }
-  };
 
   // SelectField ties an option's value to its visible label, so the
   // registration number is folded into the label itself rather than hidden
@@ -1001,11 +942,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const saveDraft = async (): Promise<LoanApplication> => {
     const noAccount = hasBank === "No";
     if (!noAccount && (!bank || !accountNo)) {
-      throw new Error(
-        (myAccounts?.length ?? 0) > 0 && !manualAccount
-          ? "Select the disbursement account."
-          : "Enter the disbursement account.",
-      );
+      throw new Error("Tell us the bank account GDB should pay you into.");
     }
     // The payout destination first: if this fails the applicant should fix it
     // and retry, not end up with a loan nobody can pay. No account yet: there
@@ -1015,9 +952,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         bank,
         bank_account_no: accountNo,
         branch_code: branchCode,
-        ...(manualAccount && text("account_holder").trim()
-          ? { account_name: text("account_holder").trim() }
-          : {}),
+        branch: manualAccount ? bankBranch : undefined,
+        account_name: text("account_holder").trim() || undefined,
+        account_type: accountType || undefined,
       });
     const saved = await call<LoanApplication>("gdb_bank.api.save_application", {
       loan_amount: Number(amount),
@@ -1134,17 +1071,24 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         if (!text("industrial_training"))
           return "Tell us whether you are part of an industrial training program.";
         if (!text("has_mentor")) return "Tell us whether you have a mentor.";
-        if (text("has_mentor") === "Yes" && !text("mentor_details").trim())
-          return "Enter your mentor's details.";
+        if (text("has_mentor") === "Yes") {
+          if (!text("mentor_first_name").trim())
+            return "Enter your mentor's first name.";
+          if (!text("mentor_last_name").trim())
+            return "Enter your mentor's last name.";
+          if (!text("mentor_phone").trim())
+            return "Enter your mentor's phone number.";
+        }
       }
-      // Every SME names its DCRA registration; a new one its registration
-      // date, an existing one the date it was established (below) — the
-      // server refuses to submit without them (services/application.py).
-      if (!dcra.trim()) return "Enter the DCRA number.";
-      if (stage === "New" && !text("registration_date"))
-        return "Enter the date of registration.";
-      if (stage === "Existing" && !text("date_established"))
-        return "Give the date your business was established.";
+      // An existing business names its DCRA registration and the date it was
+      // established; a new one is asked neither (services/application.py).
+      if (stage === "Existing") {
+        if (!dcra.trim()) return "Enter the DCRA number.";
+        if (!text("date_established"))
+          return "Give the date your business was established.";
+        if (text("date_established") > TODAY)
+          return "The date your business was established cannot be in the future.";
+      }
       if (registryPending && looking) return "Checking the register…";
       if (!structure) return "Select the legal structure.";
       if (structure === "Other" && !text("legal_structure_other").trim())
@@ -1233,11 +1177,18 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       if (!moratoriumOptions.includes(moratorium))
         return "Choose when you want to start repaying.";
       if (!purpose.trim()) return "Enter the purpose of the loan.";
-      if (!hasBank) return "Tell us whether you have a bank account.";
       if (hasBank === "Yes") {
-        if (!bank || !accountNo) return "Enter the disbursement account.";
-        if (manualAccount && !text("account_holder").trim())
-          return "Enter the account holder name.";
+        if (!bank || !accountNo.trim())
+          return "Tell us the bank account GDB should pay you into.";
+        if (!accountType)
+          return "Choose the type of account — Checking or Savings.";
+        if (manualAccount) {
+          if (!bankBranch) return "Choose your branch.";
+          if (!text("account_holder").trim())
+            return "Enter the account holder name.";
+          if (confirmNo.replace(/\D/g, "") !== accountNo.replace(/\D/g, ""))
+            return "The account numbers do not match.";
+        }
       }
     }
     return null;
@@ -1449,15 +1400,17 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   };
 
   // Every expected document the wizard can attach, in the order the tab lists
-  // them. Financial evidence follows the route: accounts for a trading
-  // business, a plan for a new one.
+  // them. A new business is asked for neither a registration nor financial
+  // statements; an existing one may give both.
   const docRows: DocRow[] = [
-    CERTIFICATE_ROW,
-    ...(stage
-      ? FINANCIAL_DOCS(stage).map((r) => ({
-          ...r,
-          hint: `${r.hint} · Financial information`,
-        }))
+    ...(stage === "Existing"
+      ? [
+          CERTIFICATE_ROW,
+          ...FINANCIAL_DOCS(stage).map((r) => ({
+            ...r,
+            hint: `${r.hint} · Financial information`,
+          })),
+        ]
       : []),
     {
       type: "Bank Statement",
@@ -1608,7 +1561,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 [
                   "Mentor",
                   text("has_mentor") === "Yes"
-                    ? `Yes — ${text("mentor_details")}`
+                    ? `Yes — ${[text("mentor_first_name"), text("mentor_last_name")].filter(Boolean).join(" ") || text("mentor_details")}${text("mentor_phone") ? ` · ${text("mentor_phone")}` : ""}`
                     : show(text("has_mentor")),
                 ],
                 ["Institution", show(text("institution"))],
@@ -1689,10 +1642,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 ],
               ] as [string, string][])
             : []),
-          [
-            "Related to a GDB employee",
-            show(text("related_to_gdb_employee")),
-          ],
+          ["Related to a GDB employee", show(text("related_to_gdb_employee"))],
         ];
       case "business":
         return [
@@ -1744,7 +1694,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 ],
                 ["Key assumptions", show(val("assumptions"))],
                 ["Total assets", money("total_assets")],
-                  ["Total equity", money("total_equity")],
+                ["Total equity", money("total_equity")],
                 ...debtAnswers(),
               ]
             : [];
@@ -1859,106 +1809,91 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // the order the business stage asks for (see the route step below).
   const registrationSection = (
     <>
-                  {stage && (
-                    <Section
-                      letter="3"
-                      title="Business registration"
-                      blurb="GDB checks it with the business registry."
-                    >
-                      {(stage === "New" || dcraAnswer === "yes") && (
-                        <>
-                          {looking && (
-                            <p className="text-sm text-slate-500">
-                              Retrieving business registrations…
-                            </p>
-                          )}
-                          {!looking && (myBusinesses?.length ?? 0) > 0 && (
-                            <SelectField
-                              label="Registered to your e-ID"
-                              value={
-                                myBusinesses?.find(
-                                  (b) => b.registration_number === dcra,
-                                )
-                                  ? businessOption(
-                                      myBusinesses.find(
-                                        (b) => b.registration_number === dcra,
-                                      )!,
-                                    )
-                                  : ""
-                              }
-                              onChange={(v) => {
-                                const chosen = myBusinesses?.find(
-                                  (b) => businessOption(b) === v,
-                                );
-                                if (chosen) selectBusiness(chosen);
-                              }}
-                              options={(myBusinesses ?? []).map(businessOption)}
-                              placeholder="Choose, or type the number below"
-                            />
-                          )}
-                          <div onBlur={() => void checkTypedDcra()}>
-                            <TextField
-                              label="DCRA #"
-                              required
-                              value={dcra}
-                              onChange={onDcraChange}
-                              placeholder="Enter DCRA number"
-                            />
-                          </div>
-                          {/* A new business gives its registration date; an
-                          existing one the date it was established, which is
-                          all GDB needs of it. */}
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            {stage === "New" && (
-                              <TextField
-                                label="Date of Registration"
-                                required
-                                type="date"
-                                value={text("registration_date")}
-                                onChange={set("registration_date")}
-                                hint="As on your Certificate of Registration."
-                              />
-                            )}
-                            {stage === "Existing" && (
-                              <TextField
-                                label="Date business established"
-                                required
-                                type="date"
-                                value={text("date_established")}
-                                onChange={set("date_established")}
-                                hint="When the business started trading."
-                              />
-                            )}
-                          </div>
-                          <ApplicationDocuments
-                            application={draft?.name ?? null}
-                            rows={[CERTIFICATE_ROW]}
-                            onChange={setMissing}
-                            queued={queued}
-                            onQueue={setQueued}
-                            summary={false}
-                          />
-                          {dcraChecking && (
-                            <p className="text-sm text-slate-500">
-                              Checking the business registry…
-                            </p>
-                          )}
-                          {dcraRecord?.business_name && (
-                            <Notice tone="good">
-                              {dcraRecord.business_name} · {dcraRecord.status} ·{" "}
-                              {dcraSourceLabel}
-                            </Notice>
-                          )}
-                          {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
-                        </>
-                      )}
-                    </Section>
-                  )}
+      {/* A new business is not asked for a registration. */}
+      {stage === "Existing" && (
+        <Section
+          letter="3"
+          title="Business registration"
+          blurb="GDB checks it with the business registry."
+        >
+          {dcraAnswer === "yes" && (
+            <>
+              {looking && (
+                <p className="text-sm text-slate-500">
+                  Retrieving business registrations…
+                </p>
+              )}
+              {!looking && (myBusinesses?.length ?? 0) > 0 && (
+                <SelectField
+                  label="Registered to your e-ID"
+                  value={
+                    myBusinesses?.find((b) => b.registration_number === dcra)
+                      ? businessOption(
+                          myBusinesses.find(
+                            (b) => b.registration_number === dcra,
+                          )!,
+                        )
+                      : ""
+                  }
+                  onChange={(v) => {
+                    const chosen = myBusinesses?.find(
+                      (b) => businessOption(b) === v,
+                    );
+                    if (chosen) selectBusiness(chosen);
+                  }}
+                  options={(myBusinesses ?? []).map(businessOption)}
+                  placeholder="Choose, or type the number below"
+                />
+              )}
+              <div onBlur={() => void checkTypedDcra()}>
+                <TextField
+                  label="DCRA #"
+                  required
+                  value={dcra}
+                  onChange={onDcraChange}
+                  placeholder="Enter DCRA number"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField
+                  label="Date business established"
+                  required
+                  type="date"
+                  value={text("date_established")}
+                  onChange={set("date_established")}
+                  max={TODAY}
+                  hint="When the business started trading. Not a future date."
+                />
+              </div>
+              <ApplicationDocuments
+                application={draft?.name ?? null}
+                rows={[CERTIFICATE_ROW]}
+                onChange={setMissing}
+                queued={queued}
+                onQueue={setQueued}
+                summary={false}
+              />
+              {dcraChecking && (
+                <p className="text-sm text-slate-500">
+                  Checking the business registry…
+                </p>
+              )}
+              {dcraRecord?.business_name && (
+                <Notice tone="good">
+                  {dcraRecord.business_name} · {dcraRecord.status} ·{" "}
+                  {dcraSourceLabel}
+                </Notice>
+              )}
+              {dcraNote && <Notice tone="warn">{dcraNote}</Notice>}
+            </>
+          )}
+        </Section>
+      )}
     </>
   );
   const structureSection = (
     <>
-                  {/* Asked of BOTH routes once the stage is answered — for an existing
+      {/* Asked of BOTH routes once the stage is answered — for an existing
                   business BEFORE its registration, for a new one after it. How a
                   business is owned is a fact about it whether or not it is
                   already trading, and an underwriter deciding a development
@@ -1968,70 +1903,66 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   Where DCRA has already said which it is, it is STATED rather
                   than asked — and the only thing left on this screen is the
                   one question the register cannot answer. */}
-                  {stage && (
-                    <Section
-                      letter={stage === "Existing" ? "2" : "4"}
-                      title="Legal structure"
-                      blurb={
-                        registryAnswers
-                          ? "From the business registry."
-                          : undefined
-                      }
-                    >
-                      {registryPending ? (
-                        <p className="text-sm text-slate-500">
-                          {looking
-                            ? "Retrieving business registrations…"
-                            : "Select the registered business under Business registration."}
-                        </p>
-                      ) : registryAnswers ? (
-                        <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
-                          <p className="text-sm text-slate-700">
-                            <span className="font-bold text-slate-900">
-                              {dcraRecord?.business_name ?? dcra}
-                            </span>{" "}
-                            — filed as {STRUCTURE_PROSE[registryStructure]}.
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Corrections are made at the business registry.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                          <ChoiceCard
-                            title="Sole proprietorship"
-                            selected={structure === "Sole Trader"}
-                            onSelect={() => setStructure("Sole Trader")}
-                          />
-                          <ChoiceCard
-                            title="Incorporated (Inc.)"
-                            selected={structure === "Incorporated (Inc.)"}
-                            onSelect={() => setStructure("Incorporated (Inc.)")}
-                          />
-                          <ChoiceCard
-                            title="Partnership"
-                            selected={structure === "Partnership"}
-                            onSelect={() => setStructure("Partnership")}
-                          />
-                          <ChoiceCard
-                            title="Other"
-                            body="A co-operative, society or trust."
-                            selected={structure === "Other"}
-                            onSelect={() => setStructure("Other")}
-                          />
-                        </div>
-                      )}
-                      {structure === "Other" && !registryAnswers && (
-                        <TextField
-                          label="What is the legal structure?"
-                          required
-                          value={text("legal_structure_other")}
-                          onChange={set("legal_structure_other")}
-                          placeholder="e.g. Co-operative society"
-                        />
-                      )}
+      {stage && (
+        <Section
+          letter={stage === "Existing" ? "2" : "4"}
+          title="Legal structure"
+          blurb={registryAnswers ? "From the business registry." : undefined}
+        >
+          {registryPending ? (
+            <p className="text-sm text-slate-500">
+              {looking
+                ? "Retrieving business registrations…"
+                : "Select the registered business under Business registration."}
+            </p>
+          ) : registryAnswers ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+              <p className="text-sm text-slate-700">
+                <span className="font-bold text-slate-900">
+                  {dcraRecord?.business_name ?? dcra}
+                </span>{" "}
+                — filed as {STRUCTURE_PROSE[registryStructure]}.
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Corrections are made at the business registry.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <ChoiceCard
+                title="Sole proprietorship"
+                selected={structure === "Sole Trader"}
+                onSelect={() => setStructure("Sole Trader")}
+              />
+              <ChoiceCard
+                title="Incorporated (Inc.)"
+                selected={structure === "Incorporated (Inc.)"}
+                onSelect={() => setStructure("Incorporated (Inc.)")}
+              />
+              <ChoiceCard
+                title="Partnership"
+                selected={structure === "Partnership"}
+                onSelect={() => setStructure("Partnership")}
+              />
+              <ChoiceCard
+                title="Other"
+                body="A co-operative, society or trust."
+                selected={structure === "Other"}
+                onSelect={() => setStructure("Other")}
+              />
+            </div>
+          )}
+          {structure === "Other" && !registryAnswers && (
+            <TextField
+              label="What is the legal structure?"
+              required
+              value={text("legal_structure_other")}
+              onChange={set("legal_structure_other")}
+              placeholder="e.g. Co-operative society"
+            />
+          )}
 
-                      {/* A partnership and an incorporated company ask the same
+          {/* A partnership and an incorporated company ask the same
                       two things — what the applicant owns, and who owns the
                       rest — so they share one block. Only the wording differs,
                       because a partner and a shareholder are not the same word
@@ -2042,18 +1973,18 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       Not asked of a registered business: DCRA already names
                       who owns it, and the record itself is shown on the
                       business step. */}
-                      {askOwnership && (
-                        <OwnershipBlock
-                          structure={structure}
-                          applicantShare={applicantShare}
-                          onApplicantShare={setApplicantShare}
-                          owners={owners}
-                          onOwners={setOwners}
-                          declared={sharesDeclared}
-                        />
-                      )}
-                    </Section>
-                  )}
+          {askOwnership && (
+            <OwnershipBlock
+              structure={structure}
+              applicantShare={applicantShare}
+              onApplicantShare={setApplicantShare}
+              owners={owners}
+              onOwners={setOwners}
+              declared={sharesDeclared}
+            />
+          )}
+        </Section>
+      )}
     </>
   );
 
@@ -2209,12 +2140,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
             )}
 
             {error && (
-              <div
-                className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"
-                role="alert"
-              >
+              <FocusAlert className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
-              </div>
+              </FocusAlert>
             )}
 
             {/* `pb-20` clears the sticky action bar below. Without it the bar
@@ -2437,19 +2365,22 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     </div>
                     <div className="mt-3 space-y-4 border-t border-emerald-100 pt-3">
                       <div className="sm:max-w-xs">
-                        <TextField
-                          label="E-ID"
-                          required
-                          value={text("applicant_eid")}
-                          onChange={set("applicant_eid")}
-                          placeholder="Enter your E-ID"
-                          hint={
-                            text("applicant_eid").trim() &&
+                        <span className="mb-1.5 block text-sm font-semibold text-slate-800">
+                          E-ID <span className="text-rose-600">*</span>
+                        </span>
+                        <EidBoxes
+                          value={eidForBoxes(text("applicant_eid"))}
+                          onChange={(v) =>
+                            set("applicant_eid")(eidFromBoxes(v))
+                          }
+                          invalid={
+                            !!text("applicant_eid").trim() &&
                             !isEid(text("applicant_eid"))
-                              ? "11 digits, e.g. 592-2001-0101."
-                              : undefined
                           }
                         />
+                        <p className="mt-1 text-xs text-slate-500">
+                          As on your e-ID card: 000-0000-0000.
+                        </p>
                       </div>
                       <YesNo
                         label="Are you employed in any public service?"
@@ -2476,12 +2407,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                               rows={[PAYSLIP_ROW]}
                               summary={false}
                             />
-                          )}
-                          {text("public_service_under_250k") === "No" && (
-                            <Notice tone="info">
-                              You can continue with your application. A Loan
-                              Officer will review it before a decision is made.
-                            </Notice>
                           )}
                         </div>
                       )}
@@ -2541,26 +2466,39 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         value={text("industrial_training")}
                         onChange={set("industrial_training")}
                       />
-                      <YesNo
-                        label="Do you have a mentor?"
-                        value={text("has_mentor")}
-                        onChange={set("has_mentor")}
-                      />
-                      {text("has_mentor") === "Yes" && (
-                        <TextField
-                          label="Mentor details"
-                          required
-                          value={text("mentor_details")}
-                          onChange={set("mentor_details")}
-                          placeholder="Name, and how to reach them"
-                        />
-                      )}
                       <TextField
                         label="Institution"
                         value={text("institution")}
                         onChange={set("institution")}
                         placeholder="The institution associated with you or your business"
                       />
+                      <YesNo
+                        label="Do you have a mentor?"
+                        value={text("has_mentor")}
+                        onChange={set("has_mentor")}
+                      />
+                      {text("has_mentor") === "Yes" && (
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <TextField
+                            label="Mentor's first name"
+                            required
+                            value={text("mentor_first_name")}
+                            onChange={set("mentor_first_name")}
+                          />
+                          <TextField
+                            label="Mentor's last name"
+                            required
+                            value={text("mentor_last_name")}
+                            onChange={set("mentor_last_name")}
+                          />
+                          <PhoneField
+                            label="Mentor's phone number"
+                            required
+                            value={text("mentor_phone")}
+                            onChange={set("mentor_phone")}
+                          />
+                        </div>
+                      )}
                     </Section>
                   )}
 
@@ -2985,7 +2923,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 </Section>
               )}
 
-              {step === "finances" && stage && (
+              {/* A new business has no financial statements to give. */}
+              {step === "finances" && stage === "Existing" && (
                 <Section
                   letter="F"
                   title="Financial statements"
@@ -3189,7 +3128,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         Add line
                       </button>
                     </div>
-
                   </Section>
 
                   <Section
@@ -3197,180 +3135,67 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     title="Bank information"
                     blurb="The disbursement account. Must be held in your name."
                   >
-                    <fieldset>
-                      <legend className="mb-2 text-sm font-semibold text-slate-800">
-                        Do you have a bank account?
-                        <span className="ml-0.5 text-rose-500">*</span>
-                      </legend>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <ChoiceCard
-                          title="Yes"
-                          selected={hasBank === "Yes"}
-                          onSelect={() => set("has_bank_account")("Yes")}
-                        />
-                        <ChoiceCard
-                          title="No"
-                          body="I don't have a bank account."
-                          selected={hasBank === "No"}
-                          onSelect={() => set("has_bank_account")("No")}
-                        />
-                      </div>
-                    </fieldset>
-                    {hasBank === "No" && <FacilitatedBanks />}
-                    {hasBank === "Yes" && (
-                    <>
-                    <RecordAccountOffer
-                      currentAccountNo={accountNo}
-                      onUse={(a) => {
-                        setBank(a.bank ?? "");
-                        setAccountNo(a.account_number);
-                        setBranchCode(a.routing_number ?? "");
-                        setManualAccount(true);
-                        setAccountCheck(null);
-                        setAccountNote(null);
-                      }}
-                    />
-                    {accountsLoading && (
-                      <p className="text-sm text-slate-500">
-                        Retrieving your accounts…
-                      </p>
-                    )}
-
-                    {!manualAccount && (myAccounts?.length ?? 0) > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium text-slate-700">
-                          {myAccounts?.length === 1
-                            ? "Account held in your name."
-                            : "Select the disbursement account."}
-                        </p>
-                        {myAccounts?.map((a) => {
-                          const payable = a.status === "Active";
-                          return (
-                            <ChoiceCard
-                              key={`${a.bank}-${a.account_number}`}
-                              title={a.bank}
-                              body={`••••${a.account_number.slice(-4)}${a.account_type ? ` · ${a.account_type}` : ""} · ${a.account_name ?? ""}`}
-                              note={
-                                payable
-                                  ? undefined
-                                  : `${a.status} — cannot receive funds.`
-                              }
-                              disabled={!payable}
-                              selected={accountNo === a.account_number}
-                              onSelect={() => selectAccount(a)}
-                            />
-                          );
-                        })}
-                        <p className="text-xs text-slate-500">
-                          {myAccounts?.[0]?.source === "bank_registry"
-                            ? "From your bank. Re-verified before disbursement."
-                            : "Re-verified with your bank before disbursement."}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManualAccount(true);
-                            setAccountNote(null);
-                          }}
-                          className="text-xs font-semibold text-brand underline"
-                        >
-                          Use another account
-                        </button>
-                      </div>
-                    )}
-
-                    {manualAccount && (
+                    <label className="flex cursor-pointer items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={hasBank === "No"}
+                        onChange={(e) =>
+                          set("has_bank_account")(
+                            e.target.checked ? "No" : "Yes",
+                          )
+                        }
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                      />
+                      <span className="text-sm font-bold text-slate-900">
+                        I don't have a bank account
+                      </span>
+                    </label>
+                    {hasBank === "No" ? (
+                      <FacilitatedBanks />
+                    ) : (
                       <>
-                        <SelectField
-                          label="Bank"
-                          required
-                          value={bank}
-                          onChange={(v) => {
-                            setBank(v);
-                            setAccountCheck(null);
+                        <PayoutAccount
+                          value={{
+                            bank,
+                            accountNo,
+                            branchCode,
+                            branch: bankBranch,
+                            holder: text("account_holder"),
+                            confirmNo,
+                            manual: manualAccount,
                           }}
-                          options={banks}
-                          placeholder="Select bank…"
+                          onChange={(next) => {
+                            setError(null);
+                            setBank(next.bank);
+                            setAccountNo(next.accountNo);
+                            setBranchCode(next.branchCode);
+                            setBankBranch(next.branch);
+                            set("account_holder")(next.holder);
+                            setConfirmNo(next.confirmNo);
+                            setManualAccount(next.manual);
+                          }}
+                          onAccountType={setAccountType}
                         />
-                        <div onBlur={() => void checkTypedAccount()}>
-                          <TextField
-                            label="Account number"
-                            required
-                            inputMode="numeric"
-                            value={accountNo}
-                            onChange={(v) => {
-                              // Digits only, as the server requires — a stray
-                              // full stop or space never reaches the save.
-                              setAccountNo(v.replace(/\D/g, ""));
-                              setAccountCheck(null);
-                            }}
-                            placeholder="Digits only"
-                          />
-                        </div>
-                        <TextField
-                          label="Account holder name"
-                          required
-                          value={text("account_holder")}
-                          onChange={set("account_holder")}
-                          placeholder="As the bank holds it"
-                        />
-                        <TextField
-                          label="Branch code"
-                          value={branchCode}
-                          onChange={setBranchCode}
-                          placeholder="DEM-GT-04"
-                        />
-
-                        {checking && (
-                          <p className="text-xs text-slate-500">
-                            Verifying with the bank…
-                          </p>
-                        )}
-
-                        {/* Three outcomes, never two. "We could not check" is said
-                        out loud rather than shown as a pass — and none of them
-                        stops the application. */}
-                        {accountCheck && !checking && (
-                          <Notice
-                            tone={
-                              accountCheck.result === "Verified"
-                                ? "good"
-                                : "warn"
-                            }
-                          >
-                            {accountCheck.result === "Verified" &&
-                              `Verified — ${accountCheck.account_name}.`}
-                            {accountCheck.result === "Name Mismatch" &&
-                              "Account name does not match. GDB verifies before disbursement."}
-                            {accountCheck.result === "Inactive Account" &&
-                              `Account ${accountCheck.status?.toLowerCase()}. Nominate another account.`}
-                            {accountCheck.result === "Not Found" &&
-                              "Account not found. Check the number."}
-                            {accountCheck.result === "Unavailable" &&
-                              "Bank unavailable. GDB verifies before disbursement."}
-                          </Notice>
-                        )}
-
-                        {accountNote && (
-                          <Notice tone="warn">{accountNote}</Notice>
-                        )}
-
-                        {(myAccounts?.length ?? 0) > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setManualAccount(false);
-                              setAccountCheck(null);
-                              setAccountNote(null);
-                            }}
-                            className="text-xs font-semibold text-brand underline"
-                          >
-                            Use a registered account
-                          </button>
-                        )}
+                        <fieldset>
+                          <legend className="mb-2 text-sm font-semibold text-slate-800">
+                            Type of account
+                            <span className="ml-0.5 text-rose-500">*</span>
+                          </legend>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {["Checking", "Savings"].map((t) => (
+                              <ChoiceCard
+                                key={t}
+                                title={t}
+                                selected={accountType === t}
+                                onSelect={() => setAccountType(t)}
+                              />
+                            ))}
+                          </div>
+                        </fieldset>
+                        <p className="text-xs text-slate-500">
+                          GDB checks the account before any payment is released.
+                        </p>
                       </>
-                    )}
-                    </>
                     )}
                   </Section>
                 </>
@@ -3394,10 +3219,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     </div>
                   </header>
 
-                  <AttentionList
-                    issues={issues}
-                    blocking={blockingCount > 0}
-                  />
+                  <AttentionList issues={issues} blocking={blockingCount > 0} />
                   <ReviewSections
                     sections={reviewSections}
                     onEdit={(id) => goTo(id as StepId)}

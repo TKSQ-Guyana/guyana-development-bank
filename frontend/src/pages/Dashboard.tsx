@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ApplyLink } from "../components/apply/ApplyLink";
+import { YourRequests } from "../features/applications/YourRequests";
 import { Link, useNavigate } from "react-router-dom";
 import { call } from "../api";
 import { useAuth } from "../auth";
@@ -106,13 +108,10 @@ export function Dashboard() {
               and a person decides.
             </p>
           </div>
-          <Link
-            to="/apply/new"
-            className="group inline-flex flex-none items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-extrabold text-emerald-950 shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:from-amber-300 hover:to-amber-400"
-          >
+          <ApplyLink className="group inline-flex flex-none items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-3 text-sm font-extrabold text-emerald-950 shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:from-amber-300 hover:to-amber-400">
             <PlusIcon className="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" />
             Apply for a loan
-          </Link>
+          </ApplyLink>
         </div>
         <dl className="relative grid grid-cols-2 divide-white/10 border-t border-white/10 bg-black/20 sm:grid-cols-4 sm:divide-x">
           {[
@@ -146,6 +145,9 @@ export function Dashboard() {
       {disbursed && account?.loan && (
         <Facility account={account} disbursed={disbursed} />
       )}
+
+      {/* A field officer they asked for, and anything GDB has asked them for. */}
+      <YourRequests />
 
       {/* Every application, newest first, a page at a time. */}
       <section className="rounded-2xl border border-slate-200 bg-white shadow-xs">
@@ -423,13 +425,10 @@ function EmptyList({ filtered }: { filtered: boolean }) {
           : "Start one when you are ready. You can save and come back — nothing is sent until you submit."}
       </p>
       {!filtered && (
-        <Link
-          to="/apply/new"
-          className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white hover:bg-[#022c19]"
-        >
+        <ApplyLink className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white hover:bg-[#022c19]">
           <PlusIcon className="h-4 w-4 text-amber-300" />
           Start an application
-        </Link>
+        </ApplyLink>
       )}
     </div>
   );

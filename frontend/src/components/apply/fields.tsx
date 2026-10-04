@@ -114,6 +114,9 @@ interface TextFieldProps {
   disabled?: boolean;
   type?: string;
   inputMode?: "numeric" | "text" | "tel";
+  /** Bounds for a date or number, e.g. no date after today. */
+  min?: string;
+  max?: string;
 }
 
 export function TextField({
@@ -127,6 +130,8 @@ export function TextField({
   disabled,
   type = "text",
   inputMode,
+  min,
+  max,
 }: TextFieldProps) {
   return (
     <Field label={label} hint={hint} required={required} tag={tag}>
@@ -136,6 +141,8 @@ export function TextField({
         value={value}
         disabled={disabled}
         placeholder={placeholder}
+        min={min}
+        max={max}
         onChange={(e) => onChange(e.target.value)}
         className={controlClass}
       />

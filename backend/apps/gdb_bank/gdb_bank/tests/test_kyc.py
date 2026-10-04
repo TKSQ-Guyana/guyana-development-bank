@@ -188,6 +188,11 @@ class TestIdentityNumberCrossCheck(IntegrationTestCase):
 		row = self.file("National ID Card", "900-100-200")
 		self.assertEqual(row.id_document_number, "900100200")
 
+	def test_an_e_id_number_is_kept_as_592_2001_0101(self):
+		self.assertEqual(self.file("e-ID", "59220010101").id_document_number, "592-2001-0101")
+		with self.assertRaisesRegex(frappe.ValidationError, "592-2001-0101"):
+			self.file("e-ID", "592-2001-010")
+
 	def test_other_documents_ask_no_number(self):
 		from gdb_bank import documents
 

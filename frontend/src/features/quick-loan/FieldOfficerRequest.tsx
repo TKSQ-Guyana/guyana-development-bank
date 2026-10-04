@@ -139,12 +139,8 @@ export function FieldOfficerRequest({
           </Hero>
         ) : (
           <Hero title="Request sent">
-            A GDB field officer for {request.region.split(" — ")[0]} will call
-            you on {request.phone}
-            {request.best_time
-              ? `, in the ${request.best_time.toLowerCase()}`
-              : ""}
-            .
+            A GDB field officer from {request.region.split(" — ")[0]} will
+            reach out to you soon.
           </Hero>
         )}
         {error && <Banner kind="error" title={error} />}
@@ -168,7 +164,6 @@ export function FieldOfficerRequest({
                 {[
                   "The field officer calls to arrange a time.",
                   "You go through the application together, in person or by phone.",
-                  "You check the answers and submit from your account. Nothing goes to GDB until you do.",
                 ].map((x, i) => (
                   <div
                     key={x}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FocusAlert } from "../shared/FocusAlert";
 import { gdbLogo } from "../components/site/assets";
 import { STAFF_LOGIN } from "../shared/staffRoutes";
 import type { FormEvent } from "react";
@@ -272,9 +273,7 @@ export function Login({
                   {tinChallenge ? (
                     <div className="mt-[26px]">
                       {tinError && (
-                        <p className={errorBox} role="alert">
-                          {tinError}
-                        </p>
+                        <FocusAlert className={errorBox}>{tinError}</FocusAlert>
                       )}
                       <p className="text-[15px] leading-[1.55] text-gdb-ink/75">
                         <strong className="font-extrabold text-gdb-ink">
@@ -332,9 +331,9 @@ export function Login({
                     <>
                       <div className="mt-[26px]">
                         {tinError && (
-                          <p className={errorBox} role="alert">
+                          <FocusAlert className={errorBox}>
                             {tinError}
-                          </p>
+                          </FocusAlert>
                         )}
                         <label className="block">
                           <span className={fieldLabel}>
@@ -401,9 +400,7 @@ export function Login({
                     <>
                       <div className="mt-[26px]">
                         {error && (
-                          <p className={errorBox} role="alert">
-                            {error}
-                          </p>
+                          <FocusAlert className={errorBox}>{error}</FocusAlert>
                         )}
                         <p className="text-[15px] leading-[1.55] text-gdb-ink/75">
                           <strong className="font-extrabold text-gdb-ink">
@@ -498,9 +495,7 @@ export function Login({
                     <>
                       <div className="mt-[26px]">
                         {error && (
-                          <p className={errorBox} role="alert">
-                            {error}
-                          </p>
+                          <FocusAlert className={errorBox}>{error}</FocusAlert>
                         )}
                         <label className="block">
                           <span className={fieldLabel}>

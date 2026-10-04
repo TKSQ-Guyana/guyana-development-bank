@@ -419,6 +419,13 @@ def _validated(
 		values.update(_blanked(QUICK_ONLY))
 		if values.get("gdb_has_mentor") != "Yes":
 			values["gdb_mentor_details"] = ""
+			values["gdb_mentor_first_name"] = values["gdb_mentor_last_name"] = values["gdb_mentor_phone"] = ""
+		elif values.get("gdb_mentor_phone"):
+			values["gdb_mentor_phone"] = _guyana_local_phone(values["gdb_mentor_phone"])
+		# The day a business was established is a day that has happened.
+		established = values.get("gdb_date_established")
+		if established and getdate(established) > getdate(nowdate()):
+			frappe.throw(_("The date your business was established cannot be in the future."))
 	_public_service(values)
 	# The stage decides which financial block is meaningful, so switching it
 	# clears the other one. Same reasoning as dropping the DCRA number above:
@@ -479,19 +486,24 @@ def _require_sme_details(doc) -> None:
 	if not EID_SHAPE.match(eid):
 		frappe.throw(_("Enter your E-ID as its 11 digits, e.g. 592-2001-0101."))
 	doc.gdb_applicant_eid = eid
-	if not (doc.gdb_dcra_number or "").strip():
+	# A new business is not asked for a registration (GDB, 2026-10-04): only an
+	# existing one names its DCRA number, and the date it was established
+	# (submit_application).
+	if (doc.gdb_business_stage or "").title() == "Existing" and not (doc.gdb_dcra_number or "").strip():
 		frappe.throw(_("Give the DCRA registration number of your business."))
-	# A new business gives its registration date; an existing one the date it
-	# was established (submit_application), which is all GDB asks of it.
-	if (doc.gdb_business_stage or "").title() == "New" and not doc.gdb_registration_date:
-		frappe.throw(_("Give the date of registration."))
 	if (doc.gdb_business_stage or "").title() == "New":
 		if doc.gdb_industrial_training not in ("Yes", "No"):
 			frappe.throw(_("Tell us whether you are part of an industrial training program."))
 		if doc.gdb_has_mentor not in ("Yes", "No"):
 			frappe.throw(_("Tell us whether you have a mentor."))
-		if doc.gdb_has_mentor == "Yes" and not (doc.gdb_mentor_details or "").strip():
-			frappe.throw(_("Give your mentor's details."))
+		if doc.gdb_has_mentor == "Yes":
+			for field, message in (
+				("gdb_mentor_first_name", "Give your mentor's first name."),
+				("gdb_mentor_last_name", "Give your mentor's last name."),
+				("gdb_mentor_phone", "Give your mentor's phone number."),
+			):
+				if not (doc.get(field) or "").strip():
+					frappe.throw(_(message))
 	profile = frappe.db.get_value(
 		"GDB Citizen Profile", {"user": doc.gdb_owner}, ["email", "verified_email"], as_dict=True
 	)

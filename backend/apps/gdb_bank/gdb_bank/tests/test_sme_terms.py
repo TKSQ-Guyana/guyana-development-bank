@@ -146,17 +146,29 @@ class TestSmeApplicationRules(TestSmeTerms):
 		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", "12345")
 		self.refused("11 digits", name)
 
-	def test_the_dcra_number_and_a_new_business_registration_date_are_required(self):
+	def test_an_existing_business_needs_its_dcra_number(self):
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		frappe.db.set_value("Loan Application", name, {"gdb_date_established": "2020-01-01", "gdb_dcra_number": ""})
+		self.refused("DCRA", name)
+
+	def test_a_new_business_needs_no_registration(self):
 		name = self.ready(
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
 			sections={"industrial_training": "No", "has_mentor": "No"},
 		)
-		frappe.db.set_value("Loan Application", name, "gdb_registration_date", None)
-		self.refused("date of registration", name)
-		frappe.db.set_value("Loan Application", name, {"gdb_registration_date": "2024-01-15", "gdb_dcra_number": ""})
-		self.refused("DCRA", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_registration_date": None, "gdb_dcra_number": ""})
+		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_the_date_established_cannot_be_in_the_future(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot be in the future"):
+			self.save(
+				business_stage="Existing",
+				business_name="Oven Co",
+				dcra_number="BN-2026-1",
+				sections={"moratorium_months": 1, "date_established": frappe.utils.add_days(frappe.utils.today(), 1)},
+			)
 
 	def test_an_existing_business_needs_no_registration_date(self):
 		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
@@ -201,8 +213,12 @@ class TestSmeApplicationRules(TestSmeTerms):
 		name = self.ready(business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1")
 		self.refused("industrial training", name)
 		frappe.db.set_value("Loan Application", name, {"gdb_industrial_training": "Yes", "gdb_has_mentor": "Yes"})
-		self.refused("mentor's details", name)
-		frappe.db.set_value("Loan Application", name, "gdb_mentor_details", "Ms Persaud, 600 1234")
+		self.refused("mentor's first name", name)
+		frappe.db.set_value(
+			"Loan Application",
+			name,
+			{"gdb_mentor_first_name": "Asha", "gdb_mentor_last_name": "Persaud", "gdb_mentor_phone": "+5926001234"},
+		)
 		self.assertEqual(self.submits(name)["status"], "Submitted")
 
 	def test_mentor_details_go_with_a_no(self):
@@ -210,9 +226,17 @@ class TestSmeApplicationRules(TestSmeTerms):
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
-			sections={"moratorium_months": 1, "has_mentor": "No", "mentor_details": "Ms Persaud"},
+			sections={
+				"moratorium_months": 1,
+				"has_mentor": "No",
+				"mentor_details": "Ms Persaud",
+				"mentor_first_name": "Asha",
+				"mentor_phone": "6001234",
+			},
 		)
 		self.assertFalse(saved["sections"]["mentor_details"])
+		self.assertFalse(saved["sections"]["mentor_first_name"])
+		self.assertFalse(saved["sections"]["mentor_phone"])
 
 	def test_an_existing_business_carries_no_new_business_answers(self):
 		saved = self.save(

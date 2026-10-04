@@ -787,8 +787,8 @@ class TestReviewedOnce(TestAQuickLoansRoadToPayment):
 
 
 class TestOneOfEachKindAtATime(RoadToPayment):
-	"""One Quick Loan and one SME Loan per citizen; the next of a kind waits
-	until the last is cleared (services/eligibility.py)."""
+	"""One loan per citizen, of either kind; the next waits until the last is
+	cleared (services/eligibility.py)."""
 
 	def kinds(self) -> dict:
 		with self.set_user(TRADER):
@@ -809,17 +809,22 @@ class TestOneOfEachKindAtATime(RoadToPayment):
 		self.assertEqual(self.save(name=first["name"], loan_amount=120000)["name"], first["name"])
 		self.assertEqual(self.kinds()["quick"]["open_case"]["kind"], "draft")
 
-	def test_a_quick_loan_does_not_block_an_sme_loan(self):
-		self.submitted()
-		self.assertTrue(self.sme_draft()["name"])
+	def test_a_quick_loan_blocks_an_sme_loan_too(self):
+		name = self.submitted()
+		with self.assertRaisesRegex(frappe.ValidationError, "is under review with GDB"):
+			self.sme_draft()
 		kinds = self.kinds()
-		self.assertFalse(kinds["quick"]["can_apply"])
-		self.assertEqual(kinds["standard"]["open_case"]["kind"], "draft")
+		self.assertFalse(kinds["quick"]["can_apply"] or kinds["standard"]["can_apply"])
+		self.assertEqual(kinds["standard"]["open_case"]["name"], name)
+		self.assertEqual(kinds["standard"]["open_case"]["product"], "quick")
+		self.assertEqual(
+			kinds["standard"]["message"], f"Your Quick Loan application {name} is under review with GDB."
+		)
 
 	def test_one_with_the_bank_blocks_the_next_until_it_is_declined(self):
 		name = self.submitted()
 		self.assertEqual(self.kinds()["quick"]["open_case"]["kind"], "review")
-		with self.assertRaisesRegex(frappe.ValidationError, "is with GDB"):
+		with self.assertRaisesRegex(frappe.ValidationError, "is under review with GDB"):
 			self.save()
 		with self.set_user(UNDERWRITER):
 			api.review_loan(name=name, action="reject", remarks=REASON)
@@ -857,5 +862,5 @@ class TestOneOfEachKindAtATime(RoadToPayment):
 			second = self.save()["name"]
 		with self.set_user(TRADER):
 			api.submit_application(name=first, accept_terms=1, credit_check_consent=1)
-			with self.assertRaisesRegex(frappe.ValidationError, "is with GDB"):
+			with self.assertRaisesRegex(frappe.ValidationError, "is under review with GDB"):
 				api.submit_application(name=second, accept_terms=1, credit_check_consent=1)

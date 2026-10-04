@@ -202,6 +202,26 @@ class TestCompletingSignup(TinCase):
 		self.assertEqual(str(profile.date_of_birth), "1990-05-17")
 		signed_in.assert_called_once()
 
+	def test_no_identity_document_is_needed(self):
+		# Its own National ID and phone: this class's tests share one transaction.
+		nid, phone = "987654323", "+592 600 4323"
+		bare = {k: v for k, v in FORM.items() if k not in ("document_kind", "document_number")}
+		challenge = tin_auth.request_signup_otp(**{**bare, "national_id": nid, "phone": phone})["challenge"]
+		with patch.object(tin_auth, "_sign_in", return_value={"user": "ok"}):
+			tin_auth.complete_signup(**{**bare, "national_id": nid, "phone": phone, "challenge": challenge, "otp": tin_auth._static_otp()})
+		user = frappe.db.get_value("User", {tin_auth.NID_FIELD: nid})
+		self.assertTrue(user)
+		self.assertFalse(frappe.db.exists("GDB Applicant Document", {"applicant": user}))
+
+	def test_appointment_request_needs_a_name_and_a_number(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "first name"):
+			tin_auth.request_appointment(first_name="", last_name="Persaud", phone="6001234")
+		with self.assertRaisesRegex(frappe.ValidationError, "valid phone"):
+			tin_auth.request_appointment(first_name="Asha", last_name="Persaud", phone="call me")
+		name = tin_auth.request_appointment(first_name="Asha", last_name="Persaud", phone="+592 600 1234", reason="No National ID")["name"]
+		row = frappe.db.get_value("GDB Appointment Request", name, ["first_name", "phone", "reason", "status"], as_dict=True)
+		self.assertEqual((row.first_name, row.reason, row.status), ("Asha", "No National ID", "New"))
+
 	def test_a_photo_of_the_document_is_accepted(self):
 		# Its own NID: this class's tests share one transaction, and the others
 		# expect NID to be unused until test_it_creates_... makes it.
@@ -307,7 +327,7 @@ class TestTheKycRegister(TinCase):
 			self.request(phone="", use_registry_phone=1)
 
 	def test_e_id_is_an_identity_document_and_a_birth_certificate_is_not(self):
-		self.assertEqual(self.request(document_kind="e-ID", phone="", use_registry_phone=1)["phone"], "•••-5532")
+		self.assertEqual(self.request(document_kind="e-ID", document_number="59220010101", phone="", use_registry_phone=1)["phone"], "•••-5532")
 		with self.assertRaises(frappe.ValidationError):
 			self.request(document_kind="Birth Certificate")
 

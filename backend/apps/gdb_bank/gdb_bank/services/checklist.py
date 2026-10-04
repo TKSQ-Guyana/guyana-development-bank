@@ -2,8 +2,9 @@
 the disbursement officer. Every loan, SME or Quick, individual or group (the
 group's head, in whose name the case is filed).
 
-  e-ID           on the account — or asked for: the Letter of Offer gives the
-                 borrower 90 days to get one, so an open request is enough
+  e-ID           Quick Loan: on the account — or asked for: the Letter of Offer
+                 gives the borrower 90 days to get one, so an open request is
+                 enough. SME Loan: optional — shown, never holding a case back.
   National ID    on the account or the applicant's profile
   Bank account   the account the loan is paid into, nominated in the portal
   Payslip        uploaded, and not rejected
@@ -20,6 +21,8 @@ import frappe
 from frappe import _
 
 from gdb_bank.services.evidence import EID_REQUEST, OPEN, REPLACED, REQUEST_DOCTYPE
+from gdb_bank.utils.constants import QUICK_PRODUCT
+from gdb_bank.utils.formatters import _portal_product
 
 REJECTED = "Rejected"
 
@@ -66,6 +69,21 @@ def _facts(owner: str) -> dict:
 		if customer
 		else None
 	)
+	# An e-ID card the applicant uploaded counts until GDB rejects it: the e-ID
+	# on the account (User.gdb_eid) is only set by an e-ID sign-in.
+	eid_card = frappe.db.get_value(
+		DOCUMENTS,
+		{
+			"applicant": owner,
+			"document_type": "Identity",
+			"id_document_kind": EID_REQUEST,
+			"file_url": ["is", "set"],
+			"status": ["not in", [REJECTED, REPLACED]],
+		},
+		["id_document_number", "status"],
+		as_dict=True,
+		order_by="creation desc",
+	)
 	payslip = frappe.db.get_value(
 		DOCUMENTS,
 		{
@@ -79,7 +97,8 @@ def _facts(owner: str) -> dict:
 		order_by="creation desc",
 	)
 	return {
-		"eid": user.get("gdb_eid"),
+		"eid": user.get("gdb_eid")
+		or (f"e-ID card uploaded · {eid_card.status}" if eid_card else None),
 		"national_id": user.get("gdb_national_id") or profile_nid,
 		"bank_account": f"{account.bank} ····{(account.bank_account_no or '')[-4:]}" if account else None,
 		"payslip": f"Uploaded · {payslip.status}" if payslip else None,
@@ -88,9 +107,12 @@ def _facts(owner: str) -> dict:
 
 def checklist(application: str) -> dict:
 	"""The checklist for one case: {items, ready, outstanding}."""
-	owner = frappe.db.get_value("Loan Application", application, "gdb_owner")
-	if not owner:
+	row = frappe.db.get_value("Loan Application", application, ["gdb_owner", "loan_product"], as_dict=True)
+	if not row:
 		frappe.throw(_("Loan Application {0} not found.").format(application))
+	owner = row.gdb_owner
+	# Not every item is asked of every loan: an SME Loan does not need an e-ID.
+	optional = set() if _portal_product(row.loan_product) == QUICK_PRODUCT else {"eid"}
 	facts = _facts(owner)
 	items = []
 	for key in ("eid", "national_id", "bank_account", "payslip"):
@@ -105,8 +127,11 @@ def checklist(application: str) -> dict:
 				"detail": have,
 				"request_type": document_type,
 				"request_item": ask,
+				"optional": key in optional,
 				# Whether this item is what keeps the case from disbursement.
-				"blocking": status != "ok" and not (status == "requested" and key in GRACE),
+				"blocking": key not in optional
+				and status != "ok"
+				and not (status == "requested" and key in GRACE),
 			}
 		)
 	outstanding = [i["label"] for i in items if i["blocking"]]

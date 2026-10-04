@@ -93,6 +93,12 @@ def clean_id_number(kind: str | None, number: str | None) -> tuple[str, str]:
 	compact = re.sub(r"[\s\-/.]", "", (number or "").strip().upper())
 	if not compact:
 		frappe.throw(_("Enter the number printed on your {0}.").format(kind))
+	if kind == "e-ID":
+		# An e-ID is eleven digits, written 592-2001-0101 — the way the account's
+		# own e-ID (User.gdb_eid) is held.
+		if not re.fullmatch(r"\d{11}", compact):
+			frappe.throw(_("Enter your e-ID number as 592-2001-0101 — eleven digits."))
+		return kind, f"{compact[:3]}-{compact[3:7]}-{compact[7:]}"
 	if not re.fullmatch(r"[A-Z0-9]{5,20}", compact):
 		frappe.throw(_("Enter the {0} number as printed on it — letters and digits only.").format(kind))
 	return kind, compact

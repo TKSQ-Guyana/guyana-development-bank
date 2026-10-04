@@ -1,9 +1,8 @@
-"""One loan of each kind at a time.
+"""One loan at a time.
 
-A citizen may hold ONE SME Loan and ONE Quick Loan. The two products do not
-block each other, but a second of the same kind waits until the first is
-CLEARED. A case of a product stays open, and blocks another of that product,
-while it is:
+A citizen may have ONE loan with GDB — a Quick Loan or an SME Loan, not one
+of each (GDB, 2026-10-04). Any open case blocks a new application of either
+kind until it is CLEARED. A case stays open while it is:
 
   a draft            — continue it, or discard it
   with GDB           — submitted and not yet decided
@@ -73,9 +72,8 @@ def _blocking(row) -> dict | None:
 	return None if _offer_ended(row.name) else {"kind": "approved"}
 
 
-def open_cases(user: str, include_drafts: bool = True, except_name: str | None = None) -> dict:
-	"""{product: the open case of that product} for this citizen's own
-	applications — at most one entry per product, the newest."""
+def open_case(user: str, include_drafts: bool = True, except_name: str | None = None) -> dict | None:
+	"""The citizen's newest open case of either kind, with its `product` — or None."""
 	rows = frappe.get_all(
 		"Loan Application",
 		filters={
@@ -86,46 +84,50 @@ def open_cases(user: str, include_drafts: bool = True, except_name: str | None =
 		fields=["name", "docstatus", "status", "loan_product", "loan_amount", "creation"],
 		order_by="creation desc",
 	)
-	found: dict = {}
 	for row in rows:
 		if row.name == except_name:
 			continue
-		product = _portal_product(row.loan_product)
-		if product in found:
-			continue
 		reason = _blocking(row)
 		if reason:
-			found[product] = {"name": row.name, "loan_amount": row.loan_amount, **reason}
-	return found
+			return {
+				"name": row.name,
+				"product": _portal_product(row.loan_product),
+				"loan_amount": row.loan_amount,
+				**reason,
+			}
+	return None
 
 
-def message(product: str, case: dict) -> str:
-	what = PRODUCT_NAMES.get(product, "loan")
+def message(case: dict) -> str:
+	"""Why a new application must wait, naming the case that is open."""
+	what = PRODUCT_NAMES.get(case.get("product"), "loan")
 	kind = case["kind"]
 	article = "an" if what.startswith("SME") else "a"
 	if kind == "draft":
-		return _("You already have {2} {0} application in progress ({1}). Continue it, or discard it, before starting another.").format(what, case["name"], article)
+		return _("You already have {2} {0} application in progress ({1}). Continue it, or discard it, before starting a new one.").format(what, case["name"], article)
 	if kind == "review":
-		return _("Your {0} application {1} is with GDB. You can apply for another {0} once it is decided and any loan is repaid.").format(what, case["name"])
+		return _("Your {0} application {1} is under review with GDB.").format(what, case["name"])
 	if kind == "approved":
-		return _("Your {0} application {1} has been approved. You can apply for another {0} once that loan is repaid.").format(what, case["name"])
-	return _("You have {2} {0} ({1}) that is not yet repaid. Clear it to apply for another {0}.").format(
+		return _("Your {0} application {1} has been approved. You can apply for another loan once it is repaid.").format(what, case["name"])
+	return _("You have {2} {0} ({1}) that is not yet repaid. Clear it to apply for another loan.").format(
 		what, case.get("loan") or case["name"], article
 	)
 
 
-def require_none_open(user: str, product: str, include_drafts: bool = True, except_name: str | None = None) -> None:
-	case = open_cases(user, include_drafts=include_drafts, except_name=except_name).get(product)
+def require_none_open(user: str, product: str | None = None, include_drafts: bool = True, except_name: str | None = None) -> None:
+	"""Refuse a new application while any case is open. `product` is the one
+	being applied for; it no longer matters which — one loan in total."""
+	case = open_case(user, include_drafts=include_drafts, except_name=except_name)
 	if case:
-		frappe.throw(message(product, case), title=_("One {0} at a time").format(PRODUCT_NAMES.get(product, "loan")))
+		frappe.throw(message(case), title=_("One loan at a time"))
 
 
 def summary(user: str) -> dict:
 	"""Per product: can this citizen start one, and if not, what stands in the
-	way — for the loan chooser to say before they begin, not after."""
-	cases = open_cases(user)
-	out = {}
-	for product in PORTAL_PRODUCTS:
-		case = cases.get(product)
-		out[product] = {"can_apply": case is None, "open_case": case, "message": message(product, case) if case else None}
-	return out
+	way — for the loan chooser to say before they begin, not after. One open
+	case blocks both."""
+	case = open_case(user)
+	return {
+		product: {"can_apply": case is None, "open_case": case, "message": message(case) if case else None}
+		for product in PORTAL_PRODUCTS
+	}

@@ -836,7 +836,7 @@ export function LoanDetail() {
                     onIssued={bump}
                     defaultAmount={loan.loan_amount}
                     defaultTerm={loan.term_months}
-                    needsEid={needsEid(loan.applicant_eid)}
+                    needsEid={needsEid(loan.applicant_eid, loan.product)}
                   />
                 )}
                 <OfferPanel

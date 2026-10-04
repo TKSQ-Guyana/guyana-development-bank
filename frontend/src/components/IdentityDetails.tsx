@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { eidForBoxes, eidFromBoxes } from "../eid";
+import { EidBoxes } from "./EidBoxes";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../auth";
@@ -36,9 +38,21 @@ export const compactIdNumber = (value: string) =>
   value.toUpperCase().replace(/[\s\-/.]/g, "");
 
 /** Why a typed number cannot be right, or null. */
+/** An e-ID as it is written: 592-2001-0101, the dashes put in while typing. */
+export function formatEid(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 11);
+  return [d.slice(0, 3), d.slice(3, 7), d.slice(7)].filter(Boolean).join("-");
+}
+
+/** The number as typed into a box for `kind` — an e-ID takes its shape. */
+export const typedIdNumber = (kind: string, value: string) =>
+  kind === "e-ID" ? formatEid(value) : value;
+
 export function idNumberProblem(kind: string, number: string): string | null {
   const compact = compactIdNumber(number);
   if (!compact) return `Enter the number printed on your ${kind}.`;
+  if (kind === "e-ID" && !/^\d{11}$/.test(compact))
+    return "Enter your e-ID number as 592-2001-0101 — eleven digits.";
   if (!/^[A-Z0-9]{5,20}$/.test(compact))
     return `Enter the ${kind} number as printed on it — letters and digits only.`;
   return null;
@@ -134,6 +148,7 @@ function IdentityDialog({
   const pickKind = (k: string) => {
     setKind(k);
     if (k === NATIONAL_ID_CARD && nationalId) setNumber(nationalId);
+    else if (k === "e-ID") setNumber((n) => formatEid(n));
     else if (kind === NATIONAL_ID_CARD && number === nationalId) setNumber("");
   };
 
@@ -217,21 +232,31 @@ function IdentityDialog({
           <span className="mb-1 block text-xs font-bold text-slate-700">
             {kind} number <span className="text-rose-600">*</span>
           </span>
-          <input
-            autoFocus
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={30}
-            aria-invalid={tried && !!problem}
-            aria-describedby="id-number-help"
-            className={`h-11 w-full rounded-lg border px-3 font-mono text-base tracking-wider focus:outline-none focus:ring-4 ${
-              tried && problem
-                ? "border-rose-400 focus:ring-rose-100"
-                : "border-slate-300 focus:border-brand focus:ring-emerald-100"
-            }`}
-          />
+          {kind === "e-ID" ? (
+            <EidBoxes
+              value={eidForBoxes(number)}
+              onChange={(v) => setNumber(eidFromBoxes(v))}
+              invalid={tried && !!problem}
+              describedBy="id-number-help"
+              autoFocus
+            />
+          ) : (
+            <input
+              autoFocus
+              value={number}
+              onChange={(e) => setNumber(typedIdNumber(kind, e.target.value))}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={30}
+              aria-invalid={tried && !!problem}
+              aria-describedby="id-number-help"
+              className={`h-11 w-full rounded-lg border px-3 font-mono text-base tracking-wider focus:outline-none focus:ring-4 ${
+                tried && problem
+                  ? "border-rose-400 focus:ring-rose-100"
+                  : "border-slate-300 focus:border-brand focus:ring-emerald-100"
+              }`}
+            />
+          )}
           <span
             id="id-number-help"
             className={`mt-1 block text-xs ${tried && problem ? "text-rose-600" : "text-slate-500"}`}

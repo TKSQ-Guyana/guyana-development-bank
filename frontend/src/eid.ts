@@ -22,7 +22,23 @@ export const EID_TOTAL_DIGITS = EID_PART_LENGTHS.reduce((sum, n) => sum + n, 0);
 
 /** An empty control's value: three empty parts, so `split('-')` still gives
  *  three. `''` would render as a control with no boxes at all. */
-export const EMPTY_EID = '--';
+export const EMPTY_EID = "--";
 
 /** Is this a complete e-ID? The submit button asks before enabling. */
 export const isCompleteEid = (value: string): boolean => EID_SHAPE.test(value);
+
+/** A stored e-ID ("", "59220010101" or "592-2001-0101") as the three boxes
+ *  read it; what does not fit the shape shows as empty boxes. */
+export function eidForBoxes(value: string | null | undefined): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return EMPTY_EID;
+  if (raw.split("-").length === 3) return raw;
+  const d = raw.replace(/\D/g, "");
+  return d.length === EID_TOTAL_DIGITS
+    ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
+    : EMPTY_EID;
+}
+
+/** What the boxes hold, as the value to store: empty boxes are no e-ID. */
+export const eidFromBoxes = (value: string): string =>
+  value === EMPTY_EID ? "" : value;

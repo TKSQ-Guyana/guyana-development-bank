@@ -8,6 +8,7 @@ import {
 import { call } from "../api";
 import { useAuth } from "../auth";
 import { DocumentShelf } from "../components/DocumentShelf";
+import { BankAccountForm } from "../components/profile/BankAccountForm";
 import { formatPhone, isGuyanaPhone } from "../components/PhoneInput";
 import {
   PhoneField,
@@ -34,6 +35,7 @@ import { formatDate } from "../utils";
  */
 
 type Form = {
+  national_id: string;
   phone: string;
   email: string;
   date_of_birth: string;
@@ -50,6 +52,7 @@ type Form = {
 };
 
 const EMPTY: Form = {
+  national_id: "",
   phone: "",
   email: "",
   date_of_birth: "",
@@ -80,6 +83,7 @@ const COUNTED: (keyof Form)[] = [
 ];
 
 const fromProfile = (p: CitizenProfile): Form => ({
+  national_id: p.national_id ?? "",
   phone: p.phone || p.verified_phone || "",
   email: p.email || p.verified_email || "",
   date_of_birth: p.date_of_birth || p.verified_birth_date || "",
@@ -99,6 +103,11 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function problems(f: Form): Partial<Record<keyof Form, string>> {
   const out: Partial<Record<keyof Form, string>> = {};
+  if (
+    f.national_id.trim() &&
+    !/^[A-Za-z0-9-]{5,20}$/.test(f.national_id.trim())
+  )
+    out.national_id = "Enter the number as it is on your National ID card.";
   if (!f.phone.trim()) out.phone = "Enter your phone number.";
   else if (!isGuyanaPhone(f.phone))
     out.phone = "Enter a 7-digit Guyana number, e.g. 600 1234.";
@@ -137,6 +146,14 @@ export function Profile() {
       .then(apply)
       .catch((err: Error) => setError(err.message));
   }, []);
+
+  // Arriving from a link to one part of the page (My applications: what a
+  // case still needs) — scroll to it once there is a page to scroll.
+  useEffect(() => {
+    if (!profile || !window.location.hash) return;
+    const el = document.getElementById(window.location.hash.slice(1));
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [Boolean(profile)]);
 
   const set = (field: keyof Form) => (value: string) => {
     setSavedAt(null);
@@ -314,10 +331,27 @@ export function Profile() {
 
           <Block
             n={2}
+            id="national-id"
             title="About you"
             intro="Asked once, used on every application."
             done={Boolean(initial.date_of_birth && initial.occupation)}
           >
+            {/* Signed up with it: read-only. Signed in by e-ID without one:
+                theirs to add — the loan officer's checklist needs it. */}
+            <div className="mb-4">
+              <TextField
+                label="National ID number"
+                value={nationalId || form.national_id}
+                onChange={set("national_id")}
+                disabled={Boolean(nationalId)}
+                hint={hint(
+                  "national_id",
+                  nationalId
+                    ? "From your sign-up."
+                    : "As on your National ID card.",
+                )}
+              />
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <TextField
                 label="Date of birth"
@@ -423,6 +457,16 @@ export function Profile() {
                 hint={hint("next_of_kin_phone")}
               />
             </div>
+          </Block>
+
+          <Block
+            n={5}
+            id="bank-account"
+            title="Bank account"
+            intro="Where GDB pays your loan. Saved on its own."
+            done={false}
+          >
+            <BankAccountForm />
           </Block>
 
           {/* Changes are never lost quietly: the bar appears while there are some,
@@ -533,7 +577,9 @@ export function Profile() {
           </section>
 
           {/* Personal documents: they follow the person, not one application. */}
-          <DocumentShelf title="My documents" compact />
+          <div id="documents" className="scroll-mt-24">
+            <DocumentShelf title="My documents" compact />
+          </div>
 
           <p className="px-1 text-xs leading-relaxed text-slate-500">
             GDB reads these details with each application you make. Changing
@@ -547,19 +593,25 @@ export function Profile() {
 
 function Block({
   n,
+  id,
   title,
   intro,
   done,
   children,
 }: {
   n: number;
+  /** An anchor other pages link to (/profile#bank-account). */
+  id?: string;
   title: string;
   intro: string;
   done: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs sm:p-6">
+    <section
+      id={id}
+      className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs sm:p-6"
+    >
       <header className="mb-4 flex items-center gap-3">
         <span
           className={`grid h-9 w-9 flex-none place-items-center rounded-xl text-sm font-black ${

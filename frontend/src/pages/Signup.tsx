@@ -1,10 +1,8 @@
 import {
-  ID_DOCUMENT_KINDS,
-  idNumberHint,
-  idNumberProblem,
-  NATIONAL_ID_CARD,
-  nationalIdMismatch,
-} from "../components/IdentityDetails";
+  type AppointmentReason,
+  AppointmentRequest,
+} from "../components/AppointmentRequest";
+import { FocusAlert } from "../shared/FocusAlert";
 import { gdbLogo } from "../components/site/assets";
 import { useEffect, useRef, useState } from "react";
 import { IdSampleLink } from "../components/IdSamples";
@@ -49,23 +47,8 @@ const FACE_CHECK_ON = false;
 
 // An ID number as the register holds it (tin_auth.NID_SHAPE).
 const NID_SHAPE = /^[A-Z0-9]{6,15}$/;
-// The documents the server accepts at sign-up (tin_auth.DOCUMENT_KINDS): every
-// identity document but a passport.
-const DOCUMENT_KINDS = ID_DOCUMENT_KINDS.filter((k) => k !== "Passport");
-// tin_auth.PASSWORD_MIN, and the PDF limit of every identity document.
+// tin_auth.PASSWORD_MIN.
 const PASSWORD_MIN = 8;
-// What the server accepts for an identity document (evidence.ACCEPTED_BY_TYPE):
-// a PDF scan, or a photo in any format a phone camera saves.
-const DOCUMENT_FORMATS = [
-  ".pdf",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".webp",
-  ".heic",
-  ".heif",
-];
-const MAX_BYTES = 10 * 1024 * 1024;
 // The latest date of birth the form offers: 18 years ago today.
 const ADULT_BY = (() => {
   const d = new Date();
@@ -97,24 +80,11 @@ const textInput =
 const errorBox =
   "rounded-xl bg-red-50 px-4 py-3 text-[14px] leading-[1.5] font-medium text-red-700";
 
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () =>
-      reject(new Error("The document could not be read. Attach it again."));
-    reader.readAsDataURL(file);
-  });
-}
-
 export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const { refresh } = useAuth();
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>("details");
   const [form, setForm] = useState<TinSignupForm>(EMPTY);
-  const [file, setFile] = useState<File | null>(null);
-  // The number is checked once the person leaves the box, not while typing.
-  const [numberTouched, setNumberTouched] = useState(false);
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -138,9 +108,11 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const [looking, setLooking] = useState(false);
   const [phoneConfirmed, setPhoneConfirmed] = useState(false);
   // "Not your number?" — opens the note on changing it in person.
-  const [notMine, setNotMine] = useState(false);
-  // "Don't have a National ID?" — opens the note on getting one in person.
-  const [noNationalId, setNoNationalId] = useState(false);
+  // Schedule an appointment: no National ID, or a phone on record not theirs.
+  const [appointment, setAppointment] = useState<AppointmentReason | null>(
+    null,
+  );
+
   const edited = useRef(new Set<string>());
   // As the register holds it: letters kept (a passport-style "R1234567").
   const nidNow = form.national_id.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -157,7 +129,6 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
           if (!live) return;
           setMatch(m);
           setPhoneConfirmed(false);
-          setNotMine(false);
           if (m.found)
             setForm((f) => ({
               ...f,
@@ -226,25 +197,6 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const tinDigits = form.tin.replace(/\D/g, "");
   // The TIN is optional: blank, or the nine GRA digits.
   const tinOk = tinDigits.length === 0 || tinDigits.length === 9;
-  const numberProblem =
-    numberTouched && form.document_kind
-      ? idNumberProblem(form.document_kind, form.document_number) ||
-        nationalIdMismatch(
-          form.document_kind,
-          form.document_number,
-          form.national_id,
-        )
-      : null;
-  // A National ID card's number is the National ID typed above.
-  const cardMatches =
-    form.document_kind === NATIONAL_ID_CARD &&
-    !!form.document_number &&
-    !nationalIdMismatch(
-      form.document_kind,
-      form.document_number,
-      form.national_id,
-    );
-
   const ready =
     form.first_name.trim() &&
     form.last_name.trim() &&
@@ -254,34 +206,9 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
     form.date_of_birth &&
     NID_SHAPE.test(nidNow) &&
     tinOk &&
-    form.document_kind &&
-    !idNumberProblem(form.document_kind, form.document_number) &&
-    !nationalIdMismatch(
-      form.document_kind,
-      form.document_number,
-      form.national_id,
-    ) &&
-    file &&
     form.password.length >= PASSWORD_MIN &&
     !pwMix &&
     form.confirm_password === form.password;
-
-  const pickFile = (picked: File | null) => {
-    setError(null);
-    if (!picked) return setFile(null);
-    const ext = picked.name.slice(picked.name.lastIndexOf(".")).toLowerCase();
-    if (!DOCUMENT_FORMATS.includes(ext)) {
-      setFile(null);
-      return setError(
-        `${picked.name}: attach a PDF or a photo (JPG, PNG, WEBP or HEIC).`,
-      );
-    }
-    if (picked.size > MAX_BYTES) {
-      setFile(null);
-      return setError(`${picked.name} is larger than 10 MB.`);
-    }
-    setFile(picked);
-  };
 
   const sendCode = async (e?: FormEvent, token?: string) => {
     e?.preventDefault();
@@ -304,15 +231,11 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
 
   const verify = async (e: FormEvent) => {
     e.preventDefault();
-    if (!challenge || !file) return;
+    if (!challenge) return;
     setError(null);
     setBusy(true);
     try {
-      const data = await readAsDataUrl(file);
-      await completeSignup(payload, challenge.challenge, otp, {
-        name: file.name,
-        data,
-      });
+      await completeSignup(payload, challenge.challenge, otp);
       await refresh();
       setStage("done");
     } catch (err) {
@@ -337,6 +260,17 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
         <Steps stage={stage} />
       </div>
 
+      {appointment && (
+        <AppointmentRequest
+          reason={appointment}
+          nationalId={
+            appointment === "Change phone number" ? form.national_id : undefined
+          }
+          initial={{ firstName: form.first_name, lastName: form.last_name }}
+          onClose={() => setAppointment(null)}
+        />
+      )}
+
       {stage === "details" && (
         <form onSubmit={(e) => void proceed(e)} noValidate>
           <h2 className="mt-5 font-display text-[26px] leading-[1.2] font-extrabold tracking-[-0.02em]">
@@ -347,12 +281,15 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             and send a code to your phone to confirm it is you.
           </p>
           {error && (
-            <p className={`mt-5 ${errorBox}`} role="alert">
-              {error}
-            </p>
+            <FocusAlert className={`mt-5 ${errorBox}`}>{error}</FocusAlert>
           )}
 
           <div className="mt-6">
+            <p className="mb-4 rounded-xl border border-gdb-border bg-gdb-paper px-4 py-3 text-[13px] leading-relaxed text-gdb-ink/70">
+              I agree that GDB may use my National ID to retrieve my information
+              from other Government agencies to pre-fill and assess my
+              application.
+            </p>
             <Field
               label="National ID number"
               required
@@ -369,43 +306,23 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                     .toUpperCase()
                     .replace(/[^A-Z0-9\s-]/g, "");
                   set("national_id")(next);
-                  // A National ID card already chosen below follows it.
-                  if (
-                    form.document_kind === NATIONAL_ID_CARD &&
-                    (!form.document_number ||
-                      form.document_number === form.national_id)
-                  )
-                    set("document_number")(next);
                 }}
                 disabled={busy}
                 className={`${textInput} font-mono tracking-wider`}
               />
               <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
                 <IdSampleLink kind="National ID Card" />
-                <button
-                  type="button"
-                  onClick={() => setNoNationalId((v) => !v)}
-                  aria-expanded={noNationalId}
-                  className="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-gdb-indigo hover:underline"
-                >
-                  Don&apos;t have a National ID?
-                </button>
+                <span className="text-xs text-gdb-ink/60">
+                  Don&apos;t have a National ID?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAppointment("No National ID")}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-gdb-indigo hover:underline"
+                  >
+                    Schedule an appointment
+                  </button>
+                </span>
               </div>
-              {noNationalId && (
-                <div
-                  role="note"
-                  className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950"
-                >
-                  <p className="font-bold">
-                    You need a National ID to open an account.
-                  </p>
-                  <p className="mt-1">
-                    Visit a <strong>GDB loan officer</strong> at any GDB branch.
-                    They will help you get your National ID and register for a
-                    loan account.
-                  </p>
-                </div>
-              )}
             </Field>
             {looking && (
               <p className="mt-2 text-[13px] font-semibold text-gdb-ink/55">
@@ -523,36 +440,23 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                       disabled={busy}
                       className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                     />
-                    This is my number — send my code to it.
+                    To verify your identity we need to send you an authorization
+                    code.
                   </label>
                 </div>
                 {/* The number on record cannot be changed online — the server
                     refuses any other (tin_auth.PHONE_CHANGE_MESSAGE). */}
-                <button
-                  type="button"
-                  onClick={() => setNotMine((v) => !v)}
-                  aria-expanded={notMine}
-                  disabled={busy}
-                  className={`${fieldHelp} cursor-pointer border-0 bg-transparent p-0 font-bold text-gdb-indigo hover:underline`}
-                >
-                  Not your number?
-                </button>
-                {notMine && (
-                  <div
-                    role="note"
-                    className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950"
+                <p className={fieldHelp}>
+                  Not your number?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAppointment("Change phone number")}
+                    disabled={busy}
+                    className="cursor-pointer border-0 bg-transparent p-0 font-bold text-gdb-indigo hover:underline"
                   >
-                    <p className="font-bold">
-                      The number can&apos;t be changed online.
-                    </p>
-                    <p className="mt-1">
-                      For your security, your sign-up code can only go to the
-                      phone on record for this National ID. To change it, visit
-                      a <strong>GDB Field Officer</strong> or any GDB branch
-                      with your ID. Once it is updated, come back and sign up.
-                    </p>
-                  </div>
-                )}
+                    Schedule an appointment
+                  </button>
+                </p>
               </div>
             ) : (
               <Field
@@ -604,108 +508,6 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 className={textInput}
               />
             </Field>
-            <Field label="Identity document" required>
-              <select
-                value={form.document_kind}
-                onChange={(e) => {
-                  const kind = e.target.value;
-                  set("document_kind")(kind);
-                  // The National ID card's number is the one typed above.
-                  if (kind === NATIONAL_ID_CARD)
-                    set("document_number")(form.national_id);
-                  else if (
-                    form.document_kind === NATIONAL_ID_CARD &&
-                    form.document_number === form.national_id
-                  )
-                    set("document_number")("");
-                }}
-                disabled={busy}
-                className={`${textInput} pr-9`}
-              >
-                <option value="">Choose one</option>
-                {DOCUMENT_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-              {form.document_kind && (
-                <IdSampleLink kind={form.document_kind} className="mt-1.5" />
-              )}
-            </Field>
-            <Field
-              label={
-                form.document_kind
-                  ? `${form.document_kind} number`
-                  : "Document number"
-              }
-              required
-              hint={
-                numberProblem ? (
-                  <span className="text-rose-600">{numberProblem}</span>
-                ) : cardMatches ? (
-                  <span className="text-emerald-700">
-                    ✓ Matches your National ID number
-                  </span>
-                ) : (
-                  idNumberHint(form.document_kind)
-                )
-              }
-            >
-              <input
-                value={form.document_number}
-                onChange={(e) => set("document_number")(e.target.value)}
-                onBlur={() => setNumberTouched(true)}
-                disabled={busy || !form.document_kind}
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={30}
-                placeholder={
-                  form.document_kind
-                    ? "As printed on it"
-                    : "Choose the document first"
-                }
-                aria-invalid={!!numberProblem}
-                className={`${textInput} font-mono tracking-wider`}
-              />
-            </Field>
-            <div>
-              <span className={fieldLabel}>
-                Attach{" "}
-                {form.document_kind
-                  ? `your ${form.document_kind.toLowerCase()}`
-                  : "the document"}
-                <RequiredMark />
-              </span>
-              <label
-                className={`mt-2 flex cursor-pointer flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed px-4 py-3 transition-colors ${
-                  file
-                    ? "border-brand bg-emerald-50/60"
-                    : "border-gdb-border bg-gdb-paper hover:border-brand"
-                }`}
-              >
-                <input
-                  type="file"
-                  accept={`${DOCUMENT_FORMATS.join(",")},application/pdf,image/*`}
-                  className="sr-only"
-                  disabled={busy}
-                  onChange={(e) => {
-                    pickFile(e.target.files?.[0] ?? null);
-                    e.target.value = "";
-                  }}
-                />
-                <span className="min-w-0 truncate text-[14px] font-semibold text-gdb-ink/80">
-                  {file ? `✓ ${file.name}` : "Choose a PDF or photo"}
-                </span>
-                <span className="rounded-lg bg-brand-dark px-3 py-1.5 text-[12px] font-extrabold text-white">
-                  {file ? "Replace" : "Browse"}
-                </span>
-              </label>
-              <p className={fieldHelp}>
-                A PDF, or a clear photo of the document (JPG, PNG, WEBP, HEIC) —
-                up to 10 MB.
-              </p>
-            </div>
             <Field
               label="Password"
               required
@@ -780,9 +582,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
       {stage === "face" && faceStart && (
         <>
           {error && (
-            <p className={`mt-5 ${errorBox}`} role="alert">
-              {error}
-            </p>
+            <FocusAlert className={`mt-5 ${errorBox}`}>{error}</FocusAlert>
           )}
           <FaceCheck
             nationalId={form.national_id}
@@ -809,9 +609,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
           </p>
           {challenge.static_code && <DemoCode code={challenge.demo_code} />}
           {error && (
-            <p className={`mt-4 ${errorBox}`} role="alert">
-              {error}
-            </p>
+            <FocusAlert className={`mt-4 ${errorBox}`}>{error}</FocusAlert>
           )}
           <div className="mt-6">
             <OtpInput

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useFocusOnError } from "../../shared/FocusAlert";
 import { CheckIcon, ChevronDownIcon } from "../ui/icons";
 
 /** The Quick Loan flow's own building blocks, in the portal's forest-and-gold
@@ -159,10 +160,16 @@ export function Banner({
   action?: ReactNode;
 }) {
   const [box, dot, glyph] = BANNER[kind];
+  // An error takes the focus as it appears (shared/FocusAlert).
+  const errorRef = useFocusOnError<HTMLDivElement>(
+    kind === "error" ? title : null,
+  );
   return (
     <div
+      ref={errorRef}
+      tabIndex={kind === "error" ? -1 : undefined}
       className={cx(
-        "flex items-start gap-2.5 rounded-xl border border-l-4 px-3.5 py-2.5",
+        "flex items-start gap-2.5 rounded-xl border border-l-4 px-3.5 py-2.5 outline-none",
         box,
       )}
       role={kind === "error" ? "alert" : "status"}

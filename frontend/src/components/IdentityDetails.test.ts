@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compactIdNumber, idNumberProblem, nationalIdMismatch } from './IdentityDetails';
+import { compactIdNumber, formatEid, idNumberProblem, nationalIdMismatch } from './IdentityDetails';
 
 describe('identity document numbers', () => {
   it('keeps letters and digits, uppercased, as the server stores them', () => {
@@ -24,5 +24,18 @@ describe('a National ID card', () => {
   it('is not checked for other documents, or without a National ID', () => {
     expect(nationalIdMismatch('Passport', 'R0123456', '900100200')).toBeNull();
     expect(nationalIdMismatch('National ID Card', '900100299', null)).toBeNull();
+  });
+});
+
+describe('an e-ID number', () => {
+  it('is shaped 592-2001-0101 as it is typed', () => {
+    expect(formatEid('59220010101')).toBe('592-2001-0101');
+    expect(formatEid('5922')).toBe('592-2');
+    expect(formatEid('592 2001 0101 99')).toBe('592-2001-0101');
+  });
+
+  it('must be eleven digits', () => {
+    expect(idNumberProblem('e-ID', '592-2001-010')).toMatch(/592-2001-0101/);
+    expect(idNumberProblem('e-ID', '592-2001-0101')).toBeNull();
   });
 });

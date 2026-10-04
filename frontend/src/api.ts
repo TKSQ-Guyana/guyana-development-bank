@@ -233,14 +233,16 @@ export const completeSignup = (
   form: TinSignupForm,
   challenge: string,
   otp: string,
-  document: { name: string; data: string },
+  // No identity document is asked at sign-up any more; kept for callers that
+  // still have one to send.
+  document?: { name: string; data: string },
 ) =>
   call<unknown>("gdb_bank.tin_auth.complete_signup", {
     ...form,
     challenge,
     otp,
-    document_name: document.name,
-    document_data: document.data,
+    document_name: document?.name,
+    document_data: document?.data,
   });
 
 /** National ID sign-in, step one: National ID + password. Right ones answer a

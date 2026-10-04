@@ -121,7 +121,7 @@ def _cross_check_identity(owner: str, rows: list) -> None:
 			row.register_check = {"status": "no_number"}
 		elif not numbers:
 			row.register_check = {"status": "not_on_register"}
-		elif typed in numbers["numbers"]:
+		elif "".join(c for c in typed.upper() if c.isalnum()) in numbers["numbers"]:
 			row.register_check = {"status": "match", "id_type": numbers["id_type"]}
 		else:
 			row.register_check = {
@@ -350,6 +350,9 @@ def confirm_document(name: str, acting: str | None = None):
 	if not uploaded:
 		frappe.throw(_("No file arrived for this document. Please try the upload again."))
 
+	# An Identity document replaces only one of its own kind: an e-ID card is
+	# not a newer National ID card, and must not retire it.
+	same = {"id_document_kind": doc.id_document_kind} if doc.document_type == "Identity" else {}
 	previous = [
 		r.name
 		for r in frappe.get_all(
@@ -360,6 +363,7 @@ def confirm_document(name: str, acting: str | None = None):
 				"status": ["!=", REPLACED],
 				"name": ["!=", name],
 				"file_url": ["is", "set"],
+				**same,
 			},
 			fields=["name", "application"],
 		)
@@ -383,12 +387,47 @@ def confirm_document(name: str, acting: str | None = None):
 			doc.request,
 			{"status": "Satisfied", "satisfied_by": name, "responded_on": now_datetime()},
 		)
+	elif not acting:
+		satisfy_open_requests(doc)
 	frappe.db.commit()
 	_logger().info(
 		f"document {name} ({doc.document_type}) uploaded by {user} for "
 		f"{doc.application or 'profile'}, replacing {len(previous)}"
 	)
 	return frappe.db.get_value(DOCTYPE, name, DOCUMENT_FIELDS, as_dict=True)
+
+
+def _answers(doc) -> str | None:
+	"""The request type a document answers: an e-ID card the e-ID request,
+	anything else its own type. None for an identity document of another kind."""
+	if doc.document_type == "Identity":
+		return EID_REQUEST if doc.id_document_kind == EID_REQUEST else None
+	return doc.document_type
+
+
+def satisfy_open_requests(doc) -> list:
+	"""Close what GDB asked this applicant for that the document answers.
+
+	An applicant often uploads from My documents (or the case's shelf) rather
+	than from the request itself; the request is still answered, and left Open
+	it would go on asking for something already sent. Every open request of
+	that type on the applicant's cases is closed — a payslip or an e-ID card is
+	the person's, not one case's. Returns the requests closed."""
+	answers = _answers(doc)
+	if not answers or not doc.file_url and not frappe.db.get_value(DOCTYPE, doc.name, "file_url"):
+		return []
+	names = frappe.get_all(
+		REQUEST_DOCTYPE,
+		filters={"applicant": doc.applicant, "document_type": answers, "status": OPEN},
+		pluck="name",
+	)
+	for request in names:
+		frappe.db.set_value(
+			REQUEST_DOCTYPE,
+			request,
+			{"status": "Satisfied", "satisfied_by": doc.name, "responded_on": now_datetime()},
+		)
+	return names
 
 
 @frappe.whitelist()
@@ -512,6 +551,19 @@ def request_information(application: str, item: str, document_type: str | None =
 	if document_type == EID_REQUEST:
 		if frappe.db.get_value("User", row.gdb_owner, EID_FIELD):
 			frappe.throw(_("This applicant already has an e-ID on their account."))
+		if frappe.db.exists(
+			DOCTYPE,
+			{
+				"applicant": row.gdb_owner,
+				"document_type": "Identity",
+				"id_document_kind": EID_REQUEST,
+				"file_url": ["is", "set"],
+				"status": ["not in", ["Rejected", REPLACED]],
+			},
+		):
+			frappe.throw(
+				_("This applicant has already uploaded their e-ID card. Review it under Documents — reject it there to ask for another.")
+			)
 		if frappe.db.exists(
 			REQUEST_DOCTYPE, {"application": application, "document_type": EID_REQUEST, "status": OPEN}
 		):

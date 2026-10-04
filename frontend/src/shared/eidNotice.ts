@@ -3,9 +3,12 @@
  *  in the Letter of Offer's conditions — editable, never sent on its own. */
 export const EID_NOTICE = "e-ID is required within the next 90 days.";
 
-/** True when the applicant has no e-ID on record. */
-export const needsEid = (applicantEid: string | null | undefined) =>
-  !(applicantEid ?? "").trim();
+/** True when a Quick Loan applicant has no e-ID on record. An SME Loan does
+ *  not need an e-ID (services/checklist), so it gets no notice. */
+export const needsEid = (
+  applicantEid: string | null | undefined,
+  product?: string | null,
+) => product === "quick" && !(applicantEid ?? "").trim();
 
 /** The information-request type that asks an applicant with no e-ID to get
  *  one (gdb_bank.services.evidence.EID_REQUEST). Answered with an Identity

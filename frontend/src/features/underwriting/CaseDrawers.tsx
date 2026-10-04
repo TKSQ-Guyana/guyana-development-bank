@@ -42,12 +42,12 @@ export function DecisionDrawer({
   const [error, setError] = useState<string | null>(null);
 
   const approve = action === "approve";
-  const noEid = approve && needsEid(loan.applicant_eid);
+  const noEid = approve && needsEid(loan.applicant_eid, loan.product);
 
   useEffect(() => {
     if (action) setError(null);
     // No e-ID on the account: the approval message starts with the notice.
-    if (action === "approve" && needsEid(loan.applicant_eid)) {
+    if (action === "approve" && needsEid(loan.applicant_eid, loan.product)) {
       setRemarks((r) =>
         r.includes(EID_NOTICE) ? r : r ? `${EID_NOTICE}\n${r}` : EID_NOTICE,
       );

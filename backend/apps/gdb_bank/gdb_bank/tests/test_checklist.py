@@ -110,7 +110,97 @@ class TestTheLoanOfficersChecklist(RoadToPayment):
 			api.review_loan(name=name, action="reject", remarks="Not trading")
 		self.assertEqual(frappe.db.get_value("Loan Application", name, "status"), "Rejected")
 
+	def test_the_applicant_sees_what_was_asked_on_their_dashboard(self):
+		name, _offer = self.signed()
+		with self.set_user(UNDERWRITER):
+			documents.request_information(application=name, item=checklist.ASK["payslip"][1], document_type="Payslip")
+		with self.set_user(TRADER):
+			mine = api.my_requests()
+		self.assertEqual([(r.application, r.document_type) for r in mine["information"]], [(name, "Payslip")])
+		with self.set_user(DISBURSER):
+			self.assertEqual(api.my_requests()["information"], [])
+
+	def test_an_sme_loan_does_not_need_an_e_id(self):
+		name, _offer = self.signed()
+		from gdb_bank.utils.constants import PORTAL_PRODUCTS, STANDARD_PRODUCT
+
+		sme = frappe.db.get_value("Loan Product", {"product_name": PORTAL_PRODUCTS[STANDARD_PRODUCT]})
+		self.assertTrue(sme)
+		frappe.db.set_value("Loan Application", name, "loan_product", sme)
+		frappe.db.set_value("User", TRADER, "gdb_national_id", "900100555")
+		self.payslip()
+		got = self.items(name)
+		self.assertEqual(got["eid"]["status"], "missing")
+		self.assertTrue(got["eid"]["optional"])
+		self.assertFalse(got["eid"]["blocking"])
+		self.assertTrue(got["_ready"])
+
 	def test_the_applicant_cannot_read_it(self):
 		name, _offer = self.signed()
 		with self.set_user(TRADER), self.assertRaises(frappe.PermissionError):
 			api.loan_checklist(application=name)
+
+	def test_the_applicant_sees_what_their_case_still_needs(self):
+		name, _offer = self.signed()
+		with self.set_user(TRADER):
+			got = api.my_checklists()
+		self.assertEqual([i["key"] for i in got[name]], ["eid", "national_id", "payslip"])
+		self.payslip()
+		frappe.db.set_value("User", TRADER, "gdb_national_id", "900100555")
+		with self.set_user(TRADER):
+			got = api.my_checklists()
+		self.assertEqual([i["key"] for i in got[name]], ["eid"])
+
+	def test_the_facilitated_banks_link_to_their_sites(self):
+		from gdb_bank import install
+
+		install.ensure_banks()
+		with self.set_user(TRADER):
+			sites = {b["name"]: b["website"] for b in api.facilitated_bank_sites()}
+		for bank in sites:
+			self.assertTrue((sites[bank] or "").startswith("https://"), bank)
+
+	def eid_card(self, status: str = "Received"):
+		return frappe.get_doc(
+			{
+				"doctype": "GDB Applicant Document",
+				"applicant": TRADER,
+				"applicant_name": "Trader",
+				"document_type": "Identity",
+				"id_document_kind": "e-ID",
+				"id_document_number": "59220010101",
+				"status": status,
+				"file_url": "/private/files/eid.pdf",
+				"file_name": "eid.pdf",
+			}
+		).insert(ignore_permissions=True)
+
+	def test_an_e_id_card_uploaded_from_my_documents_answers_the_request(self):
+		name, _offer = self.signed()
+		with self.set_user(UNDERWRITER):
+			ask = documents.request_information(
+				application=name, item=checklist.ASK["eid"][1], document_type="e-ID"
+			)
+		closed = documents.satisfy_open_requests(self.eid_card())
+		self.assertEqual(closed, [ask.name])
+		self.assertEqual(frappe.db.get_value("GDB Information Request", ask.name, "status"), "Satisfied")
+		self.assertEqual(self.items(name)["eid"]["status"], "ok")
+
+	def test_a_rejected_e_id_card_is_asked_for_again(self):
+		name, _offer = self.signed()
+		self.eid_card("Rejected")
+		self.assertEqual(self.items(name)["eid"]["status"], "missing")
+
+	def test_a_national_id_card_does_not_answer_an_e_id_request(self):
+		name, _offer = self.signed()
+		with self.set_user(UNDERWRITER):
+			documents.request_information(application=name, item=checklist.ASK["eid"][1], document_type="e-ID")
+		card = self.eid_card()
+		card.id_document_kind = "National ID Card"
+		self.assertEqual(documents.satisfy_open_requests(card), [])
+
+	def test_an_e_id_is_not_asked_for_when_the_card_is_on_file(self):
+		name, _offer = self.signed()
+		self.eid_card()
+		with self.set_user(UNDERWRITER), self.assertRaises(frappe.ValidationError):
+			documents.request_information(application=name, item=checklist.ASK["eid"][1], document_type="e-ID")

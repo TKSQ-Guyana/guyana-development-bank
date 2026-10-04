@@ -51,7 +51,7 @@ function OpenCaseNotice({
       <div className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
         <div className="bg-gradient-to-r from-amber-50 to-white px-6 py-5">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
-            One {NAMES[product]} at a time
+            One loan at a time
           </p>
           <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900">
             {mine.open_case.kind === "draft"
@@ -64,8 +64,8 @@ function OpenCaseNotice({
             {mine.message}
           </p>
           <p className="text-xs text-slate-500">
-            Each citizen may hold one SME Loan and one Quick Loan. Once a loan
-            is fully repaid you can apply for another of the same kind.
+            Each citizen may have one loan with GDB at a time — a Quick Loan or
+            an SME Loan. Once it is fully repaid you can apply for another.
           </p>
           <div className="flex flex-wrap gap-2">
             <Link

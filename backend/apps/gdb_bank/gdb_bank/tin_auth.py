@@ -228,7 +228,7 @@ def _registry_phone(nid, use_registry_phone) -> str | None:
 	return None
 
 
-def _validated(first_name, last_name, email, phone, national_id, password, confirm_password, document_kind, date_of_birth=None, use_registry_phone=None, document_number=None, tin=None) -> dict:
+def _validated(first_name, last_name, email, phone, national_id, password, confirm_password, document_kind=None, date_of_birth=None, use_registry_phone=None, document_number=None, tin=None) -> dict:
 	"""Every sign-up rule except the attachment, in the order the form asks."""
 	nid = _required_nid(national_id)
 	phone = _registry_phone(nid, use_registry_phone) or phone
@@ -266,10 +266,16 @@ def _validated(first_name, last_name, email, phone, national_id, password, confi
 	if password != (confirm_password or ""):
 		frappe.throw(_("The two passwords do not match."))
 
-	if document_kind not in DOCUMENT_KINDS:
-		frappe.throw(_("Choose the identity document you are attaching."))
-	document_kind, document_number = clean_id_number(document_kind, document_number)
-	require_national_id_match(document_kind, document_number, nid)
+	# No identity document is asked at sign-up any more (GDB, 2026-10-04): the
+	# National ID and the KYC register identify the person. One sent anyway is
+	# still checked like any other.
+	if document_kind:
+		if document_kind not in DOCUMENT_KINDS:
+			frappe.throw(_("Choose the identity document you are attaching."))
+		document_kind, document_number = clean_id_number(document_kind, document_number)
+		require_national_id_match(document_kind, document_number, nid)
+	else:
+		document_kind = document_number = None
 
 	return {
 		"first": first,
@@ -354,6 +360,52 @@ def start_face_check(national_id: str) -> dict:
 	return face_check.start(_required_nid(national_id))
 
 
+APPOINTMENT_REASONS = ("No National ID", "Change phone number", "Other")
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(limit=5, seconds=3600)
+def request_appointment(
+	first_name: str,
+	last_name: str,
+	phone: str,
+	reason: str | None = None,
+	national_id: str | None = None,
+) -> dict:
+	"""Ask GDB to book an appointment, from sign-up — for someone with no
+	National ID yet, or whose phone on record is not theirs. No account needed:
+	only a name and a number to call. Rate-limited per caller (5 an hour),
+	because it answers anyone."""
+	first = (first_name or "").strip()
+	last = (last_name or "").strip()
+	if not first:
+		frappe.throw(_("Enter your first name."))
+	if not last:
+		frappe.throw(_("Enter your last name."))
+	if len(first) > NAME_MAX or len(last) > NAME_MAX:
+		frappe.throw(_("Names can be at most {0} characters.").format(NAME_MAX))
+	number = _normalised_phone(phone)
+	if not number:
+		frappe.throw(_("Enter a valid phone number, e.g. +592 600 1234."))
+	reason = reason if reason in APPOINTMENT_REASONS else "Other"
+	nid = _normalize_nid(national_id) if national_id else None
+	doc = frappe.get_doc(
+		{
+			"doctype": "GDB Appointment Request",
+			"first_name": first,
+			"last_name": last,
+			"phone": number,
+			"reason": reason,
+			"national_id": nid if nid and NID_SHAPE.match(nid) else None,
+			"status": "New",
+			"requested_on": frappe.utils.now_datetime(),
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.commit()
+	_logger().info(f"appointment request {doc.name} ({reason})")
+	return {"name": doc.name}
+
+
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 @rate_limit(limit=10, seconds=60)
 def submit_face_check(check: str, frames) -> dict:
@@ -372,7 +424,7 @@ def request_signup_otp(
 	national_id: str,
 	password: str,
 	confirm_password: str,
-	document_kind: str,
+	document_kind: str | None = None,
 	email: str | None = None,
 	date_of_birth: str | None = None,
 	use_registry_phone=None,
@@ -404,9 +456,9 @@ def complete_signup(
 	national_id: str,
 	password: str,
 	confirm_password: str,
-	document_kind: str,
-	document_name: str,
-	document_data: str,
+	document_kind: str | None = None,
+	document_name: str | None = None,
+	document_data: str | None = None,
 	email: str | None = None,
 	date_of_birth: str | None = None,
 	use_registry_phone=None,
@@ -423,7 +475,7 @@ def complete_signup(
 		use_registry_phone, document_number=document_number, tin=tin,
 	)
 	face_check.require_passed(form["national_id"], face_token, consume=True)
-	file_name, content = _attachment(document_name, document_data)
+	attached = _attachment(document_name, document_data) if form["document_kind"] else None
 	held = _redeem(challenge, otp, SIGNUP)
 	if held.get("national_id") != form["national_id"] or held.get("phone") != form["phone"]:
 		frappe.throw(_("Your National ID or phone changed after the code was sent. Request a new code."))
@@ -441,7 +493,8 @@ def complete_signup(
 
 	try:
 		user = _create_citizen(form, login_email)
-		_file_identity(user, form["document_kind"], file_name, content, form["document_number"])
+		if attached:
+			_file_identity(user, form["document_kind"], *attached, form["document_number"])
 		_save_profile(user, form["phone"], form["date_of_birth"], kyc_registry.lookup(nid), nid)
 		frappe.db.commit()
 	except Exception as exc:

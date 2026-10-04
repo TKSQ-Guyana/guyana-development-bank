@@ -47,13 +47,33 @@ BANKS = (
 	("Citizen Bank", 1),
 	("Demerara Bank", 1),
 	("GBTI", 1),
-	("Nova Scotia", 1),
+	("Scotiabank", 1),
 	("Republic Bank", 1),
 )
 
 # Names an earlier seed used. Kept — an account saved against one still links
 # to it — but switched off, so nobody new is offered them.
 RETIRED_BANKS = ("Citizens Bank Guyana", "Guyana Bank for Trade and Industry", "Republic Bank (Guyana)")
+
+# Old names for a bank still in use: Scotiabank was seeded, and is still written
+# in the KYC register, as "Nova Scotia". A Bank under an old name is renamed
+# (its accounts and branches follow); a register row under one is matched to
+# the current name (api.my_kyc_bank_account).
+BANK_ALIASES = {"Nova Scotia": "Scotiabank", "Bank of Nova Scotia": "Scotiabank"}
+
+# The banks the Help Desk helps an applicant without an account open one with —
+# GDB's list as of 2026-10-04 (patches/set_facilitated_banks.py). After that the
+# desk owns it: Bank > Facilitated for Applicants Without an Account.
+FACILITATED_BANKS = ("GBTI", "Scotiabank", "Republic Bank", "Demerara Bank")
+
+# Each bank's public site, linked from the facilitated-banks list. Seeded only
+# where Bank.website is blank: after that it is the desk's.
+BANK_WEBSITES = {
+	"GBTI": "https://www.gbtibank.com",
+	"Scotiabank": "https://www.scotiabank.com/gy/en.html",
+	"Republic Bank": "https://republicguyana.com",
+	"Demerara Bank": "https://www.demerarabank.com",
+}
 
 # Each bank's branches: (id, bank, branch, routing transit number, sort order).
 # A payout's Bank Account carries the routing number as its branch code.
@@ -106,11 +126,11 @@ BANK_BRANCHES = (
 	('Bank of Baroda - Main branch', 'Bank of Baroda', 'Main branch', '60001002', 0),
 	('Bank of Guyana - Main branch', 'Bank of Guyana', 'Main branch', '70001001', 0),
 	('Bank of Baroda - Mon Repos', 'Bank of Baroda', 'Mon Repos', '40002002', 0),
-	('Nova Scotia - Bartica', 'Nova Scotia', 'Bartica', '94805003', 0),
-	('Nova Scotia - New Amsterdam', 'Nova Scotia', 'New Amsterdam', '14845003', 0),
-	('Nova Scotia - Parika Branch', 'Nova Scotia', 'Parika Branch', '73155003', 0),
-	('Nova Scotia - Carmichael Street', 'Nova Scotia', 'Carmichael Street', '30775003', 0),
-	('Nova Scotia - Robb Street', 'Nova Scotia', 'Robb Street', '73015003', 0),
+	('Scotiabank - Bartica', 'Scotiabank', 'Bartica', '94805003', 0),
+	('Scotiabank - New Amsterdam', 'Scotiabank', 'New Amsterdam', '14845003', 0),
+	('Scotiabank - Parika Branch', 'Scotiabank', 'Parika Branch', '73155003', 0),
+	('Scotiabank - Carmichael Street', 'Scotiabank', 'Carmichael Street', '30775003', 0),
+	('Scotiabank - Robb Street', 'Scotiabank', 'Robb Street', '73015003', 0),
 	('Demerara Bank - Mahaica', 'Demerara Bank', 'Mahaica', '50008008', 0),
 	('Demerara Bank - Anna Regina', 'Demerara Bank', 'Anna Regina', '400', 0),
 	('Demerara Bank - Rose Hall', 'Demerara Bank', 'Rose Hall', '80002008', 0),
@@ -273,6 +293,11 @@ APPLICATION_SECTIONS = (
 	("gdb_industrial_training", "Part of an Industrial Training Program (New Business)", "Select", "\nYes\nNo"),
 	("gdb_has_mentor", "Has a Mentor (New Business)", "Select", "\nYes\nNo"),
 	("gdb_mentor_details", "Mentor Details (New Business)", "Data"),
+	# The mentor as three answers (2026-10-04); mentor_details is kept for
+	# applications made before.
+	("gdb_mentor_first_name", "Mentor's First Name (New Business)", "Data"),
+	("gdb_mentor_last_name", "Mentor's Last Name (New Business)", "Data"),
+	("gdb_mentor_phone", "Mentor's Phone Number (New Business)", "Data"),
 	("gdb_institution", "Institution (New Business)", "Data"),
 	# C — business or venture description
 	("gdb_executive_summary", "Executive Summary", "Small Text"),
@@ -875,6 +900,7 @@ def ensure_banks():
 	the portal's payout destination links to, and without it an approved loan
 	has nowhere to go.
 	"""
+	rename_old_banks()
 	for bank_name, enabled in BANKS:
 		if not frappe.db.exists("Bank", bank_name):
 			frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(
@@ -884,6 +910,9 @@ def ensure_banks():
 	for bank_name in RETIRED_BANKS:
 		if frappe.db.exists("Bank", bank_name):
 			frappe.db.set_value("Bank", bank_name, "gdb_enabled", 0, update_modified=False)
+	for bank_name, website in BANK_WEBSITES.items():
+		if frappe.db.exists("Bank", bank_name) and not frappe.db.get_value("Bank", bank_name, "website"):
+			frappe.db.set_value("Bank", bank_name, "website", website, update_modified=False)
 	# The facilitated list starts as every bank offered to citizens, once: after
 	# that it is the desk's (Bank > Facilitated for Applicants Without an Account).
 	if not frappe.db.exists("Bank", {"gdb_facilitated": 1}):
@@ -910,6 +939,19 @@ def ensure_sectors():
 				)
 				doc.insert(ignore_permissions=True, set_name=name)
 	frappe.db.commit()
+
+
+def rename_old_banks():
+	"""A Bank seeded under an old name (BANK_ALIASES) takes its current one, and
+	its branches with it. rename_doc moves every link — saved payout accounts,
+	the branch list — so nobody's account points at a name that has gone."""
+	for old, new in BANK_ALIASES.items():
+		if frappe.db.exists("Bank", old) and not frappe.db.exists("Bank", new):
+			frappe.rename_doc("Bank", old, new, force=True)
+		for branch in frappe.get_all("GDB Bank Branch", filters={"name": ["like", f"{old} - %"]}, pluck="name"):
+			renamed = new + branch[len(old) :]
+			if not frappe.db.exists("GDB Bank Branch", renamed):
+				frappe.rename_doc("GDB Bank Branch", branch, renamed, force=True)
 
 
 def ensure_bank_branches():

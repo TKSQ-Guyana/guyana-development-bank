@@ -1,17 +1,22 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { call } from '../api';
-import { useAuth } from '../auth';
-import { Card } from '../components/ui/Card';
-import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { StageBadge } from '../components/ui/Stepper';
-import { ApplicationsIcon, PlusIcon } from '../components/ui/icons';
-import type { CitizenProfile, ClusterInvitation, LoanApplication } from '../types';
-import { formatDate, formatGyd } from '../utils';
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ApplyLink } from "../components/apply/ApplyLink";
+import { Link } from "react-router-dom";
+import { call } from "../api";
+import { useAuth } from "../auth";
+import { Card } from "../components/ui/Card";
+import { SegmentedControl } from "../components/ui/SegmentedControl";
+import { StageBadge } from "../components/ui/Stepper";
+import { ApplicationsIcon, PlusIcon } from "../components/ui/icons";
+import type {
+  CitizenProfile,
+  ClusterInvitation,
+  LoanApplication,
+} from "../types";
+import { formatDate, formatGyd } from "../utils";
 
 /** Closed cases: money fully drawn, or a decision that went the other way.
  *  Everything else is still moving. */
-const CLOSED_STAGES = new Set(['Disbursed', 'Rejected']);
+const CLOSED_STAGES = new Set(["Disbursed", "Rejected"]);
 
 /** The one thing this case is waiting on the APPLICANT for, or nothing.
  *  A row is collapsed by default, so whatever surfaces on the closed row has
@@ -26,36 +31,45 @@ interface Attention {
   action?: { to: string; label: string };
 }
 
-function attentionFor(loan: LoanApplication, owesFinancials = false): Attention | null {
-  if (loan.offer_status === 'Issued') {
+function attentionFor(
+  loan: LoanApplication,
+  owesFinancials = false,
+): Attention | null {
+  if (loan.offer_status === "Issued") {
     return loan.cluster
-      ? { tag: 'Offer to sign', note: 'Your group’s Letter of Offer is ready. Open the case to sign it.' }
+      ? {
+          tag: "Offer to sign",
+          note: "Your group’s Letter of Offer is ready. Open the case to sign it.",
+        }
       : {
-          tag: 'Offer waiting',
-          note: 'Your Letter of Offer is ready. Open the case to read it, then accept or decline.',
+          tag: "Offer waiting",
+          note: "Your Letter of Offer is ready. Open the case to read it, then accept or decline.",
         };
   }
   if (owesFinancials) {
     return {
-      tag: 'Add your financials',
-      note: 'Your part in this group application: your personal financials.',
-      action: { to: `/loans/${loan.name}/my-financials`, label: 'Add your financials' },
+      tag: "Add your financials",
+      note: "Your part in this group application: your personal financials.",
+      action: {
+        to: `/loans/${loan.name}/my-financials`,
+        label: "Add your financials",
+      },
     };
   }
-  if (loan.stage === 'Draft') {
+  if (loan.stage === "Draft") {
     return {
-      tag: 'Not submitted',
-      note: 'This is still a draft — the Bank cannot see it until it is submitted. Nothing is lost in the meantime.',
+      tag: "Not submitted",
+      note: "This is still a draft — the Bank cannot see it until it is submitted. Nothing is lost in the meantime.",
       // Back into the wizard, at THIS draft. It used to point at the case page,
       // which refuses to render a draft — so the one button labelled "continue
       // this application" was the one place you could not continue it from.
-      action: { to: `/apply/${loan.name}`, label: 'Continue this application' },
+      action: { to: `/apply/${loan.name}`, label: "Continue this application" },
     };
   }
   if (loan.conditions_outstanding > 0) {
     return {
-      tag: `${loan.conditions_outstanding} condition${loan.conditions_outstanding === 1 ? '' : 's'} to clear`,
-      note: 'Funds are released once every condition on the offer is satisfied.',
+      tag: `${loan.conditions_outstanding} condition${loan.conditions_outstanding === 1 ? "" : "s"} to clear`,
+      note: "Funds are released once every condition on the offer is satisfied.",
     };
   }
   return null;
@@ -76,33 +90,42 @@ function InvitationCard({
     setBusy(true);
     setError(null);
     try {
-      await call('gdb_bank.api.respond_to_invitation', { cluster: invite.name, accept: accept ? 1 : 0 });
+      await call("gdb_bank.api.respond_to_invitation", {
+        cluster: invite.name,
+        accept: accept ? 1 : 0,
+      });
       onAnswered();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not record your answer');
+      setError(
+        err instanceof Error ? err.message : "Could not record your answer",
+      );
       setBusy(false);
     }
   };
 
-  const facts = [invite.region, invite.sector].filter(Boolean).join(' · ');
+  const facts = [invite.region, invite.sector].filter(Boolean).join(" · ");
 
   return (
     <Card className="border border-gdb-gold/60">
       <p className="text-base font-semibold text-slate-800">
         {invite.invited_by ? (
           <>
-            <span className="normal-case">{invite.invited_by}</span> invited you to join
+            <span className="normal-case">{invite.invited_by}</span> invited you
+            to join
           </>
         ) : (
-          'Invitation to join'
-        )}{' '}
+          "Invitation to join"
+        )}{" "}
         {invite.cluster_name || invite.name}
       </p>
       <p className="mt-1 text-sm text-slate-500">
-        {facts ? `${facts} · ` : ''}invited {formatDate(invite.invited_on)}
+        {facts ? `${facts} · ` : ""}invited {formatDate(invite.invited_on)}
       </p>
       {error && (
-        <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+        <p
+          className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -133,19 +156,32 @@ function InvitationCard({
  *  page shows are typed. */
 interface Pending {
   id: string;
-  state: { stage?: string; businessName?: string; amount?: string; step?: string };
+  state: {
+    stage?: string;
+    businessName?: string;
+    amount?: string;
+    step?: string;
+  };
   saved_on: string;
 }
 
 /** The wizard's sections in order — how far an unfinished draft has got. */
-const WIZARD_STEPS = ['route', 'about', 'business', 'operations', 'finances', 'funding', 'evidence'];
+const WIZARD_STEPS = [
+  "route",
+  "about",
+  "business",
+  "operations",
+  "finances",
+  "funding",
+  "evidence",
+];
 
 const savedLabel = (value: string) =>
-  new Date(value.replace(' ', 'T')).toLocaleString('en-GY', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
+  new Date(value.replace(" ", "T")).toLocaleString("en-GY", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
 /** One application, whatever state it is in: the same row for an unfinished
@@ -166,7 +202,24 @@ interface Row {
   /** A submitted case still in review: add what was left out. */
   edit?: string;
   onDelete?: () => void;
+  /** What the loan officer's checklist still needs from the applicant. */
+  needs?: ChecklistNeed[];
 }
+
+/** One open item of the loan officer's checklist (gdb_bank.api.my_checklists). */
+interface ChecklistNeed {
+  key: "eid" | "national_id" | "bank_account" | "payslip";
+  label: string;
+  status: "missing" | "requested";
+}
+
+/** Where each item is added: all of them live on My details. */
+const NEED_LINK: Record<ChecklistNeed["key"], string> = {
+  eid: "/profile#documents",
+  national_id: "/profile#national-id",
+  bank_account: "/profile#bank-account",
+  payslip: "/profile#documents",
+};
 
 function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
   return (
@@ -180,6 +233,11 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
       <div className="min-w-0">
         <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
           <span className="truncate">{row.title}</span>
+          {row.needs?.length ? (
+            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+              {row.needs.length} missing
+            </span>
+          ) : null}
           {row.flag && (
             <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
               {row.flag}
@@ -187,7 +245,8 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
           )}
         </p>
         <p className="mt-0.5 truncate text-xs text-slate-500">
-          <span className="font-mono text-brand">{row.reference}</span> · {row.product}
+          <span className="font-mono text-brand">{row.reference}</span> ·{" "}
+          {row.product}
         </p>
       </div>
 
@@ -196,7 +255,10 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
         <p className="mt-1 truncate text-xs text-slate-500">{row.detail}</p>
         {row.progress !== undefined && (
           <div className="mt-1.5 h-1 w-full rounded-full bg-slate-100">
-            <div className="h-1 rounded-full bg-brand" style={{ width: `${Math.round(row.progress * 100)}%` }} />
+            <div
+              className="h-1 rounded-full bg-brand"
+              style={{ width: `${Math.round(row.progress * 100)}%` }}
+            />
           </div>
         )}
       </div>
@@ -204,7 +266,7 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
       <div>
         <p className="text-[11px] text-slate-400">Requested</p>
         <p className="text-sm font-bold tabular-nums text-slate-900">
-          {row.amount ? formatGyd(row.amount) : '—'}
+          {row.amount ? formatGyd(row.amount) : "—"}
         </p>
       </div>
 
@@ -238,10 +300,29 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
             disabled={deleting}
             className="rounded-full bg-rose-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
           >
-            {deleting ? 'Deleting…' : 'Delete'}
+            {deleting ? "Deleting…" : "Delete"}
           </button>
         )}
       </div>
+      {row.needs?.length ? (
+        <div className="col-span-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 md:col-span-5">
+          <span className="text-xs font-semibold text-slate-600">
+            Still needed before your loan can be paid:
+          </span>
+          {row.needs.map((n) => (
+            <Link
+              key={n.key}
+              to={NEED_LINK[n.key]}
+              className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+            >
+              {n.status === "requested"
+                ? `${n.label} · asked by GDB`
+                : `Add ${n.label}`}
+              <span aria-hidden>→</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -266,20 +347,24 @@ export function Applications() {
   const [invites, setInvites] = useState<ClusterInvitation[]>([]);
   const [financialsDone, setFinancialsDone] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'current' | 'past'>('current');
+  const [tab, setTab] = useState<"current" | "past">("current");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [needs, setNeeds] = useState<Record<string, ChecklistNeed[]>>({});
 
   const load = useCallback(() => {
-    call<LoanApplication[]>('gdb_bank.api.my_loans')
+    call<LoanApplication[]>("gdb_bank.api.my_loans")
       .then(setLoans)
       .catch((err: Error) => setError(err.message));
-    call<Pending[]>('gdb_bank.profiles.pending_applications')
+    call<Pending[]>("gdb_bank.profiles.pending_applications")
       .then((rows) => setPending(rows ?? []))
       .catch(() => setPending([]));
-    call<ClusterInvitation[]>('gdb_bank.api.my_invitations')
+    call<ClusterInvitation[]>("gdb_bank.api.my_invitations")
       .then(setInvites)
       .catch((err: Error) => setError(err.message));
-    call<CitizenProfile>('gdb_bank.profiles.my_profile')
+    call<Record<string, ChecklistNeed[]>>("gdb_bank.api.my_checklists")
+      .then((n) => setNeeds(n ?? {}))
+      .catch(() => setNeeds({}));
+    call<CitizenProfile>("gdb_bank.profiles.my_profile")
       .then((p) => setFinancialsDone(Boolean(p.financials_updated_on)))
       .catch((err: Error) => setError(err.message));
   }, []);
@@ -288,38 +373,48 @@ export function Applications() {
 
   /** Delete a draft — confirmed first, because it cannot be undone. Drafts
    *  only: the server refuses anything submitted. */
-  const remove = async (key: string, label: string, run: () => Promise<unknown>) => {
+  const remove = async (
+    key: string,
+    label: string,
+    run: () => Promise<unknown>,
+  ) => {
     if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
     setDeleting(key);
     try {
       await run();
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'That draft could not be deleted.');
+      setError(
+        err instanceof Error ? err.message : "That draft could not be deleted.",
+      );
     } finally {
       setDeleting(null);
     }
   };
 
   const productOf = (loan: LoanApplication) =>
-    loan.product === 'quick' ? 'Quick Loan' : loan.cluster ? 'Group loan' : 'SME Direct Loan';
+    loan.product === "quick"
+      ? "Quick Loan"
+      : loan.cluster
+        ? "Group loan"
+        : "SME Direct Loan";
 
   const pendingRows: Row[] = pending.map((p) => {
-    const done = Math.max(0, WIZARD_STEPS.indexOf(p.state.step ?? 'route'));
-    const title = p.state.businessName || 'New application';
+    const done = Math.max(0, WIZARD_STEPS.indexOf(p.state.step ?? "route"));
+    const title = p.state.businessName || "New application";
     return {
       key: `pending-${p.id}`,
       title,
       reference: `DRAFT-${p.id.slice(0, 8).toUpperCase()}`,
-      product: 'SME Direct Loan',
+      product: "SME Direct Loan",
       status: draftPill,
       progress: done / WIZARD_STEPS.length,
       detail: `${done} of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(p.saved_on)}`,
       amount: p.state.amount ? Number(p.state.amount) : null,
-      primary: { to: `/apply/draft/${p.id}`, label: 'Resume draft' },
+      primary: { to: `/apply/draft/${p.id}`, label: "Resume draft" },
       onDelete: () =>
         void remove(`pending-${p.id}`, title, () =>
-          call('gdb_bank.profiles.discard_pending_application', { id: p.id }),
+          call("gdb_bank.profiles.discard_pending_application", { id: p.id }),
         ),
     };
   });
@@ -330,49 +425,75 @@ export function Applications() {
       loan,
       Boolean(loan.cluster) && loan.applicant !== user?.user && !financialsDone,
     );
-    const draft = loan.stage === 'Draft';
-    const title = loan.cluster || loan.business_name || 'Loan application';
+    const draft = loan.stage === "Draft";
+    const title = loan.cluster || loan.business_name || "Loan application";
     return {
       key: loan.name,
       title,
       reference: loan.name,
       product: productOf(loan),
-      status: draft ? (loan.handed_off_on ? readyPill : draftPill) : <StageBadge stage={loan.stage} />,
+      status: draft ? (
+        loan.handed_off_on ? (
+          readyPill
+        ) : (
+          draftPill
+        )
+      ) : (
+        <StageBadge stage={loan.stage} />
+      ),
       // A Loan Application draft exists only once Funding is saved.
       progress: draft ? 6 / WIZARD_STEPS.length : undefined,
       detail: draft
         ? loan.handed_off_on
-          ? `Prepared with ${loan.assisted_by_name ?? 'a GDB Field Officer'} · check and submit`
+          ? `Prepared with ${loan.assisted_by_name ?? "a GDB Field Officer"} · check and submit`
           : `6 of ${WIZARD_STEPS.length} sections · Saved ${savedLabel(loan.modified)}`
         : loan.stage_label,
       amount: loan.loan_amount,
       flag: !draft && attention ? attention.tag : undefined,
       primary: draft
         ? {
-            to: loan.product === 'quick' ? `/apply/quick/${loan.name}` : `/apply/${loan.name}`,
-            label: 'Resume draft',
+            to:
+              loan.product === "quick"
+                ? `/apply/quick/${loan.name}`
+                : `/apply/${loan.name}`,
+            label: "Resume draft",
           }
-        : { to: `/loans/${loan.name}`, label: 'View' },
+        : { to: `/loans/${loan.name}`, label: "View" },
+      // Submitted cases only: a draft is not with the loan officer yet.
+      needs:
+        draft || CLOSED_STAGES.has(loan.stage) ? undefined : needs[loan.name],
       secondary: !draft && attention?.action ? attention.action : undefined,
       edit:
-        loan.stage === 'Review' && !loan.cluster && loan.applicant === user?.user
+        loan.stage === "Review" &&
+        !loan.cluster &&
+        loan.applicant === user?.user
           ? `/loans/${loan.name}?edit=1`
           : undefined,
       // The head cannot delete a group's draft — its facilitator manages it.
       onDelete:
         draft && !loan.cluster
-          ? () => void remove(loan.name, title, () => call('gdb_bank.api.discard_application', { name: loan.name }))
+          ? () =>
+              void remove(loan.name, title, () =>
+                call("gdb_bank.api.discard_application", { name: loan.name }),
+              )
           : undefined,
     };
   };
 
   const all = loans ?? [];
-  const current = [...pendingRows, ...all.filter((l) => !CLOSED_STAGES.has(l.stage)).map(loanRow)];
+  const current = [
+    ...pendingRows,
+    ...all.filter((l) => !CLOSED_STAGES.has(l.stage)).map(loanRow),
+  ];
   const past = all.filter((l) => CLOSED_STAGES.has(l.stage)).map(loanRow);
-  const shown = tab === 'current' ? current : past;
+  const shown = tab === "current" ? current : past;
 
   if (error) {
-    return <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>;
+    return (
+      <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        {error}
+      </p>
+    );
   }
 
   return (
@@ -382,37 +503,41 @@ export function Applications() {
           <h2 className="flex flex-wrap items-center gap-3 text-xl font-bold text-slate-900">
             My applications
             <span className="rounded-full bg-brand-light px-2.5 py-0.5 text-xs font-semibold text-brand-text">
-              {current.length} active application{current.length === 1 ? '' : 's'}
+              {current.length} active application
+              {current.length === 1 ? "" : "s"}
             </span>
           </h2>
-          <p className="mt-1 text-sm text-slate-500">Your GDB loan applications. Drafts have not been sent to GDB.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Your GDB loan applications. Drafts have not been sent to GDB.
+          </p>
         </div>
-        <Link
-          to="/apply/new"
-          className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
-        >
+        <ApplyLink className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark">
           <PlusIcon className="h-4 w-4" />
           Start an application
-        </Link>
+        </ApplyLink>
       </div>
 
       {invites.length > 0 && (
         <section className="space-y-3">
           <h3 className="text-sm font-bold text-slate-700">
-            {invites.length === 1 ? 'Group invitation' : 'Group invitations'}
+            {invites.length === 1 ? "Group invitation" : "Group invitations"}
           </h3>
           {invites.map((invite) => (
-            <InvitationCard key={invite.name} invite={invite} onAnswered={load} />
+            <InvitationCard
+              key={invite.name}
+              invite={invite}
+              onAnswered={load}
+            />
           ))}
         </section>
       )}
 
-      <SegmentedControl<'current' | 'past'>
+      <SegmentedControl<"current" | "past">
         value={tab}
         onChange={setTab}
         options={[
-          { id: 'current', label: `Current ${current.length}` },
-          { id: 'past', label: `Past ${past.length}` },
+          { id: "current", label: `Current ${current.length}` },
+          { id: "past", label: `Past ${past.length}` },
         ]}
       />
 
@@ -424,13 +549,19 @@ export function Applications() {
       ) : shown.length === 0 ? (
         <Card className="border border-dashed border-slate-200 py-10 text-center">
           <p className="text-sm font-semibold text-slate-700">
-            {tab === 'current' ? 'No applications in progress' : 'No past applications'}
+            {tab === "current"
+              ? "No applications in progress"
+              : "No past applications"}
           </p>
         </Card>
       ) : (
         <div className="space-y-2">
           {shown.map((row) => (
-            <ApplicationCard key={row.key} row={row} deleting={deleting === row.key} />
+            <ApplicationCard
+              key={row.key}
+              row={row}
+              deleting={deleting === row.key}
+            />
           ))}
         </div>
       )}

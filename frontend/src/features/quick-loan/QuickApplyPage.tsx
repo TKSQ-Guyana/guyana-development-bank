@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { eidForBoxes, eidFromBoxes } from "../../eid";
+import { EidBoxes } from "../../components/EidBoxes";
 import { firstRepaymentLine, moratoriumChoice } from "../../shared/moratorium";
 import { useNavigate, useParams } from "react-router-dom";
 import { useOneAtATime } from "../../components/apply/OneAtATime";
@@ -376,12 +378,12 @@ export function QuickApplyPage() {
         // No account yet: nothing to nominate — the draft records the answer.
         if (!answers.noBankAccount)
           await call("gdb_bank.api.save_bank_details", {
-          bank: answers.bank,
-          bank_account_no: answers.accountNo,
-          branch_code: branchCode,
-          branch: answers.manualAccount ? answers.branch : undefined,
-          account_name: answers.holder,
-          account_type: answers.accountType,
+            bank: answers.bank,
+            bank_account_no: answers.accountNo,
+            branch_code: branchCode,
+            branch: answers.manualAccount ? answers.branch : undefined,
+            account_name: answers.holder,
+            account_type: answers.accountType,
           });
         await saveDraft();
       });
@@ -984,20 +986,20 @@ export function QuickApplyPage() {
               answers.noBankAccount ? (
                 <>No bank account — please reach out to the Help Desk.</>
               ) : (
-              <>
-                {answers.bank || "—"}
-                {answers.accountType ? ` · ${answers.accountType}` : ""}
-                {branchCode ? ` · ${branchCode}` : ""}
-                {answers.accountNo
-                  ? ` · •••• ${answers.accountNo.replace(/\s/g, "").slice(-4)}`
-                  : ""}
-                {answers.holder && (
-                  <>
-                    <br />
-                    Account holder: {answers.holder}
-                  </>
-                )}
-              </>
+                <>
+                  {answers.bank || "—"}
+                  {answers.accountType ? ` · ${answers.accountType}` : ""}
+                  {branchCode ? ` · ${branchCode}` : ""}
+                  {answers.accountNo
+                    ? ` · •••• ${answers.accountNo.replace(/\s/g, "").slice(-4)}`
+                    : ""}
+                  {answers.holder && (
+                    <>
+                      <br />
+                      Account holder: {answers.holder}
+                    </>
+                  )}
+                </>
               ),
             )}
           </div>
@@ -1071,15 +1073,14 @@ export function QuickApplyPage() {
                 askDob={!dobOnFile}
                 onDob={set("dob")}
               />
-              <QField label="E-ID" help="The number on your e-ID card, if you have one.">
-                <input
-                  value={answers.eid}
-                  onChange={(e) => set("eid")(e.target.value)}
-                  placeholder="Enter your E-ID"
-                  autoComplete="off"
-                  spellCheck={false}
-                  maxLength={20}
-                  className={inputClass()}
+              <QField
+                label="E-ID"
+                help="The number on your e-ID card, if you have one: 000-0000-0000."
+              >
+                <EidBoxes
+                  value={eidForBoxes(answers.eid)}
+                  onChange={(v) => set("eid")(eidFromBoxes(v))}
+                  required={false}
                 />
               </QField>
 
@@ -1095,7 +1096,10 @@ export function QuickApplyPage() {
               </QField>
               {answers.publicService === "Yes" && (
                 <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-                  <QField label="Which Ministry or agency do you work for?" required>
+                  <QField
+                    label="Which Ministry or agency do you work for?"
+                    required
+                  >
                     <input
                       value={answers.ministry}
                       onChange={(e) => set("ministry")(e.target.value)}
@@ -1103,7 +1107,10 @@ export function QuickApplyPage() {
                       className={inputClass()}
                     />
                   </QField>
-                  <QField label="Are you making less than $250,000 a month?" required>
+                  <QField
+                    label="Are you making less than $250,000 a month?"
+                    required
+                  >
                     <Chips
                       label="Are you making less than $250,000 a month?"
                       options={[...YES_NO]}
@@ -1121,14 +1128,6 @@ export function QuickApplyPage() {
                     >
                       <DocumentShelf only="Payslip" title="Payslip" />
                     </QField>
-                  )}
-                  {answers.under250k === "No" && (
-                    <Banner
-                      kind="info"
-                      title="You can continue with your application."
-                    >
-                      A Loan Officer will review it before a decision is made.
-                    </Banner>
                   )}
                 </div>
               )}
@@ -1481,50 +1480,50 @@ export function QuickApplyPage() {
               {answers.noBankAccount ? (
                 <FacilitatedBanks />
               ) : (
-              <>
-              <PayoutAccount
-                value={{
-                  bank: answers.bank,
-                  accountNo: answers.accountNo,
-                  branchCode,
-                  branch: answers.branch,
-                  holder: answers.holder,
-                  confirmNo: answers.confirmNo,
-                  manual: answers.manualAccount,
-                }}
-                onChange={(next) => {
-                  // Includes the saved account arriving after a too-early
-                  // Save: a message about a blank account must not outlive it.
-                  setError(null);
-                  setAnswers((a) => ({
-                    ...a,
-                    bank: next.bank,
-                    branch: next.branch,
-                    accountNo: next.accountNo,
-                    holder: next.holder,
-                    confirmNo: next.confirmNo,
-                    manualAccount: next.manual,
-                  }));
-                  setBranchCode(next.branchCode);
-                }}
-                onAccountType={(t) =>
-                  set("accountType")(t as QuickAnswers["accountType"])
-                }
-              />
-              <QField label="Type of account" required>
-                <Chips
-                  label="Type of account"
-                  options={[...ACCOUNT_TYPES]}
-                  value={answers.accountType}
-                  onChange={(v) =>
-                    set("accountType")(v as QuickAnswers["accountType"])
-                  }
-                />
-              </QField>
-              <p className="text-[12.5px] text-ql-muted">
-                GDB checks the account before any payment is released.
-              </p>
-              </>
+                <>
+                  <PayoutAccount
+                    value={{
+                      bank: answers.bank,
+                      accountNo: answers.accountNo,
+                      branchCode,
+                      branch: answers.branch,
+                      holder: answers.holder,
+                      confirmNo: answers.confirmNo,
+                      manual: answers.manualAccount,
+                    }}
+                    onChange={(next) => {
+                      // Includes the saved account arriving after a too-early
+                      // Save: a message about a blank account must not outlive it.
+                      setError(null);
+                      setAnswers((a) => ({
+                        ...a,
+                        bank: next.bank,
+                        branch: next.branch,
+                        accountNo: next.accountNo,
+                        holder: next.holder,
+                        confirmNo: next.confirmNo,
+                        manualAccount: next.manual,
+                      }));
+                      setBranchCode(next.branchCode);
+                    }}
+                    onAccountType={(t) =>
+                      set("accountType")(t as QuickAnswers["accountType"])
+                    }
+                  />
+                  <QField label="Type of account" required>
+                    <Chips
+                      label="Type of account"
+                      options={[...ACCOUNT_TYPES]}
+                      value={answers.accountType}
+                      onChange={(v) =>
+                        set("accountType")(v as QuickAnswers["accountType"])
+                      }
+                    />
+                  </QField>
+                  <p className="text-[12.5px] text-ql-muted">
+                    GDB checks the account before any payment is released.
+                  </p>
+                </>
               )}
             </>
           )}

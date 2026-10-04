@@ -155,6 +155,9 @@ NEW_ONLY = (
 	"gdb_assumptions",
 	"gdb_industrial_training",
 	"gdb_has_mentor",
+	"gdb_mentor_first_name",
+	"gdb_mentor_last_name",
+	"gdb_mentor_phone",
 	"gdb_mentor_details",
 	"gdb_institution",
 )

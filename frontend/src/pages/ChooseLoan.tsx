@@ -125,12 +125,7 @@ function options(
         { label: "Term", value: "Up to 5 years" },
         { label: "Application", value: `${SME_STEP_COUNT} steps` },
       ],
-      needs: [
-        "Business plan",
-        "Financial statements",
-        "Bank statements",
-        "Supplier quotations",
-      ],
+      needs: ["Business plan", "Financial statements", "Bank statements"],
       to: "/apply/new/sme",
     },
   ];
@@ -142,8 +137,6 @@ export function ChooseLoan() {
   const [terms, setTerms] = useState<QuickLoanTerms | null>(null);
   const [sme, setSme] = useState<SmeLoanTerms | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [registered, setRegistered] = useState<"yes" | "no" | null>(null);
-  const [needsMore, setNeedsMore] = useState<"yes" | "no" | null>(null);
   // One SME Loan and one Quick Loan at a time (services/eligibility): a kind
   // the citizen already has open is shown, but cannot be picked.
   const eligibility = useEligibility();
@@ -170,15 +163,6 @@ export function ChooseLoan() {
   }, []);
 
   const list = options(sme, terms);
-  // A registered business, or one needing more than the Quick Loan's ceiling,
-  // is the SME loan's; a small unregistered trader is the Quick Loan's.
-  const suggested: Pick | null =
-    needsMore === "yes" || registered === "yes"
-      ? "sme"
-      : registered === "no" && needsMore === "no"
-        ? "quick"
-        : null;
-  const recommended = suggested && !blockedOf(suggested) ? suggested : null;
 
   const chosen = list.find((o) => o.id === pick && !blockedOf(o.id)) ?? null;
 
@@ -210,7 +194,6 @@ export function ChooseLoan() {
             person at GDB makes every decision.
           </p>
         </div>
-        <Journey />
       </header>
 
       {error && (
@@ -218,19 +201,6 @@ export function ChooseLoan() {
           <Banner kind="error" title={error} />
         </div>
       )}
-
-      <Helper
-        registered={registered}
-        setRegistered={setRegistered}
-        needsMore={needsMore}
-        setNeedsMore={setNeedsMore}
-        ceiling={terms ? gyd(terms.ceiling) : "the Quick Loan limit"}
-        recommended={
-          recommended ? list.find((o) => o.id === recommended)!.name : null
-        }
-        recommendedPicked={!!recommended && pick === recommended}
-        onUse={() => recommended && setPick(recommended)}
-      />
 
       <div
         role="radiogroup"
@@ -242,7 +212,7 @@ export function ChooseLoan() {
             key={o.id}
             option={o}
             selected={pick === o.id && !blockedOf(o.id)}
-            recommended={recommended === o.id}
+            recommended={false}
             blocked={blockedOf(o.id)}
             tabIndex={
               pick ? (pick === o.id ? 0 : -1) : o.id === "quick" ? 0 : -1
@@ -256,146 +226,14 @@ export function ChooseLoan() {
 
       <ActionBar
         chosen={chosen?.name ?? null}
+        blockedReason={
+          list.every((o) => blockedOf(o.id))
+            ? (blockedOf(list[0].id)?.message ?? null)
+            : null
+        }
         onBack={() => navigate("/")}
         onContinue={() => chosen && navigate(chosen.to)}
       />
-    </div>
-  );
-}
-
-/** Where this page sits in the whole journey: three plain stages, one line. */
-function Journey() {
-  const stages = ["Choose a loan", "Apply", "Credit risk"];
-  return (
-    <ol
-      className="flex items-center gap-2 text-xs font-semibold"
-      aria-label="Application journey"
-    >
-      {stages.map((s, i) => (
-        <li key={s} className="flex items-center gap-2">
-          <span
-            className={`flex items-center gap-1.5 ${i === 0 ? "text-brand-dark" : "text-slate-400"}`}
-          >
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                i === 0
-                  ? "bg-brand-dark text-amber-300 ring-4 ring-emerald-100"
-                  : "border border-slate-300 bg-white"
-              }`}
-              aria-current={i === 0 ? "step" : undefined}
-            >
-              {i + 1}
-            </span>
-            <span className="whitespace-nowrap">{s}</span>
-          </span>
-          {i < stages.length - 1 && (
-            <span className="h-px w-5 bg-slate-300 sm:w-8" aria-hidden />
-          )}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-/** Two yes/no questions and the suggestion they lead to, all on one row. */
-function Helper({
-  registered,
-  setRegistered,
-  needsMore,
-  setNeedsMore,
-  ceiling,
-  recommended,
-  recommendedPicked,
-  onUse,
-}: {
-  registered: "yes" | "no" | null;
-  setRegistered: (v: "yes" | "no") => void;
-  needsMore: "yes" | "no" | null;
-  setNeedsMore: (v: "yes" | "no") => void;
-  ceiling: string;
-  recommended: string | null;
-  recommendedPicked: boolean;
-  onUse: () => void;
-}) {
-  return (
-    <section
-      aria-label="Help me choose"
-      className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-200/70 bg-gradient-to-r from-emerald-50 to-white px-4 py-3 xl:flex-row xl:items-center xl:justify-between"
-    >
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-brand-dark text-xs font-black text-amber-300">
-          ?
-        </span>
-        <p className="whitespace-nowrap text-sm font-bold text-slate-900">
-          Not sure? Two questions.
-        </p>
-      </div>
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5 xl:flex-nowrap">
-        <YesNo
-          label="Is your business registered?"
-          value={registered}
-          onChange={setRegistered}
-        />
-        <YesNo
-          label={`Need more than ${ceiling}?`}
-          value={needsMore}
-          onChange={setNeedsMore}
-        />
-        {recommended && (
-          <span
-            className="flex items-center gap-2 whitespace-nowrap text-sm text-amber-900"
-            aria-live="polite"
-          >
-            <span>
-              → <span className="font-bold">{recommended}</span> fits better
-            </span>
-            {!recommendedPicked && (
-              <button
-                type="button"
-                onClick={onUse}
-                className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-bold text-brand-dark ring-1 ring-amber-300 hover:bg-amber-200"
-              >
-                Select it
-              </button>
-            )}
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function YesNo({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: "yes" | "no" | null;
-  onChange: (v: "yes" | "no") => void;
-}) {
-  return (
-    <div className="flex items-center gap-2.5" role="group" aria-label={label}>
-      <span className="whitespace-nowrap text-xs font-semibold text-slate-700">
-        {label}
-      </span>
-      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-        {(["yes", "no"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            aria-pressed={value === v}
-            onClick={() => onChange(v)}
-            className={`rounded-md px-2.5 py-0.5 text-xs font-bold capitalize transition-colors ${
-              value === v
-                ? "bg-brand-dark text-white"
-                : "text-slate-500 hover:text-slate-900"
-            }`}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -548,7 +386,6 @@ function OptionCard({
       {blocked && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-5 py-3">
           <p className="min-w-0 flex-1 text-sm text-amber-900">
-            <span className="font-bold">Not available right now.</span>{" "}
             {blocked.message}
           </p>
           <Link
@@ -590,10 +427,13 @@ function SelectDot({
 /** Sticky, glassy, always in reach: names the choice and owns the one action. */
 function ActionBar({
   chosen,
+  blockedReason,
   onBack,
   onContinue,
 }: {
   chosen: string | null;
+  /** Why no loan can be started now (one loan at a time) — the tooltip. */
+  blockedReason: string | null;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -633,7 +473,8 @@ function ActionBar({
             </button>
             <button
               type="button"
-              disabled={!chosen}
+              disabled={!chosen || !!blockedReason}
+              title={blockedReason ?? undefined}
               onClick={onContinue}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-6 py-2 text-sm font-extrabold text-emerald-950 shadow-md shadow-amber-900/10 transition-all hover:-translate-y-0.5 hover:from-amber-300 hover:to-amber-400 disabled:translate-y-0 disabled:cursor-not-allowed disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:shadow-none sm:flex-none"
             >

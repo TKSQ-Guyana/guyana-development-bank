@@ -218,6 +218,34 @@ def my_loans():
 
 
 @frappe.whitelist()
+def my_checklists():
+	"""What the loan officer's checklist still needs from the caller, per
+	application of theirs: {application: [{key, label, status}]}. Only the items
+	that hold a case back from disbursement (services/checklist.py) — an
+	optional or already-requested e-ID is not the applicant's to chase here."""
+	from gdb_bank.services.checklist import checklist
+
+	user = _session_user()
+	names = frappe.get_all(
+		"Loan Application",
+		filters={"gdb_owner": user, "docstatus": ["<", 2], "status": ["!=", "Rejected"]},
+		pluck="name",
+		order_by="creation desc",
+		limit=20,
+	)
+	out = {}
+	for name in names:
+		items = [
+			{"key": i["key"], "label": i["label"], "status": i["status"]}
+			for i in checklist(name)["items"]
+			if i["blocking"]
+		]
+		if items:
+			out[name] = items
+	return out
+
+
+@frappe.whitelist()
 def loan_detail(name: str, acting: str | None = None):
 	return application_service.loan_detail(subject_for(acting), name)
 
@@ -736,6 +764,25 @@ def my_field_officer_request():
 	return quick_loan.my_field_officer_request(_session_user())
 
 
+@frappe.whitelist()
+def my_requests():
+	"""Everything open between the caller and GDB, for their dashboard: their
+	latest field officer request (whatever its status), and what GDB has asked
+	them for on their own applications that is still open."""
+	from gdb_bank.services import quick_loan
+	from gdb_bank.services.evidence import OPEN, REQUEST_DOCTYPE
+
+	user = _session_user()
+	asked = frappe.get_all(
+		REQUEST_DOCTYPE,
+		filters={"applicant": user, "status": OPEN},
+		fields=["name", "application", "document_type", "item", "requested_on"],
+		order_by="requested_on desc",
+		limit=50,
+	)
+	return {"field_officer": quick_loan.my_field_officer_request(user), "information": asked}
+
+
 @frappe.whitelist(methods=["POST"])
 def cancel_field_officer_request(name: str):
 	"""Cancel the caller's own waiting request."""
@@ -807,6 +854,16 @@ def facilitated_banks():
 
 
 @frappe.whitelist()
+def facilitated_bank_sites():
+	"""The facilitated banks with each one's website (Bank.website), for the
+	"I don't have a bank account" list to link to."""
+	_session_user()
+	return frappe.get_all(
+		"Bank", filters={"gdb_facilitated": 1}, fields=["name", "website"], order_by="name asc"
+	)
+
+
+@frappe.whitelist()
 def bank_branches(bank: str):
 	"""A bank's branches, as the payout form lists them."""
 	_session_user()
@@ -852,7 +909,11 @@ def my_kyc_bank_account(acting: str | None = None):
 	if not person or not person.get("account_number"):
 		return None
 
-	register_bank = person["bank"]
+	from gdb_bank.install import BANK_ALIASES
+
+	# The register may still name a bank by an old name ("Nova Scotia").
+	written = person["bank"]
+	register_bank = BANK_ALIASES.get(written, written)
 	bank = frappe.db.get_value("Bank", {"name": register_bank, "gdb_enabled": 1}) or next(
 		(
 			b
@@ -865,8 +926,10 @@ def my_kyc_bank_account(acting: str | None = None):
 	if bank and person["bank_branch"]:
 		# The register writes "Republic Bank - Water Street"; the list, "Water Street".
 		wanted = person["bank_branch"]
-		if wanted.lower().startswith(register_bank.lower()):
-			wanted = wanted[len(register_bank) :].lstrip(" -–").strip()
+		for prefix in (written, register_bank):
+			if wanted.lower().startswith(prefix.lower()):
+				wanted = wanted[len(prefix) :].lstrip(" -–").strip()
+				break
 		for row in frappe.get_all(
 			"GDB Bank Branch", filters={"bank": bank}, fields=["name", "branch_name", "routing_number"]
 		):

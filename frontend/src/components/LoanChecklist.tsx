@@ -9,6 +9,8 @@ export interface ChecklistItem {
   detail: string | null;
   request_type: string | null;
   request_item: string;
+  /** Not required on this loan (e-ID on an SME Loan): shown, never blocking. */
+  optional?: boolean;
   /** This item is what keeps the case from the disbursement officer. */
   blocking: boolean;
 }
@@ -130,7 +132,15 @@ export function LoanChecklist({
 
       <ul className="divide-y divide-slate-100">
         {list.items.map((item) => {
-          const s = STATUS[item.status];
+          // Not required on this loan and not in place: said so, in grey.
+          const s =
+            item.optional && item.status === "missing"
+              ? {
+                  text: "Optional",
+                  tone: "bg-slate-100 text-slate-600 ring-slate-200",
+                  dot: "bg-slate-300",
+                }
+              : STATUS[item.status];
           return (
             <li
               key={item.key}
@@ -152,7 +162,9 @@ export function LoanChecklist({
                         ? item.key === "eid"
                           ? "Asked for — the borrower has 90 days to get it."
                           : "Asked for — waiting on the applicant."
-                        : item.request_item}
+                        : item.optional
+                          ? "Not required for an SME Loan."
+                          : item.request_item}
                   </p>
                 </div>
               </div>
