@@ -182,8 +182,9 @@ services:
     # start-dev = dev mode (no TLS, H2 store). The realm is imported ONLY if it
     # does not already exist in the volume — see keycloak/README.md for how to
     # force a re-import after editing gdb-realm.json.
-    command: ['start-dev', '--import-realm']
+    command: ['start-dev', '--import-realm', '--features-disabled=organization']
     environment:
+      KC_FEATURES_DISABLED: 'organization'
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       # The address a BROWSER reaches Keycloak at (its admin console), not the
