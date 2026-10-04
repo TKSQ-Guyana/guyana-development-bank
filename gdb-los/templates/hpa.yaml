@@ -1,0 +1,55 @@
+{{- /*
+One HorizontalPodAutoscaler per stateless component. Pods scale out when busy
+and back in when idle, so the app uses spare cluster capacity dynamically.
+Stateful parts (MariaDB, Redis, scheduler) are deliberately NOT autoscaled.
+*/ -}}
+{{- $n := include "gdb.name" . -}}
+{{- $targets := list
+    (dict "name" "backend-web"    "cfg" .Values.backend.web.autoscaling)
+    (dict "name" "backend-worker" "cfg" .Values.backend.worker.autoscaling)
+    (dict "name" "frontend"       "cfg" .Values.frontend.autoscaling)
+    (dict "name" "keycloak"       "cfg" .Values.keycloak.autoscaling "on" .Values.keycloak.enabled) -}}
+{{- range $t := $targets }}
+{{- $a := $t.cfg }}
+{{- if and $a.enabled (ne (toString $t.on) "false") }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $n }}-{{ $t.name }}
+  labels:
+    {{- include "gdb.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $t.name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $n }}-{{ $t.name }}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $a.targetCPUUtilizationPercentage }}
+    {{- with $a.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0       # react to a surge immediately
+      policies:
+        - {type: Pods, value: 2, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 300     # wait 5 min of calm before removing pods
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 120}
+{{- end }}
+{{- end }}

@@ -1,0 +1,38 @@
+{{- $n := include "gdb.name" . -}}
+{{- $b := .Values.backend -}}
+{{- if and $b.staticOtp (not $b.allowStaticOtp) -}}
+{{- fail "backend.staticOtp is set: a fixed OTP lets anyone sign up with any phone number. Wire SMS, or set backend.allowStaticOtp=true knowingly (never in production)." -}}
+{{- end -}}
+{{- $kc := default (printf "http://%s-keycloak:8080" $n) $b.keycloak.url -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}-backend
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+data:
+  SITE_NAME: {{ required "siteName is required (must equal ingress.desk.host)" .Values.siteName | quote }}
+  DB_HOST: {{ include "gdb.dbHost" . | quote }}
+  DB_PORT: "3306"
+  REDIS_CACHE: {{ printf "%s-redis-cache:6379/0" $n | quote }}
+  REDIS_QUEUE: {{ printf "%s-redis-queue:6379/0" $n | quote }}
+  # web pods run gunicorn + nginx only; worker & scheduler are separate Deployments
+  WITH_WORKER: "0"
+  WITH_SCHEDULER: "0"
+  WITH_SOCKETIO: "0"
+  # Keycloak - in-cluster, server-side calls only
+  KEYCLOAK_URL: {{ $kc | quote }}
+  KEYCLOAK_REALM: {{ $b.keycloak.citizenRealm | quote }}
+  KEYCLOAK_CLIENT_ID: {{ $b.keycloak.citizenClientId | quote }}
+  KEYCLOAK_STAFF_URL: {{ $kc | quote }}
+  KEYCLOAK_STAFF_REALM: {{ $b.keycloak.staffRealm | quote }}
+  KEYCLOAK_STAFF_CLIENT_ID: {{ $b.keycloak.staffClientId | quote }}
+  KEYCLOAK_ADMIN_CLIENT_ID: {{ $b.keycloak.adminClientId | quote }}
+  KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID: {{ $b.keycloak.citizenAdminClientId | quote }}
+  GDB_PLATFORM_ADMIN_EMAIL: {{ $b.platformAdmin.email | quote }}
+  GDB_PLATFORM_ADMIN_NAME: {{ $b.platformAdmin.name | quote }}
+  DCRA_BASE_URL: {{ $b.integrations.dcraBaseUrl | quote }}
+  BANK_REGISTRY_BASE_URL: {{ $b.integrations.bankRegistryBaseUrl | quote }}
+  {{- if $b.staticOtp }}
+  GDB_STATIC_OTP: {{ $b.staticOtp | quote }}
+  {{- end }}

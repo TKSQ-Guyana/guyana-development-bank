@@ -1,0 +1,255 @@
+# =============================================================================
+# gdb-los - default values. Production overrides live in values-prod.yaml.
+# =============================================================================
+
+clusterDomain: cluster.local   # Kubernetes DNS domain
+
+nameOverride: ""          # resource prefix; defaults to the release name
+
+# Frappe picks the site from the request Host header, so this MUST equal
+# ingress.desk.host. The portal's nginx sends it as FRAPPE_SITE_NAME.
+siteName: ""
+
+imagePullSecrets: []      # e.g. [{name: dockerhub-ravinadh}] (gdb-los-bootstrap/06-pull-secret.sh)
+
+# -----------------------------------------------------------------------------
+# Node placement - applied to EVERY pod (backend, frontend, keycloak, redis, mariadb).
+# Label the target nodes first: gdb-los-bootstrap/04-label-nodes.sh
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+
+# One Docker Hub repo per microservice under ravinadh/ - built / mirrored and
+# pushed by gdb-los-bootstrap/05-push-images.sh. Own images use release tags
+# (v1, v2 ...); mirrored third-party images keep their upstream version.
+images:
+  backend:
+    repository: ravinadh/gdb-backend
+    tag: ""               # e.g. v1 (never *latest)
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: ravinadh/gdb-frontend
+    tag: ""               # e.g. v1
+    pullPolicy: IfNotPresent
+  keycloak:
+    repository: ravinadh/gdb-keycloak     # mirror of quay.io/keycloak/keycloak
+    tag: "26.0"
+    pullPolicy: IfNotPresent
+  redis:
+    repository: ravinadh/gdb-redis        # mirror of redis
+    tag: "7.2-alpine"
+    pullPolicy: IfNotPresent
+
+# Block storage for databases (created by gdb-los-bootstrap/02-storageclass-retain.sh)
+storage:
+  blockClass: nutanix-volume-retain
+
+# -----------------------------------------------------------------------------
+# Secrets - one Kubernetes Secret, keys listed below.
+#   existing : you create the Secret yourself (kubectl), chart only references it
+#   external : chart creates an ExternalSecret pulling every key from one remote entry
+#   create   : chart creates the Secret from secrets.values (lab use only)
+# Keys: db-root-password, admin-password, keycloak-admin-password,
+#   keycloak-db-password, keycloak-admin-client-secret,
+#   keycloak-citizen-admin-client-secret, [optional] keycloak-client-secret,
+#   keycloak-staff-client-secret, platform-admin-password, dcra-api-key,
+#   bank-registry-api-key, s3-access-key-id, s3-secret-access-key
+# -----------------------------------------------------------------------------
+secrets:
+  name: ""                # defaults to <prefix>-secrets
+  mode: existing
+  external:
+    apiVersion: external-secrets.io/v1
+    storeKind: ClusterSecretStore
+    storeName: ""
+    remoteKey: ""         # e.g. gdb/prod - one entry whose properties are the keys above
+    refreshInterval: 1h
+  values: {}              # only for mode=create
+
+# -----------------------------------------------------------------------------
+# Backend (one image, three roles)
+#   web       : the image's own start-backend.sh with worker/scheduler OFF
+#               (bootstraps/migrates the site, runs gunicorn + nginx :8080)
+#   worker    : bench worker
+#   scheduler : bench schedule - exactly ONE pod, ever
+# -----------------------------------------------------------------------------
+backend:
+  sites:
+    # ReadWriteMany + an RWX class (Nutanix Files) = pods spread across nodes.
+    # ReadWriteOnce + nutanix-volume-retain = interim mode: every backend pod is
+    # pinned to the SAME node (survives pod loss, not node loss).
+    accessMode: ReadWriteMany
+    storageClass: ""
+    size: 100Gi
+    existingClaim: ""     # use a PVC created outside the chart (e.g. after migrating to RWX)
+
+  podSecurityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+
+  keycloak:
+    url: ""               # defaults to the in-cluster Keycloak service
+    citizenRealm: gdb-citizen
+    citizenClientId: gdb-citizen-portal
+    staffRealm: gdb-staff
+    staffClientId: gdb-staff-portal
+    adminClientId: gdb-portal-admin
+    citizenAdminClientId: gdb-citizen-admin
+
+  platformAdmin:
+    email: ""
+    name: GDB Platform Administrator
+
+  integrations:
+    dcraBaseUrl: ""
+    bankRegistryBaseUrl: ""
+
+  # Fixed sign-up OTP. The chart REFUSES to render one unless allowStaticOtp=true.
+  staticOtp: ""
+  allowStaticOtp: false
+
+  extraEnv: []            # [{name: X, value: y}]
+
+  web:
+    command: []           # empty = image default (start-backend.sh)
+    replicas: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    startupFailureThreshold: 180     # x10s = 30 min for first-boot site creation
+    resources:
+      requests: {cpu: "1", memory: 2Gi}
+      limits: {cpu: "2", memory: 4Gi}
+
+  worker:
+    replicas: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    queues: short,default,long
+    resources:
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "1", memory: 2Gi}
+
+  scheduler:
+    enabled: true
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+
+  # Daily `bench backup --with-files` into the sites volume (DB dump + uploads).
+  backup:
+    enabled: true
+    schedule: "30 0 * * *"
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+
+# -----------------------------------------------------------------------------
+frontend:
+  replicas: 2
+  resolver: ""            # "" = auto (nameserver from /etc/resolv.conf); or e.g. "10.96.0.10"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# -----------------------------------------------------------------------------
+# Keycloak - production mode, MariaDB-backed, clustered. The backend calls it
+# in-cluster; it needs NO public exposure (see ingress.keycloakAdmin).
+# -----------------------------------------------------------------------------
+keycloak:
+  enabled: true
+  replicas: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 75
+  adminUser: admin
+  hostname: ""            # public admin-console URL, only if ingress.keycloakAdmin is enabled
+  realmImport:
+    enabled: true         # imports files/keycloak/*.json if the realm does not exist yet
+  database:
+    name: keycloak
+    user: keycloak
+  javaOptsAppend: "-XX:MaxRAMPercentage=70"
+  resources:
+    requests: {cpu: 500m, memory: 1536Mi}
+    limits: {cpu: "1", memory: 2Gi}
+
+# -----------------------------------------------------------------------------
+# Redis - separate cache (volatile) and queue (persistent) instances.
+# -----------------------------------------------------------------------------
+redis:
+  cache:
+    args: ["--save", "", "--appendonly", "no", "--maxmemory", "768mb", "--maxmemory-policy", "allkeys-lru"]
+    persistence: {enabled: false, size: 1Gi}
+    resources:
+      requests: {cpu: 250m, memory: 1Gi}
+      limits: {cpu: 500m, memory: 1536Mi}
+  queue:
+    args: ["--appendonly", "yes", "--save", ""]
+    persistence: {enabled: true, size: 10Gi}
+    resources:
+      requests: {cpu: 250m, memory: 1Gi}
+      limits: {cpu: 500m, memory: 1536Mi}
+
+# -----------------------------------------------------------------------------
+# MariaDB - managed by mariadb-operator (install it first, see README).
+# Primary + replicas with automatic failover; Frappe writes to <prefix>-mariadb-primary.
+# -----------------------------------------------------------------------------
+mariadb:
+  enabled: true
+  operatorNamespace: mariadb-operator   # values-prod: gdb-los (operator installed in the app namespace)
+  image: ravinadh/gdb-mariadb:11.8      # mirror of mariadb:11.8
+  replicas: 3
+  storageSize: 200Gi
+  innodbBufferPoolSize: 5G
+  maxConnections: 500
+  resources:
+    requests: {cpu: 1500m, memory: 8Gi}
+    limits: {cpu: "3", memory: 10Gi}
+  podDisruptionBudget:
+    maxUnavailable: 1
+  # Off-cluster logical backups (operator Backup CR). `storage` is passed through
+  # as-is - see values-prod.yaml for an S3 (Nutanix Objects) example.
+  backup:
+    enabled: false
+    schedule: "0 1 * * *"
+    maxRetention: 720h
+    storage: {}
+
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: kommander-traefik
+  clusterIssuer: ""       # cert-manager ClusterIssuer; empty = bring your own TLS secret
+  entrypoint: websecure
+  annotations: {}
+  portal:
+    host: ""
+    tlsSecretName: gdb-portal-tls
+  desk:
+    enabled: true
+    host: ""              # must equal siteName
+    tlsSecretName: gdb-desk-tls
+    allowedSourceRanges: []   # e.g. ["10.0.0.0/8"] - restrict the ERPNext desk to the bank network
+  keycloakAdmin:
+    enabled: false
+    host: ""
+    tlsSecretName: gdb-keycloak-tls
+    allowedSourceRanges: []
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: kommander   # namespace of the Traefik ingress controller

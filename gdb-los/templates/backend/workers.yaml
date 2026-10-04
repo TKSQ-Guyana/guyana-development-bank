@@ -1,0 +1,186 @@
+{{- $n := include "gdb.name" . -}}
+{{- $b := .Values.backend -}}
+{{- $image := include "gdb.image" (dict "img" .Values.images.backend "key" "backend") -}}
+{{- $wsel := dict "root" . "component" "backend-worker" -}}
+{{- $ssel := dict "root" . "component" "backend-scheduler" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-backend-worker
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-worker
+spec:
+  {{- if not $b.worker.autoscaling.enabled }}
+  replicas: {{ $b.worker.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $wsel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gdb.selectorLabels" $wsel | nindent 8 }}
+        {{- include "gdb.sitesLabel" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/backend/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "gdb.imagePullSecrets" . | nindent 6 }}
+      {{- include "gdb.placement" . | nindent 6 }}
+      securityContext:
+        {{- toYaml $b.podSecurityContext | nindent 8 }}
+      affinity:
+        {{- include "gdb.backendAffinity" $wsel | nindent 8 }}
+      # let in-flight jobs finish on rollout / drain
+      terminationGracePeriodSeconds: 300
+      initContainers:
+        {{- include "gdb.prepareSites" . | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          workingDir: /home/frappe/frappe-bench
+          command: ["bash", "-c"]
+          args:
+            - |
+              {{- include "gdb.waitForSite" . | nindent 14 }}
+              exec bench worker --queue {{ $b.worker.queues }}
+          envFrom:
+            - configMapRef:
+                name: {{ $n }}-backend
+          env:
+            {{- include "gdb.backendEnv" (dict "root" . "bootstrap" false) | nindent 12 }}
+          volumeMounts:
+            {{- include "gdb.sitesMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml $b.worker.resources | nindent 12 }}
+      volumes:
+        {{- include "gdb.sitesVolumes" . | nindent 8 }}
+{{- if and (gt (int $b.worker.replicas) 1) (eq $b.sites.accessMode "ReadWriteMany") }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}-backend-worker
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $wsel | nindent 6 }}
+{{- end }}
+{{- if $b.scheduler.enabled }}
+---
+# Exactly ONE scheduler. Two would enqueue every scheduled job twice.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-backend-scheduler
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-scheduler
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate          # old pod stops before the new one starts - never two
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $ssel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gdb.selectorLabels" $ssel | nindent 8 }}
+        {{- include "gdb.sitesLabel" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/backend/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "gdb.imagePullSecrets" . | nindent 6 }}
+      {{- include "gdb.placement" . | nindent 6 }}
+      securityContext:
+        {{- toYaml $b.podSecurityContext | nindent 8 }}
+      affinity:
+        {{- include "gdb.backendAffinity" $ssel | nindent 8 }}
+      initContainers:
+        {{- include "gdb.prepareSites" . | nindent 8 }}
+      containers:
+        - name: scheduler
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          workingDir: /home/frappe/frappe-bench
+          command: ["bash", "-c"]
+          args:
+            - |
+              {{- include "gdb.waitForSite" . | nindent 14 }}
+              exec bench schedule
+          envFrom:
+            - configMapRef:
+                name: {{ $n }}-backend
+          env:
+            {{- include "gdb.backendEnv" (dict "root" . "bootstrap" false) | nindent 12 }}
+          volumeMounts:
+            {{- include "gdb.sitesMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml $b.scheduler.resources | nindent 12 }}
+      volumes:
+        {{- include "gdb.sitesVolumes" . | nindent 8 }}
+{{- end }}
+{{- if $b.backup.enabled }}
+---
+# Frappe-native backup: DB dump + public/private files -> sites/<site>/private/backups
+# (on the sites volume; replicate that share off-site with Nutanix Files / Objects).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $n }}-backend-backup
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-backup
+spec:
+  schedule: {{ $b.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "gdb.selectorLabels" (dict "root" . "component" "backend-backup") | nindent 12 }}
+            {{- include "gdb.sitesLabel" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          {{- include "gdb.imagePullSecrets" . | nindent 10 }}
+          {{- include "gdb.placement" . | nindent 10 }}
+          securityContext:
+            {{- toYaml $b.podSecurityContext | nindent 12 }}
+          affinity:
+            {{- include "gdb.backendAffinity" (dict "root" . "component" "backend-backup") | nindent 12 }}
+          containers:
+            - name: backup
+              image: {{ $image }}
+              imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+              workingDir: /home/frappe/frappe-bench
+              command: ["bash", "-c"]
+              args:
+                - exec bench --site "${SITE_NAME}" backup --with-files --compress
+              envFrom:
+                - configMapRef:
+                    name: {{ $n }}-backend
+              volumeMounts:
+                - name: sites
+                  mountPath: /home/frappe/frappe-bench/sites
+                - name: logs
+                  mountPath: /home/frappe/frappe-bench/logs
+              resources:
+                {{- toYaml $b.backup.resources | nindent 16 }}
+          volumes:
+            - name: sites
+              persistentVolumeClaim:
+                claimName: {{ include "gdb.sitesClaim" . }}
+            - name: logs
+              emptyDir: {}
+{{- end }}

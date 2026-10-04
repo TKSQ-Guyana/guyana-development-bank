@@ -1,0 +1,119 @@
+{{- $n := include "gdb.name" . -}}
+{{- $w := .Values.backend.web -}}
+{{- $sel := dict "root" . "component" "backend-web" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-backend-web
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-web
+spec:
+  {{- if not $w.autoscaling.enabled }}
+  replicas: {{ $w.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  # one new pod at a time: it runs the (lock-guarded) migrate before serving
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gdb.selectorLabels" $sel | nindent 8 }}
+        {{- include "gdb.sitesLabel" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/backend/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "gdb.imagePullSecrets" . | nindent 6 }}
+      {{- include "gdb.placement" . | nindent 6 }}
+      securityContext:
+        {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      affinity:
+        {{- include "gdb.backendAffinity" $sel | nindent 8 }}
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        {{- include "gdb.prepareSites" . | nindent 8 }}
+      containers:
+        - name: backend
+          image: {{ include "gdb.image" (dict "img" .Values.images.backend "key" "backend") }}
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
+          {{- with $w.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ $n }}-backend
+          env:
+            {{- include "gdb.backendEnv" (dict "root" . "bootstrap" true) | nindent 12 }}
+          volumeMounts:
+            {{- include "gdb.sitesMounts" . | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /api/method/ping
+              port: http
+              httpHeaders:
+                - {name: Host, value: {{ .Values.siteName | quote }}}
+            periodSeconds: 10
+            failureThreshold: {{ $w.startupFailureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /api/method/ping
+              port: http
+              httpHeaders:
+                - {name: Host, value: {{ .Values.siteName | quote }}}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/method/ping
+              port: http
+              httpHeaders:
+                - {name: Host, value: {{ .Values.siteName | quote }}}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+      volumes:
+        {{- include "gdb.sitesVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-backend-web
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-web
+spec:
+  selector:
+    {{- include "gdb.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- /* RWO mode: all backend pods share one node, a PDB would block draining it forever */}}
+{{- if eq .Values.backend.sites.accessMode "ReadWriteMany" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}-backend-web
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $sel | nindent 6 }}
+{{- end }}

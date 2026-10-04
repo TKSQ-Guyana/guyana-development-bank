@@ -1,0 +1,63 @@
+{{- if .Values.ingress.enabled -}}
+{{- $n := include "gdb.name" . -}}
+{{- $i := .Values.ingress -}}
+{{- if and $i.desk.enabled (ne $i.desk.host .Values.siteName) -}}
+{{- fail "ingress.desk.host must equal siteName - Frappe resolves the site from the Host header" -}}
+{{- end -}}
+{{- $routes := list (dict "key" "portal" "cfg" $i.portal "svc" (printf "%s-frontend" $n) "port" 80 "on" true) -}}
+{{- $routes = append $routes (dict "key" "desk" "cfg" $i.desk "svc" (printf "%s-backend-web" $n) "port" 8080 "on" $i.desk.enabled) -}}
+{{- $routes = append $routes (dict "key" "keycloak-admin" "cfg" $i.keycloakAdmin "svc" (printf "%s-keycloak" $n) "port" 8080 "on" (and $i.keycloakAdmin.enabled $.Values.keycloak.enabled)) -}}
+{{- range $r := $routes }}
+{{- if $r.on }}
+{{- $ranges := $r.cfg.allowedSourceRanges | default (list) }}
+{{- if $ranges }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ $n }}-{{ $r.key }}-allowlist
+  labels:
+    {{- include "gdb.labels" $ | nindent 4 }}
+spec:
+  ipAllowList:
+    sourceRange:
+      {{- toYaml $ranges | nindent 6 }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $n }}-{{ $r.key }}
+  labels:
+    {{- include "gdb.labels" $ | nindent 4 }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ $i.entrypoint }}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- if $i.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ $i.clusterIssuer }}
+    {{- end }}
+    {{- if $ranges }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-%s-allowlist@kubernetescrd" $.Release.Namespace $n $r.key }}
+    {{- end }}
+    {{- with $i.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $i.className }}
+  tls:
+    - hosts: [{{ required (printf "ingress.%s.host is required" $r.key) $r.cfg.host | quote }}]
+      secretName: {{ $r.cfg.tlsSecretName }}
+  rules:
+    - host: {{ $r.cfg.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $r.svc }}
+                port:
+                  number: {{ $r.port }}
+{{- end }}
+{{- end }}
+{{- end }}

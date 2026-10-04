@@ -1,0 +1,134 @@
+# Dedicated namespace for the GDB Loan Origination System (production).
+# Apply once, before the Helm chart:  kubectl apply -f 01-namespace.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gdb-los
+  labels:
+    app.kubernetes.io/part-of: gdb-los
+    environment: production
+    # Frappe/ERPNext and MariaDB images run fine under "baseline";
+    # "restricted" is reported as warnings so we can tighten later.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# Caps what this namespace can take from the shared cluster.
+# Baseline ~10 vCPU / ~38 GiB requests; the ceiling leaves room for every HPA
+# at its maximum (web 6, worker 6, frontend 4, keycloak 3) plus rolling updates.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gdb-los-quota
+  namespace: gdb-los
+spec:
+  hard:
+    requests.cpu: "25"      # +1 for the mariadb-operator
+    requests.memory: 96Gi
+    limits.cpu: "48"
+    limits.memory: 128Gi
+    # Storage: MariaDB 3x200Gi + Redis queue 3x10Gi + sites 100Gi = 730Gi
+    requests.storage: 1500Gi
+    persistentvolumeclaims: "20"
+    services.loadbalancers: "2"     # 1 reserved for cross-site DB replication later
+    pods: "70"              # includes the mariadb-operator pods
+---
+# Defaults for any container that forgets to set requests/limits,
+# so one bad manifest can't starve the namespace.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: gdb-los-defaults
+  namespace: gdb-los
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      max:
+        cpu: "8"
+        memory: 16Gi
+    - type: PersistentVolumeClaim
+      max:
+        storage: 1Ti
+---
+# Network: deny all inbound traffic by default ...
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: gdb-los
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+# ... allow pods in gdb-los to talk to each other
+# (frontend -> backend, backend -> mariadb/redis/keycloak, replication) ...
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: gdb-los
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# ... and allow the Traefik ingress controller to reach ONLY the
+# public-facing pods (portal frontend and ERPNext desk).
+# VERIFY the namespace: kubectl get pods -A | grep -i traefik
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-traefik
+  namespace: gdb-los
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["frontend", "backend-web"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kommander   # <-- Traefik's namespace
+---
+# Allow cluster monitoring (Prometheus) to scrape metrics in this namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-monitoring
+  namespace: gdb-los
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kommander   # <-- Prometheus' namespace
+---
+# mariadb-operator runs in this namespace; the Kubernetes API server calls its
+# admission webhook (and cert controller) from the control plane, which a
+# namespace selector cannot match - allow inbound to the operator pods only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-to-mariadb-operator
+  namespace: gdb-los
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: mariadb-operator   # helm release name of the operator
+  policyTypes: ["Ingress"]
+  ingress:
+    - {}

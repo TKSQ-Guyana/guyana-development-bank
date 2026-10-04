@@ -1,0 +1,113 @@
+# =============================================================================
+# Production - NKP "prodcluster", namespace gdb-los
+#   helm upgrade --install gdb ./gdb-los -n gdb-los -f values-prod.yaml
+# New release: push v2 with 05-push-images.sh, then change the two tags below.
+# Lines marked CHANGE-ME must be set before the first install.
+# =============================================================================
+
+siteName: erp.gdb.example.gov.gy                 # CHANGE-ME (= ingress.desk.host)
+
+imagePullSecrets: []                             # public repos; deploy.sh adds dockerhub-ravinadh if it exists
+
+# No node pinning: pods go to any schedulable node (the 4 workers; control
+# plane is tainted). To pin later: run 04-label-nodes.sh and set
+#   nodeSelector: {gdb-los/workload: "true"}
+nodeSelector: {}
+tolerations: []
+
+images:
+  backend:
+    tag: v1                                      # ravinadh/gdb-backend:v1
+  frontend:
+    tag: v1                                      # ravinadh/gdb-frontend:v1
+
+storage:
+  blockClass: nutanix-volume-retain
+
+# Secret "gdb-secrets" is created by you (see README step 3) - nothing in git.
+secrets:
+  mode: existing
+
+backend:
+  sites:
+    # INTERIM until Nutanix Files is available: block volume, all backend pods
+    # on one node. When Files is ready: ReadWriteMany + storageClass: nutanix-files
+    # (README "Switching to RWX").
+    accessMode: ReadWriteOnce
+    storageClass: nutanix-volume-retain
+    size: 100Gi
+
+  platformAdmin:
+    email: ""                                    # CHANGE-ME first Platform Admin work email
+    name: GDB Platform Administrator
+
+  integrations:
+    dcraBaseUrl: ""                              # off until configured
+    bankRegistryBaseUrl: ""
+
+  staticOtp: ""                                  # never set in production
+  allowStaticOtp: false
+
+  # Autoscaling: pods are added when CPU > 70% and removed after 5 quiet minutes.
+  # While sites is ReadWriteOnce all backend pods share ONE node, so the backend
+  # ceiling is that node (8 vCPU). After the RWX switch raise both to 6.
+  web:
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 3
+  worker:
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 3
+
+frontend:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+
+keycloak:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+  hostname: ""                                   # internal-only
+
+mariadb:
+  operatorNamespace: gdb-los                     # operator runs in the app namespace
+  replicas: 3
+  storageSize: 200Gi                             # expandable online (allowVolumeExpansion)
+  innodbBufferPoolSize: 5G
+  # Off-cluster backups - enable once a bucket exists (e.g. Nutanix Objects):
+  backup:
+    enabled: false
+    schedule: "0 1 * * *"
+    maxRetention: 720h                           # 30 days
+    storage: {}
+    # storage:
+    #   s3:
+    #     bucket: gdb-mariadb-backups
+    #     prefix: prod
+    #     endpoint: objects.example.local:443
+    #     accessKeyIdSecretKeyRef: {name: gdb-secrets, key: s3-access-key-id}
+    #     secretAccessKeySecretKeyRef: {name: gdb-secrets, key: s3-secret-access-key}
+    #     tls: {enabled: true}
+
+ingress:
+  enabled: true
+  className: kommander-traefik
+  clusterIssuer: ""                              # CHANGE-ME cert-manager ClusterIssuer name
+  portal:
+    host: loans.gdb.example.gov.gy               # CHANGE-ME citizen portal
+  desk:
+    enabled: true
+    host: erp.gdb.example.gov.gy                 # CHANGE-ME (= siteName)
+    allowedSourceRanges: []                      # e.g. ["10.60.0.0/16"] - staff network only
+  keycloakAdmin:
+    enabled: false
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: kommander

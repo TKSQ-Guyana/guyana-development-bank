@@ -1,0 +1,89 @@
+{{- $n := include "gdb.name" . -}}
+{{- $f := .Values.frontend -}}
+{{- $sel := dict "root" . "component" "frontend" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-frontend
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  {{- if not $f.autoscaling.enabled }}
+  replicas: {{ $f.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gdb.selectorLabels" $sel | nindent 8 }}
+    spec:
+      {{- include "gdb.imagePullSecrets" . | nindent 6 }}
+      {{- include "gdb.placement" . | nindent 6 }}
+      affinity:
+        {{- include "gdb.spreadAffinity" $sel | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "gdb.image" (dict "img" .Values.images.frontend "key" "frontend") }}
+          imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            # nginx in the image proxies /api here (same origin - no CORS)
+            # FULL name: nginx resolves at request time and ignores the pod's DNS search domains
+            - name: BACKEND_URL
+              value: {{ printf "http://%s-backend-web.%s.svc.%s:8080" $n .Release.Namespace .Values.clusterDomain | quote }}
+            {{- with $f.resolver }}
+            # override the DNS server nginx uses (default: first nameserver in /etc/resolv.conf)
+            - name: NGINX_RESOLVER
+              value: {{ . | quote }}
+            {{- end }}
+            - name: FRAPPE_SITE_NAME
+              value: {{ required "siteName is required" .Values.siteName | quote }}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $f.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-frontend
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  selector:
+    {{- include "gdb.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- if gt (int $f.replicas) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}-frontend
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "gdb.selectorLabels" $sel | nindent 6 }}
+{{- end }}

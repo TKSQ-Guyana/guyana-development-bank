@@ -1,0 +1,28 @@
+{{- if not .Values.backend.sites.existingClaim -}}
+{{- $site := .Values.backend.sites -}}
+{{- if not (has $site.accessMode (list "ReadWriteMany" "ReadWriteOnce")) -}}
+{{- fail "backend.sites.accessMode must be ReadWriteMany or ReadWriteOnce" -}}
+{{- end -}}
+{{- $class := $site.storageClass -}}
+{{- if eq $site.accessMode "ReadWriteMany" -}}
+{{- $class = required "backend.sites.storageClass must name an RWX class (Nutanix Files) when accessMode=ReadWriteMany" $site.storageClass -}}
+{{- else -}}
+{{- $class = default .Values.storage.blockClass $site.storageClass -}}
+{{- end -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "gdb.name" . }}-sites
+  labels:
+    {{- include "gdb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend-sites
+  annotations:
+    # never delete site config + uploaded loan documents on `helm uninstall`
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [{{ $site.accessMode }}]
+  storageClassName: {{ $class }}
+  resources:
+    requests:
+      storage: {{ $site.size }}
+{{- end }}

@@ -34,3 +34,6 @@ docx_utf8.txt
 
 # Reference face photos (real people) — never in git; see docker-compose `face`.
 /face/photos/
+# add to the repo's .gitignore
+deploy.env
+gdb-los/files/keycloak/*.json

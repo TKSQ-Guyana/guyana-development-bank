@@ -1,0 +1,67 @@
+# One-click deploy: GitHub -> Actions -> "Deploy GDB LOS" -> Run workflow.
+#
+# Runs ./deploy.sh on a SELF-HOSTED runner inside the bank network - the
+# cluster API (10.60.x) is private, so GitHub's cloud runners cannot reach it.
+# Runner needs: docker, kubectl, helm, curl, openssl.
+#
+# Repo settings -> Secrets and variables -> Actions:
+#   secrets: KUBECONFIG_B64 (base64 of the prod kubeconfig), DOCKERHUB_TOKEN (rw),
+#            DOCKERHUB_PULL_TOKEN (ro), PLATFORM_ADMIN_PASSWORD (optional)
+#   variables: DESK_HOST, PORTAL_HOST, CLUSTER_ISSUER, PLATFORM_ADMIN_EMAIL,
+#              DESK_ALLOWED_RANGES (optional)
+# Settings -> Environments -> "production": add required reviewers so every
+# deploy needs an approval click.
+name: Deploy GDB LOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release to deploy (v1, v2 ...)"
+        required: true
+        default: v1
+      build_images:
+        description: "Build & push images if this version is not in Docker Hub yet"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-gdb-los          # never two deploys at once
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, gdb-prod]
+    environment: production
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cluster credentials
+        run: |
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+
+      - name: Write deploy.env
+        run: |
+          cat > deploy.env <<EOF
+          VERSION=${{ inputs.version }}
+          BUILD_IMAGES=${{ inputs.build_images }}
+          DESK_HOST=${{ vars.DESK_HOST }}
+          PORTAL_HOST=${{ vars.PORTAL_HOST }}
+          CLUSTER_ISSUER=${{ vars.CLUSTER_ISSUER }}
+          PLATFORM_ADMIN_EMAIL=${{ vars.PLATFORM_ADMIN_EMAIL }}
+          DESK_ALLOWED_RANGES=${{ vars.DESK_ALLOWED_RANGES }}
+          KUBECONFIG=$RUNNER_TEMP/kubeconfig
+          EOF
+
+      - name: Deploy
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_PULL_TOKEN: ${{ secrets.DOCKERHUB_PULL_TOKEN }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+        run: ./deploy.sh
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/kubeconfig" deploy.env
