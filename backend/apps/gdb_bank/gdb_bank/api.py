@@ -537,6 +537,12 @@ def book_loan(application: str):
 	if unsigned:
 		frappe.throw(unsigned)
 
+	# The loan officer's checklist — e-ID, National ID, bank account, payslip —
+	# before the case is the disbursement officer's (services/checklist).
+	from gdb_bank.services.checklist import require_ready
+
+	require_ready(application)
+
 	# Booked on the OFFER's amount and term, not the application's: those two are
 	# the inputs lending is given, and every figure after this — the drawable
 	# ceiling, the schedule, the instalment — is lending's own arithmetic on them.
@@ -552,6 +558,17 @@ def book_loan(application: str):
 
 	_logger().info(f"loan {loan.name} booked from {application} by {user}")
 	return loan_account(application)
+
+
+@frappe.whitelist()
+def loan_checklist(application: str):
+	"""The loan officer's checklist for a case — e-ID, National ID, bank account,
+	payslip — and whether it is ready for the disbursement officer. Staff only."""
+	from gdb_bank.services.checklist import checklist
+	from gdb_bank.utils.session import _require_staff
+
+	_require_staff()
+	return checklist(application)
 
 
 @frappe.whitelist()

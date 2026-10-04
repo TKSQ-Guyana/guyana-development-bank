@@ -28,3 +28,7 @@ export { default as heroTrade } from '../../assets/landing/hero-trade.png';
 export { default as heroFarmer } from '../../assets/landing/hero-farmer.png';
 export { default as appointmentPhoto } from '../../assets/landing/appointment.png';
 export { default as presidentPhoto } from '../../assets/landing/president.webp';
+
+// GDB's own logo (Guyana map, gold ring, "Building Guyana's next chapter"),
+// cropped to its content on a transparent background.
+export { default as gdbLogo } from '../../assets/landing/gdb-logo.png';

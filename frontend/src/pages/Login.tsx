@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { gdbLogo } from "../components/site/assets";
 import { STAFF_LOGIN } from "../shared/staffRoutes";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -7,11 +8,7 @@ import { useAuth } from "../auth";
 import { OtpInput } from "../components/OtpInput";
 import { DemoCode, SignupCard } from "./Signup";
 import { RequiredMark } from "../components/ui/RequiredMark";
-import {
-  BankMark,
-  FlagRibbon,
-  goldActionClass,
-} from "../components/site/atoms";
+import { FlagRibbon, goldActionClass } from "../components/site/atoms";
 import { ArrowRight } from "../components/site/atoms";
 import type { Whoami } from "../types";
 
@@ -234,7 +231,11 @@ export function Login({
           ) : (
             <>
               <div className="w-full max-w-[452px] rounded-[28px] bg-white px-[38px] pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.09)]">
-                <BankMark className="h-11 w-11 rounded-[14px]" />
+                <img
+                  src={gdbLogo}
+                  alt="Guyana Development Bank"
+                  className="block h-11 w-auto"
+                />
 
                 {staffOnly ? (
                   <>

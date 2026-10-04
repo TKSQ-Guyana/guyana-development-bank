@@ -11,6 +11,7 @@ import { Disbursement } from "../components/Disbursement";
 import { DocumentShelf } from "../components/DocumentShelf";
 import { InformationRequests } from "../components/InformationRequests";
 import { IssueOffer } from "../components/IssueOffer";
+import { type Checklist, LoanChecklist } from "../components/LoanChecklist";
 import { needsEid } from "../shared/eidNotice";
 import { LoanAccount } from "../components/LoanAccount";
 import { OfferPanel } from "../components/OfferPanel";
@@ -144,6 +145,17 @@ export function LoanDetail() {
     return (
       <p className="rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</p>
     );
+  // The loan officer's checklist gates Approve — the server refuses an
+  // approval before it is ready (services/checklist); the button says so first.
+  // Above the loading return: a hook must run on every render.
+  const [checklist, setChecklist] = useState<Checklist | null>(null);
+  useEffect(() => {
+    if (!user?.is_underwriter || !name) return;
+    call<Checklist>("gdb_bank.api.loan_checklist", { application: name })
+      .then(setChecklist)
+      .catch(() => setChecklist(null));
+  }, [user?.is_underwriter, name, accountKey]);
+
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
   const reviewable = loan.status === "Submitted";
@@ -179,6 +191,9 @@ export function LoanDetail() {
       : "Back";
 
   const bump = () => setAccountKey((k) => k + 1);
+
+  const approveBlocked =
+    underwriterDecides && checklist !== null && !checklist.ready;
 
   // The applicant's own case — or a group member reading the head's.
   if (!workspace) {
@@ -376,7 +391,13 @@ export function LoanDetail() {
                   <button
                     type="button"
                     onClick={() => setDeciding("approve")}
-                    className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-emerald-950 shadow-sm hover:bg-amber-300"
+                    disabled={approveBlocked}
+                    title={
+                      approveBlocked
+                        ? `Complete the checklist first — waiting on ${checklist!.outstanding.join(", ")} (Credit risk tab).`
+                        : undefined
+                    }
+                    className="rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-emerald-950 shadow-sm hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-200/50 disabled:text-emerald-950/50"
                   >
                     Approve
                   </button>
@@ -634,7 +655,8 @@ export function LoanDetail() {
                 </p>
               )}
               <p className="mt-2 text-xs text-slate-500">
-                <span className="normal-case">{loan.reviewed_by}</span> · {formatDate(loan.reviewed_on)}
+                <span className="normal-case">{loan.reviewed_by}</span> ·{" "}
+                {formatDate(loan.reviewed_on)}
               </p>
             </RailCard>
           )}
@@ -706,7 +728,8 @@ export function LoanDetail() {
                   />
                 ))}
                 <RailTitle>Applicant</RailTitle>
-                {Number(loan.sections?.requires_loan_officer_review ?? 0) === 1 && (
+                {Number(loan.sections?.requires_loan_officer_review ?? 0) ===
+                  1 && (
                   <div className="my-2">
                     <Badge tone="warning">
                       Loan Officer review — public servant earning $250,000 or
@@ -750,6 +773,16 @@ export function LoanDetail() {
           </Panel>
 
           <Panel active={tab === "checks"}>
+            {/* What must be in place before the disbursement officer can
+                book — from submission, so it can be asked for during review. */}
+            {loan.status !== "Draft" && name && (
+              <LoanChecklist
+                key={`checklist-${accountKey}`}
+                application={name}
+                canRequest={Boolean(user?.is_underwriter)}
+                onChange={bump}
+              />
+            )}
             {loan.status !== "Draft" && (
               <SectorClassification loan={loan} onSaved={() => void load()} />
             )}
@@ -829,6 +862,11 @@ export function LoanDetail() {
           <Panel active={tab === "facility"}>
             {loan.status === "Approved" && name ? (
               <>
+                <LoanChecklist
+                  key={`checklist-f-${accountKey}`}
+                  application={name}
+                  canRequest={false}
+                />
                 <Disbursement application={name} onChange={bump} />
                 {canSeeFacility && (
                   <LoanAccount

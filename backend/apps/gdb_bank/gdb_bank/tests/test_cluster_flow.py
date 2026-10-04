@@ -56,6 +56,9 @@ class TestClusterFlow(IntegrationTestCase):
 		super().setUp()
 		self.enterContext(patch.object(frappe.local.db, "commit"))
 		self.addCleanup(frappe.db.rollback)
+		# The loan officer's checklist (services/checklist) has its own tests;
+		# here it stands aside so booking and payment can be tested on their own.
+		self.enterContext(patch("gdb_bank.services.checklist.require_ready"))
 
 		for email in (HEAD, MEMBER, OUTSIDER):
 			_user(email, "Citizen")

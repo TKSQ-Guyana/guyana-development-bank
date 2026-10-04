@@ -70,45 +70,25 @@ export function ApplicantProfile({
         </span>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <section>
-          <Line label="Name" value={profile.verified_full_name} />
-          <Line label="Email" value={profile.verified_email} />
-          <Line
-            label="Phone"
-            value={
-              profile.verified_phone
-                ? formatPhone(profile.verified_phone)
-                : profile.verified_phone
-            }
-          />
-          <Line label="Date of birth" value={profile.verified_birth_date} />
-          <Line label="Address" value={profile.verified_address} />
-          <p className="mt-2 text-xs text-slate-400">
-            {profile.verified_on
-              ? `Asserted ${formatDate(profile.verified_on)} · ${profile.identity_source ?? ""}`
-              : "Never signed in with an e-ID."}
-          </p>
-        </section>
-
+      <div className="grid gap-6">
         <section>
           <Line
             label="Phone"
             value={profile.phone ? formatPhone(profile.phone) : profile.phone}
           />
-          {/* One date of birth per person: the applicant's own only where the
-              e-ID gave none, or where it disagrees — then it is the point. */}
-          {profile.date_of_birth &&
-            profile.date_of_birth !== profile.verified_birth_date && (
-              <Line
-                label={
-                  profile.verified_birth_date
-                    ? "Date of birth (differs)"
-                    : "Date of birth"
-                }
-                value={profile.date_of_birth}
-              />
-            )}
+          {/* One date of birth: the applicant's own, else the e-ID's; flagged
+              when the two disagree. */}
+          <Line
+            label={
+              profile.date_of_birth &&
+              profile.verified_birth_date &&
+              profile.date_of_birth !== profile.verified_birth_date
+                ? "Date of birth (differs from e-ID)"
+                : "Date of birth"
+            }
+            value={profile.date_of_birth || profile.verified_birth_date}
+          />
+          <Line label="Email" value={profile.email || profile.verified_email} />
           <Line label="Occupation" value={profile.occupation} />
           <Line label="Education" value={profile.education_level} />
           <Line

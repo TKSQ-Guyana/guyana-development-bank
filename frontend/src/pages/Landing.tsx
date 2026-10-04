@@ -6,7 +6,8 @@ import {
   heroFarmer,
   heroTrade,
   heroVendor,
-  homeCrest,
+  coatOfArms,
+  gdbLogo,
   presidentPhoto,
 } from "../components/site/assets";
 
@@ -164,7 +165,8 @@ function GovStrip() {
         rel="noopener noreferrer"
         className="font-semibold tracking-[0.02em] text-[#f2c14e] underline hover:text-[#f5cd6a]"
       >
-        <span className="normal-case">finance.gov.gy</span> · Ministry of Finance ↗
+        <span className="normal-case">finance.gov.gy</span> · Ministry of
+        Finance ↗
       </a>
     </div>
   );
@@ -175,53 +177,114 @@ function Header() {
     ["#loans", "Loans"],
     ["#how", "How it works"],
     ["#about", "About the Bank"],
-    ["#help", "Help"],
+    ["#help", "FAQs"],
   ];
+  // Phones get a menu button; the navy bar of sections shows from md up.
+  const [open, setOpen] = useState(false);
+  const link =
+    "rounded-full px-4 py-2 text-[15px] font-semibold text-white no-underline transition-colors hover:bg-white/10 hover:text-white";
   return (
     <header
-      className={`sticky top-0 z-10 flex flex-wrap items-center justify-between gap-4 border-b border-[#e7e3da] bg-[#faf8f4]/95 py-4 backdrop-blur ${GUTTER}`}
+      className={`sticky top-0 z-20 border-b border-[#e7e3da] bg-white/95 py-3 backdrop-blur ${GUTTER}`}
     >
-      <a
-        href="#top"
-        className="flex items-center gap-2.5 text-[#17161d] no-underline"
-      >
-        <img
-          src={homeCrest}
-          alt="Coat of Arms of Guyana"
-          className="block h-12 w-auto flex-none"
-        />
-        <span className="text-[17px] font-bold leading-tight">
-          Guyana Development Bank
-        </span>
-      </a>
-      <nav
-        aria-label="Sections"
-        className="flex min-w-0 max-w-full gap-[clamp(14px,2vw,28px)] overflow-x-auto whitespace-nowrap text-[15px] font-medium"
-      >
-        {nav.map(([href, label]) => (
-          <a
-            key={href}
-            href={href}
-            className="text-[#17161d] hover:text-[#0b2654]"
+      <div className="flex items-center justify-between gap-4">
+        <a
+          href="#top"
+          className="flex min-w-0 items-center no-underline"
+          aria-label="Guyana Development Bank — home"
+        >
+          <img
+            src={gdbLogo}
+            alt="Guyana Development Bank — Building Guyana’s next chapter"
+            className="block h-auto max-h-11 w-auto max-w-full sm:max-h-[52px]"
+          />
+          <span
+            className="mx-3 h-9 w-px flex-none bg-[#e7e3da] sm:mx-4"
+            aria-hidden
+          />
+          <img
+            src={coatOfArms}
+            alt="Coat of Arms of Guyana"
+            className="block h-10 w-auto flex-none sm:h-12"
+          />
+        </a>
+
+        <nav
+          aria-label="Sections"
+          className="hidden items-center gap-1 rounded-2xl bg-[#0b2654] px-2 py-1.5 shadow-sm lg:flex"
+        >
+          {nav.map(([href, label]) => (
+            <a key={href} href={href} className={link}>
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <div className="flex flex-none items-center gap-2">
+          <Link
+            to="/signup"
+            className="hidden items-center justify-center rounded-full px-4 py-2.5 text-[15px] font-semibold text-[#123a7a] no-underline transition-colors hover:bg-[#123a7a]/5 sm:inline-flex"
           >
-            {label}
-          </a>
-        ))}
-      </nav>
-      <div className="flex items-center gap-2.5">
-        <Link
-          to="/login"
-          className={`${PILL} px-4 py-2.5 text-[15px] font-semibold text-[#123a7a] hover:bg-[#123a7a]/5`}
-        >
-          Sign in
-        </Link>
-        <Link
-          to="/apply/new"
-          className={`${PILL} bg-[#123a7a] px-[18px] py-2.5 text-[15px] font-semibold text-white hover:bg-[#0b2654]`}
-        >
-          Apply
-        </Link>
+            Sign up
+          </Link>
+          <Link
+            to="/apply/new"
+            className={`${PILL} bg-[#123a7a] px-[18px] py-2.5 text-[15px] font-semibold text-white hover:bg-[#0b2654]`}
+          >
+            Apply
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls="site-menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            className="grid h-11 w-11 place-items-center rounded-xl bg-[#0b2654] text-white lg:hidden"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              {open ? (
+                <path d="M6 6l12 12M18 6L6 18" />
+              ) : (
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              )}
+            </svg>
+          </button>
+        </div>
       </div>
+
+      {open && (
+        <nav
+          id="site-menu"
+          aria-label="Sections"
+          className="mt-3 flex flex-col gap-1 rounded-2xl bg-[#0b2654] p-2 shadow-lg lg:hidden"
+        >
+          {nav.map(([href, label]) => (
+            <a
+              key={href}
+              href={href}
+              onClick={() => setOpen(false)}
+              className={`${link} py-3`}
+            >
+              {label}
+            </a>
+          ))}
+          <Link
+            to="/signup"
+            onClick={() => setOpen(false)}
+            className="mt-1 rounded-full border border-white/25 px-4 py-3 text-center text-[15px] font-semibold text-white no-underline hover:bg-white/10 sm:hidden"
+          >
+            Sign up
+          </Link>
+        </nav>
+      )}
     </header>
   );
 }

@@ -542,6 +542,9 @@ class RoadToPayment(QuickLoanCase):
 		_user(UNDERWRITER, "Loan Underwriter")
 		_user(DISBURSER, "Disbursement Officer", "Citizen")
 		self.payout_account(TRADER)
+		# The loan officer's checklist (services/checklist) has its own tests;
+		# here it stands aside so booking and payment can be tested on their own.
+		self.enterContext(patch("gdb_bank.services.checklist.require_ready"))
 
 	def payout_account(self, user: str, status: str = "Verified"):
 		with self.set_user(user):

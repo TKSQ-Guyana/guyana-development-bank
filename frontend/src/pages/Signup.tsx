@@ -5,6 +5,7 @@ import {
   NATIONAL_ID_CARD,
   nationalIdMismatch,
 } from "../components/IdentityDetails";
+import { gdbLogo } from "../components/site/assets";
 import { useEffect, useRef, useState } from "react";
 import { IdSampleLink } from "../components/IdSamples";
 import { isGuyanaPhone, PhoneInput } from "../components/PhoneInput";
@@ -24,11 +25,7 @@ import {
 import { useAuth } from "../auth";
 import { OtpInput } from "../components/OtpInput";
 import { RequiredMark } from "../components/ui/RequiredMark";
-import {
-  ArrowRight,
-  BankMark,
-  goldActionClass,
-} from "../components/site/atoms";
+import { ArrowRight, goldActionClass } from "../components/site/atoms";
 
 /**
  * ONLINE SIGN-UP, as the card the login page shows in place of sign-in at
@@ -142,6 +139,8 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   const [phoneConfirmed, setPhoneConfirmed] = useState(false);
   // "Not your number?" — opens the note on changing it in person.
   const [notMine, setNotMine] = useState(false);
+  // "Don't have a National ID?" — opens the note on getting one in person.
+  const [noNationalId, setNoNationalId] = useState(false);
   const edited = useRef(new Set<string>());
   // As the register holds it: letters kept (a passport-style "R1234567").
   const nidNow = form.national_id.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -330,7 +329,11 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
   return (
     <div className="w-full rounded-[28px] bg-white px-6 pt-9 pb-8 shadow-[0_14px_36px_-6px_rgba(15,23,42,0.09)] sm:px-9">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <BankMark className="h-11 w-11 rounded-[14px]" />
+        <img
+          src={gdbLogo}
+          alt="Guyana Development Bank"
+          className="block h-11 w-auto"
+        />
         <Steps stage={stage} />
       </div>
 
@@ -377,7 +380,32 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 disabled={busy}
                 className={`${textInput} font-mono tracking-wider`}
               />
-              <IdSampleLink kind="National ID Card" className="mt-1.5" />
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <IdSampleLink kind="National ID Card" />
+                <button
+                  type="button"
+                  onClick={() => setNoNationalId((v) => !v)}
+                  aria-expanded={noNationalId}
+                  className="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-gdb-indigo hover:underline"
+                >
+                  Don&apos;t have a National ID?
+                </button>
+              </div>
+              {noNationalId && (
+                <div
+                  role="note"
+                  className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] leading-relaxed text-amber-950"
+                >
+                  <p className="font-bold">
+                    You need a National ID to open an account.
+                  </p>
+                  <p className="mt-1">
+                    Visit a <strong>GDB loan officer</strong> at any GDB branch.
+                    They will help you get your National ID and register for a
+                    loan account.
+                  </p>
+                </div>
+              )}
             </Field>
             {looking && (
               <p className="mt-2 text-[13px] font-semibold text-gdb-ink/55">
@@ -414,6 +442,17 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 </p>
               </div>
             )}
+            {/* Not in GDB's records is fine: they type their details in. */}
+            {!looking &&
+              match &&
+              !match.found &&
+              !match.has_account &&
+              NID_SHAPE.test(nidNow) && (
+                <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[14px] leading-[1.5] text-gdb-ink/75">
+                  We couldn&apos;t find this National ID in GDB&apos;s records.
+                  That&apos;s fine — enter your details below.
+                </p>
+              )}
             {!looking && match?.has_account && (
               <p className={`mt-3 ${errorBox}`}>
                 This National ID already has an account.{" "}

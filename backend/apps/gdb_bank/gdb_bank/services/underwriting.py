@@ -321,6 +321,12 @@ def review_loan(user: str, name: str, action: str, remarks: str | None = None) -
 		frappe.throw(_("Unknown action: {0}").format(action))
 	if doc.status != "Open":
 		frappe.throw(_("Cannot {0} an application in status {1}.").format(action, doc.status))
+	if action == "approve":
+		# The loan officer's checklist — e-ID (asked for is enough), National ID,
+		# bank account, payslip — comes before approval (services/checklist).
+		from gdb_bank.services.checklist import require_ready
+
+		require_ready(name)
 
 	# db_set: the doc is submitted; status is permlevel-guarded and the review
 	# fields are allow_on_submit.
