@@ -68,7 +68,9 @@ NID_MESSAGE = "Enter your National ID number, as printed on your ID card."
 
 # The identity documents a person may sign up with — one, attached. Filed as
 # the person's own `Identity` document, which follows them across cases.
-DOCUMENT_KINDS = ID_DOCUMENT_KINDS
+# Not a passport: sign-up takes the Guyanese ID documents only. A passport is
+# still accepted later, as an Identity upload on an application.
+DOCUMENT_KINDS = tuple(k for k in ID_DOCUMENT_KINDS if k != "Passport")
 
 PASSWORD_MIN = 8
 PASSWORD_MAX = 128

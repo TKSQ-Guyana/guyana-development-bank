@@ -4,7 +4,6 @@ import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { nationalIdLogin, verifyLoginOtp, type OtpChallenge } from "../api";
 import { useAuth } from "../auth";
-import { EidBoxes } from "../components/EidBoxes";
 import { OtpInput } from "../components/OtpInput";
 import { DemoCode, SignupCard } from "./Signup";
 import { RequiredMark } from "../components/ui/RequiredMark";
@@ -14,30 +13,28 @@ import {
   goldActionClass,
 } from "../components/site/atoms";
 import { ArrowRight } from "../components/site/atoms";
-import { EMPTY_EID, isCompleteEid } from "../eid";
 import type { Whoami } from "../types";
 
 /**
- * KEYCLOAK AUTHENTICATES EVERYBODY — three doors:
+ * KEYCLOAK AUTHENTICATES EVERYBODY — two doors:
  *
  *   citizens   National ID + password, then a one-time code
  *                                     -> gdb_bank.tin_auth.national_id_login / verify_login_otp
- *   citizens   e-ID + password        -> gdb_bank.identity.password_login
  *   GDB staff  work email + password  -> gdb_bank.identity.staff_login
  *
  * Both end in the same `sid` session, so nothing downstream cares which was
  * used. Which door may open which kind of account is the server's decision
- * (security/sign_in_policy.py): the e-ID door never opens a staff account and
- * the staff door never opens a citizen's, whatever this page offers.
+ * (security/sign_in_policy.py): the staff door never opens a citizen's account,
+ * whatever this page offers.
  *
- * A citizen opens an account by signing up with their National ID (/signup) or by
- * their first e-ID sign-in; a staff account is made by the platform administrator, who is shown a
+ * A citizen opens an account by signing up with their National ID (/signup); a
+ * staff account is made by the platform administrator, who is shown a
  * one-time password for it. That password opens no session: the staff pane
  * then asks the person to choose their own (identity.staff_set_password).
  */
 
 // "tin" is the National ID door: the id stays, so ?method=tin links keep working.
-type Method = "tin" | "eid" | "staff";
+type Method = "tin" | "staff";
 
 // Mirrors identity.NEW_PASSWORD_MIN so the button can wait for it; the server
 // decides.
@@ -57,16 +54,13 @@ export function Login({
   audience = "citizen",
 }: { audience?: "citizen" | "staff" } = {}) {
   const staffOnly = audience === "staff";
-  const { loginAsStaff, loginWithEid, setStaffPassword, refresh } = useAuth();
+  const { loginAsStaff, setStaffPassword, refresh } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Two pages, two audiences: /login is the citizens' (TIN, e-ID), /staff/login
+  // Two pages, two audiences: /login is the citizens' (National ID), /staff/login
   // the staff's — never a tab of the other.
-  const asked = (location.state as { method?: Method } | null)?.method;
-  const [method, setMethod] = useState<Method>(
-    staffOnly ? "staff" : asked && asked !== "staff" ? asked : "tin",
-  );
+  const [method, setMethod] = useState<Method>(staffOnly ? "staff" : "tin");
 
   // TIN door: TIN + password, then the code. No session exists until the code.
   const [tin, setTin] = useState("");
@@ -75,11 +69,6 @@ export function Login({
   const [tinOtp, setTinOtp] = useState("");
   const [tinError, setTinError] = useState<string | null>(null);
   const [tinBusy, setTinBusy] = useState(false);
-
-  const [eid, setEid] = useState(EMPTY_EID);
-  const [eidPassword, setEidPassword] = useState("");
-  const [eidError, setEidError] = useState<string | null>(null);
-  const [eidBusy, setEidBusy] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -130,20 +119,6 @@ export function Login({
     }
   };
 
-  const onEidSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setEidError(null);
-    setEidBusy(true);
-    try {
-      const whoami = await loginWithEid(eid, eidPassword);
-      navigate(landingFor(whoami, from), { replace: true });
-    } catch (err) {
-      setEidError(err instanceof Error ? err.message : "Sign-in failed");
-    } finally {
-      setEidBusy(false);
-    }
-  };
-
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -189,24 +164,6 @@ export function Login({
     setConfirmPassword("");
     setError(null);
   };
-
-  const tab = (value: Method, label: string) => (
-    <button
-      type="button"
-      role="tab"
-      id={`tab-${value}`}
-      aria-selected={method === value}
-      aria-controls={`pane-${value}`}
-      onClick={() => setMethod(value)}
-      className={`flex-1 cursor-pointer rounded-[10px] border-0 py-[11px] font-body text-[15px] leading-[1.2] font-extrabold ${
-        method === value
-          ? "bg-brand-dark text-white shadow-[0_2px_6px_-1px_rgba(2,44,25,0.2)]"
-          : "bg-transparent text-gdb-ink/55"
-      }`}
-    >
-      {label}
-    </button>
-  );
 
   const fieldLabel =
     "block text-[14px] leading-[1.4] font-extrabold text-gdb-ink";
@@ -300,23 +257,12 @@ export function Login({
                     <p className="mt-1.5 text-[16px] leading-[1.5] text-gdb-ink/65">
                       Sign in to continue your application.
                     </p>
-
-                    <div
-                      role="tablist"
-                      aria-label="Choose how to sign in"
-                      className="mt-[26px] flex gap-1 rounded-[13px] bg-gdb-rail p-1"
-                    >
-                      {tab("tin", "National ID")}
-                      {tab("eid", "e-ID")}
-                    </div>
                   </>
                 )}
 
                 {/* TIN credential set — then the one-time code */}
                 <form
                   id="pane-tin"
-                  role="tabpanel"
-                  aria-labelledby="tab-tin"
                   hidden={method !== "tin"}
                   onSubmit={(e) =>
                     void (tinChallenge ? onTinVerify(e) : onTinSubmit(e))
@@ -443,72 +389,10 @@ export function Login({
                   )}
                 </form>
 
-                {/* e-ID credential set */}
-                <form
-                  id="pane-eid"
-                  role="tabpanel"
-                  aria-labelledby="tab-eid"
-                  hidden={method !== "eid"}
-                  onSubmit={(e) => void onEidSubmit(e)}
-                >
-                  <div className="mt-[26px]">
-                    {eidError && (
-                      <p className={errorBox} role="alert">
-                        {eidError}
-                      </p>
-                    )}
-                    <span className={fieldLabel}>
-                      e-ID number
-                      <RequiredMark />
-                    </span>
-                    <div className="mt-2">
-                      <EidBoxes
-                        value={eid}
-                        onChange={setEid}
-                        disabled={eidBusy}
-                        invalid={!!eidError}
-                        describedBy="eid-hint"
-                        variant="public"
-                      />
-                    </div>
-                    <p id="eid-hint" className={fieldHelp}>
-                      The 11-digit number on your national e-ID card.
-                    </p>
-                  </div>
-
-                  <label className="mt-4 block">
-                    <span className={fieldLabel}>
-                      Password
-                      <RequiredMark />
-                    </span>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="current-password"
-                      placeholder="Enter your password"
-                      value={eidPassword}
-                      onChange={(e) => setEidPassword(e.target.value)}
-                      disabled={eidBusy}
-                      className={textInput}
-                    />
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={eidBusy || !isCompleteEid(eid) || !eidPassword}
-                    className={`mt-[22px] w-full ${goldActionClass("sm")} py-[17px] text-[17px]`}
-                  >
-                    {eidBusy ? "Signing in…" : "Sign in with e-ID"}
-                    <ArrowRight size={19} />
-                  </button>
-                </form>
-
                 {/* staff credential set — sign in, or (after a one-time password)
                 choose your own */}
                 <form
                   id="pane-staff"
-                  role="tabpanel"
-                  aria-labelledby="tab-staff"
                   hidden={method !== "staff"}
                   onSubmit={(e) => void (choosing ? onChoose(e) : onSubmit(e))}
                 >
@@ -679,10 +563,6 @@ export function Login({
                       Create an account with your National ID
                     </Link>
                     .
-                  </p>
-                  <p className="mt-1.5 text-[13px] leading-[1.5] text-gdb-ink/50">
-                    Or sign in with a verified e-ID from My Guyana — your
-                    account opens the first time you do.
                   </p>
                 </footer>
               </div>

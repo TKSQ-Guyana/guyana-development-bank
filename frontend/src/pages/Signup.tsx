@@ -52,8 +52,9 @@ const FACE_CHECK_ON = false;
 
 // An ID number as the register holds it (tin_auth.NID_SHAPE).
 const NID_SHAPE = /^[A-Z0-9]{6,15}$/;
-// The four documents the server accepts (tin_auth.DOCUMENT_KINDS).
-const DOCUMENT_KINDS = ID_DOCUMENT_KINDS;
+// The documents the server accepts at sign-up (tin_auth.DOCUMENT_KINDS): every
+// identity document but a passport.
+const DOCUMENT_KINDS = ID_DOCUMENT_KINDS.filter((k) => k !== "Passport");
 // tin_auth.PASSWORD_MIN, and the PDF limit of every identity document.
 const PASSWORD_MIN = 8;
 // What the server accepts for an identity document (evidence.ACCEPTED_BY_TYPE):

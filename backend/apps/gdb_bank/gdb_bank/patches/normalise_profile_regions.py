@@ -12,6 +12,11 @@ from gdb_bank.gdb_bank.doctype.gdb_citizen_profile.gdb_citizen_profile import DO
 
 
 def execute():
+	# pre_model_sync: on a site older than the doctype the table does not exist
+	# yet, so there is no stored region to repair.
+	if not frappe.db.table_exists(DOCTYPE):
+		return
+
 	fixed = 0
 	for row in frappe.get_all(DOCTYPE, filters={"region": ["is", "set"]}, fields=["name", "region"]):
 		region = canonical_region(row.region)

@@ -57,7 +57,7 @@ FORM = {
 	"national_id": NID,
 	"password": "Garden2026",
 	"confirm_password": "Garden2026",
-	"document_kind": "Passport",
+	"document_kind": "Driver's Licence",
 	"document_number": "r 012-3456",
 	"date_of_birth": "1990-05-17",
 }
@@ -97,9 +97,10 @@ class TestTheSignupForm(TinCase):
 		self.assertRefused("first name", first_name=" ")
 		self.assertRefused("last name", last_name="")
 		self.assertRefused("valid phone", phone="call me")
-		self.assertRefused("number printed on your Passport", document_number="")
+		self.assertRefused("number printed on your Driver's Licence", document_number="")
 		self.assertRefused("letters and digits only", document_number="R01#3456")
 		self.assertRefused("identity document", document_kind="Library card")
+		self.assertRefused("identity document", document_kind="Passport")
 
 	def test_the_national_id_is_required_and_may_be_typed_with_dashes(self):
 		self.assertRefused("National ID number", national_id="")
@@ -194,8 +195,8 @@ class TestCompletingSignup(TinCase):
 		)
 		self.assertEqual(doc.document_type, "Identity")
 		# The number typed from the document, kept for the officer to check.
-		self.assertEqual((doc.id_document_kind, doc.id_document_number), ("Passport", "R0123456"))
-		self.assertTrue(doc.file_name.startswith("Passport - "))
+		self.assertEqual((doc.id_document_kind, doc.id_document_number), ("Driver's Licence", "R0123456"))
+		self.assertTrue(doc.file_name.startswith("Driver's Licence - "))
 		self.assertIsNone(doc.application)
 		profile = frappe.db.get_value("GDB Citizen Profile", {"user": user.name}, ["date_of_birth", "phone"], as_dict=True)
 		self.assertEqual(str(profile.date_of_birth), "1990-05-17")
