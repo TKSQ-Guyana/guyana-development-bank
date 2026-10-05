@@ -94,7 +94,7 @@ export function Pager({
                   onClick={() => onChange((n - 1) * pageLength)}
                   className={`min-w-9 rounded-md border px-2.5 py-1.5 text-sm font-medium tabular-nums transition-colors ${
                     n === current
-                      ? 'border-brand bg-brand text-white'
+                      ? 'border-brand bg-black text-white'
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >

@@ -215,7 +215,7 @@ export function FaceCheck({
           <button
             type="button"
             onClick={() => void openCamera()}
-            className="mt-6 w-full cursor-pointer rounded-xl bg-brand-dark py-3.5 text-[16px] font-extrabold text-white hover:bg-[#071a3d]"
+            className="mt-6 w-full cursor-pointer rounded-xl bg-black py-3.5 text-[16px] font-extrabold text-white hover:bg-[#262626]"
           >
             I agree — open my camera
           </button>
@@ -296,7 +296,7 @@ export function FaceCheck({
               <button
                 type="button"
                 onClick={() => void retry()}
-                className="mt-6 w-full cursor-pointer rounded-xl bg-brand-dark py-3.5 text-[16px] font-extrabold text-white hover:bg-[#071a3d]"
+                className="mt-6 w-full cursor-pointer rounded-xl bg-black py-3.5 text-[16px] font-extrabold text-white hover:bg-[#262626]"
               >
                 Try again
               </button>

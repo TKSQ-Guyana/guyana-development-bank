@@ -122,7 +122,7 @@ export function AppointmentRequest({
             <button
               type="button"
               onClick={onClose}
-              className="w-full rounded-xl bg-brand-dark py-3 text-[15px] font-extrabold text-white hover:bg-[#071a3d]"
+              className="w-full rounded-xl bg-black py-3 text-[15px] font-extrabold text-white hover:bg-[#262626]"
             >
               Done
             </button>
@@ -181,7 +181,7 @@ export function AppointmentRequest({
               type="button"
               onClick={() => void submit()}
               disabled={busy}
-              className="w-full rounded-xl bg-brand-dark py-3 text-[15px] font-extrabold text-white hover:bg-[#071a3d] disabled:opacity-60"
+              className="w-full rounded-xl bg-black py-3 text-[15px] font-extrabold text-white hover:bg-[#262626] disabled:opacity-60"
             >
               {busy ? "Sending…" : "Request an appointment"}
             </button>

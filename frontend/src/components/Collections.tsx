@@ -173,7 +173,7 @@ export function Collections({ onPosted }: { onPosted?: () => void }) {
           type="button"
           disabled={busy || !preview || preview.postable === 0}
           onClick={() => void doPost()}
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+          className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
         >
           Post {preview ? `${preview.postable} payment${preview.postable === 1 ? '' : 's'}` : ''}
         </button>

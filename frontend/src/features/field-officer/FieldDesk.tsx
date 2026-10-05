@@ -56,7 +56,7 @@ export function FieldDesk() {
         <p className="text-sm text-slate-500">{page?.region ?? (page ? 'No region set' : '')}</p>
         <Link
           to="/field/find"
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 hover:bg-brand-dark"
+          className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 hover:bg-[#262626]"
         >
           Find applicant
         </Link>
@@ -72,7 +72,7 @@ export function FieldDesk() {
               aria-selected={tab === t.id}
               onClick={() => pick(t.id)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                tab === t.id ? 'bg-brand text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                tab === t.id ? 'bg-black text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
               }`}
             >
               {t.label}

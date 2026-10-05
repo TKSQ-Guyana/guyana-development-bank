@@ -128,7 +128,7 @@ export function PaymentFile({ company }: { company: string | null }) {
           type="button"
           onClick={exportCsv}
           disabled={selected.length === 0}
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+          className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
         >
           Download CSV ({selected.length})
         </button>

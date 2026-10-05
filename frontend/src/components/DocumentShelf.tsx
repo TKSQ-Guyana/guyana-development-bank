@@ -465,7 +465,7 @@ export function DocumentShelf({
                 Click to choose a file, or drag it here
               </span>
             </span>
-            <span className="flex-none rounded-lg bg-brand-dark px-3 py-1.5 text-xs font-bold text-white">
+            <span className="flex-none rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white">
               Browse
             </span>
           </label>

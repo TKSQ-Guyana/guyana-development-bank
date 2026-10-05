@@ -211,7 +211,7 @@ export function Conditions({
           <button
             type="submit"
             disabled={busy === 'add' || !draft.trim()}
-            className="rounded-full bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+            className="rounded-full bg-black px-4 py-2 text-xs font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
           >
             {busy === 'add' ? 'Adding…' : 'Add condition'}
           </button>

@@ -232,7 +232,7 @@ export function InformationRequests({
                     type="button"
                     disabled={busy}
                     onClick={() => void send(r.staged!)}
-                    className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+                    className="rounded-md bg-black px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
                   >
                     Send
                   </button>
@@ -312,7 +312,7 @@ export function InformationRequests({
             <button
               type="submit"
               disabled={busy || !item.trim()}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+              className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
             >
               Request
             </button>

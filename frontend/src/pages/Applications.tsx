@@ -134,7 +134,7 @@ function InvitationCard({
           type="button"
           disabled={busy}
           onClick={() => void answer(true)}
-          className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+          className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626] disabled:opacity-50"
         >
           Join the group
         </button>
@@ -274,7 +274,7 @@ function ApplicationCard({ row, deleting }: { row: Row; deleting: boolean }) {
         {row.secondary && (
           <Link
             to={row.secondary.to}
-            className="rounded-full bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
+            className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#262626]"
           >
             {row.secondary.label}
           </Link>
@@ -511,7 +511,7 @@ export function Applications() {
             Your GDB loan applications. Drafts have not been sent to GDB.
           </p>
         </div>
-        <ApplyLink className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark">
+        <ApplyLink className="inline-flex items-center gap-2 rounded-full bg-black px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626]">
           <PlusIcon className="h-4 w-4" />
           Start an application
         </ApplyLink>

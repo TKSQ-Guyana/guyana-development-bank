@@ -180,7 +180,7 @@ export function Login({
         <section className="order-2 flex w-full flex-none flex-col justify-center lg:order-1 bg-[linear-gradient(135deg,#E8EEF8_0%,#F2F5FA_42%,#FCFCFA_100%)] px-7 py-14 sm:px-14 sm:py-18 lg:w-[52%] xl:w-[720px] xl:py-24 xl:pr-24 xl:pl-26">
           <div className="flex items-center gap-4">
             <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
-            <span className="font-code text-[13px] font-extrabold tracking-[0.12em] text-gdb-indigo sm:text-[14px]">
+            <span className="font-code text-[13px] font-extrabold tracking-[0.12em] text-black sm:text-[14px]">
               PROPOSED SME GROWTH PROGRAMME
             </span>
           </div>
@@ -188,20 +188,20 @@ export function Login({
           <h1 className="mt-[34px] font-display text-[44px] leading-[1.06] font-extrabold tracking-[-0.025em] sm:text-[52px] xl:text-[64px]">
             You build.
             <br />
-            <span className="text-gdb-indigo">We clear the way.</span>
+            <span className="text-black">We clear the way.</span>
           </h1>
 
           <p className="mt-9 max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/80 sm:text-[18px]">
             The proposed terms remove the usual barriers:{" "}
-            <strong className="font-extrabold text-gdb-indigo">
+            <strong className="font-extrabold text-black">
               no collateral
             </strong>
             , so property or family wealth is not a condition, and{" "}
-            <strong className="font-extrabold text-gdb-indigo">
+            <strong className="font-extrabold text-black">
               zero interest
             </strong>
             , so you repay what you borrowed and nothing more. Up to{" "}
-            <strong className="font-extrabold text-gdb-indigo">G$3M</strong> a
+            <strong className="font-extrabold text-black">G$3M</strong> a
             loan, with no co-financing above the cap.
           </p>
 
@@ -313,7 +313,7 @@ export function Login({
                           type="button"
                           disabled={tinBusy}
                           onClick={() => void onTinSubmit()}
-                          className="cursor-pointer border-0 bg-transparent text-gdb-indigo hover:underline"
+                          className="cursor-pointer border-0 bg-transparent text-black hover:underline"
                         >
                           Send a new code
                         </button>
@@ -547,7 +547,7 @@ export function Login({
                     New applicant?{" "}
                     <Link
                       to="/signup"
-                      className="font-extrabold text-gdb-indigo hover:underline"
+                      className="font-extrabold text-black hover:underline"
                     >
                       Create an account with your National ID
                     </Link>
@@ -565,7 +565,7 @@ export function Login({
                     Applying for a loan?{" "}
                     <Link
                       to="/login"
-                      className="font-extrabold text-gdb-indigo hover:underline"
+                      className="font-extrabold text-black hover:underline"
                     >
                       Citizen sign-in
                     </Link>

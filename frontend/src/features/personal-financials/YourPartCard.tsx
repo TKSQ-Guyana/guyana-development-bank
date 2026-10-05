@@ -41,7 +41,7 @@ export function YourPartCard({ application }: { application: string }) {
           className={
             doneOn
               ? 'rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50'
-              : 'rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 hover:bg-brand-dark'
+              : 'rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 hover:bg-[#262626]'
           }
         >
           {doneOn ? 'Update' : 'Add your financials'}

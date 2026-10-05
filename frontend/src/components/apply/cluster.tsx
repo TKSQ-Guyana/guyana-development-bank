@@ -388,7 +388,7 @@ export function MembersTable({
             type="button"
             disabled={!isCompleteEid(eid) || busy || !cluster}
             onClick={() => void add()}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
+            className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-40"
           >
             {busy ? 'Adding…' : 'Add member'}
           </button>

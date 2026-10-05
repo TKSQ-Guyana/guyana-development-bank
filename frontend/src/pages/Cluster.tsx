@@ -59,7 +59,7 @@ export function Cluster() {
               type="button"
               onClick={() => setSelected(c.name)}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                c.name === selected ? 'bg-brand text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                c.name === selected ? 'bg-black text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {c.name}
@@ -230,7 +230,7 @@ function Invitations({ onJoined }: { onJoined: () => void }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void respond(inv.name, true)}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50"
+                className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-50"
               >
                 Accept
               </button>

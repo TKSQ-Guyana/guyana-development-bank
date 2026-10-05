@@ -149,7 +149,7 @@ export function BankAccountForm() {
               type="button"
               onClick={() => void save()}
               disabled={busy}
-              className="rounded-full bg-brand-dark px-5 py-2 text-sm font-bold text-white hover:bg-[#071a3d] disabled:opacity-60"
+              className="rounded-full bg-black px-5 py-2 text-sm font-bold text-white hover:bg-[#262626] disabled:opacity-60"
             >
               {busy ? "Saving…" : "Save bank account"}
             </button>

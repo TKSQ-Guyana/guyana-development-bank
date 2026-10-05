@@ -320,7 +320,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                   <button
                     type="button"
                     onClick={() => setAppointment("No National ID")}
-                    className="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-gdb-indigo hover:underline"
+                    className="cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-black hover:underline"
                   >
                     Schedule an appointment
                   </button>
@@ -444,7 +444,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                       checked={phoneConfirmed}
                       onChange={(e) => setPhoneConfirmed(e.target.checked)}
                       disabled={busy}
-                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-black focus:ring-black"
                     />
                     To verify your identity we need to send you an authorization
                     code.
@@ -458,7 +458,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                     type="button"
                     onClick={() => setAppointment("Change phone number")}
                     disabled={busy}
-                    className="cursor-pointer border-0 bg-transparent p-0 font-bold text-gdb-indigo hover:underline"
+                    className="cursor-pointer border-0 bg-transparent p-0 font-bold text-black hover:underline"
                   >
                     Schedule an appointment
                   </button>
@@ -577,7 +577,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             <button
               type="button"
               onClick={onSignIn}
-              className="cursor-pointer border-0 bg-transparent p-0 font-extrabold text-gdb-indigo hover:underline"
+              className="cursor-pointer border-0 bg-transparent p-0 font-extrabold text-black hover:underline"
             >
               Sign in
             </button>
@@ -653,7 +653,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
               type="button"
               disabled={busy}
               onClick={() => void sendCode()}
-              className="cursor-pointer text-gdb-indigo hover:underline"
+              className="cursor-pointer text-black hover:underline"
             >
               Send a new code
             </button>

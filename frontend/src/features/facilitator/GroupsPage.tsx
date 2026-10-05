@@ -34,7 +34,7 @@ export function GroupsPage() {
         </div>
         <Link
           to="/facilitator/groups/new"
-          className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm shadow-brand/30 hover:bg-brand-dark"
+          className="inline-flex items-center gap-1.5 rounded-full bg-black px-4 py-2 text-sm font-bold text-white shadow-sm shadow-black/20 hover:bg-[#262626]"
         >
           <PlusIcon className="h-4 w-4" />
           New group

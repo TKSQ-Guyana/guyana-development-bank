@@ -33,7 +33,7 @@ const pinIcon = L.divIcon({
   iconSize: [30, 40],
   iconAnchor: [15, 38],
   html: `<svg viewBox="0 0 30 40" width="30" height="40" aria-hidden="true">
-    <path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.6 15 39 15 39s14-13.4 14-24.1C29 7.2 22.7 1 15 1z" fill="#0b2654" stroke="#fbbf24" stroke-width="2"/>
+    <path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.6 15 39 15 39s14-13.4 14-24.1C29 7.2 22.7 1 15 1z" fill="#000000" stroke="#fbbf24" stroke-width="2"/>
     <circle cx="15" cy="15" r="5.5" fill="#fbbf24"/></svg>`,
 });
 
@@ -203,7 +203,7 @@ export function LocationPicker({
             type="button"
             onClick={(e) => void search(e as unknown as FormEvent)}
             disabled={searching}
-            className="h-9 rounded-lg bg-brand-dark px-3 text-xs font-bold text-white hover:bg-[#071a3d] disabled:opacity-50"
+            className="h-9 rounded-lg bg-black px-3 text-xs font-bold text-white hover:bg-[#262626] disabled:opacity-50"
           >
             {searching ? "Searching…" : "Search"}
           </button>

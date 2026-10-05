@@ -96,7 +96,7 @@ export function Dashboard() {
       <AssistConsentCards />
 
       {/* The one thing a citizen arrives here to do, and where they stand. */}
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#000000] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
         <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
         <div className="relative flex flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
@@ -339,7 +339,7 @@ function RowAction({ loan }: { loan: LoanApplication }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold ${
-        draft ? "bg-brand-dark text-white" : "text-brand hover:bg-emerald-50"
+        draft ? "bg-black text-white" : "text-brand hover:bg-emerald-50"
       }`}
     >
       {draft ? "Continue" : "View"}
@@ -425,7 +425,7 @@ function EmptyList({ filtered }: { filtered: boolean }) {
           : "Start one when you are ready. You can save and come back — nothing is sent until you submit."}
       </p>
       {!filtered && (
-        <ApplyLink className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white hover:bg-[#071a3d]">
+        <ApplyLink className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-black px-4 py-2 text-sm font-bold text-white hover:bg-[#262626]">
           <PlusIcon className="h-4 w-4 text-amber-300" />
           Start an application
         </ApplyLink>

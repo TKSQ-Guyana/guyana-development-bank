@@ -58,7 +58,7 @@ export function AssistConsentCards() {
                 type="button"
                 disabled={busy}
                 onClick={() => void act(() => fo.respond(r.name, true))}
-                className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626] disabled:opacity-50"
               >
                 Allow
               </button>

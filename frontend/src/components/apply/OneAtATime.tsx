@@ -70,7 +70,7 @@ function OpenCaseNotice({
           <div className="flex flex-wrap gap-2">
             <Link
               to={link.to}
-              className="inline-flex items-center rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white hover:bg-brand"
+              className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-bold text-white hover:bg-[#262626]"
             >
               {link.label}
             </Link>

@@ -571,7 +571,7 @@ export function QuickApplyPage() {
     if (step === "eligibility") {
       return (
         <div className="flex flex-col gap-4">
-          <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand p-5 text-white shadow-xl shadow-emerald-950/20 sm:px-7 sm:py-6">
+          <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#000000] via-brand-dark to-brand p-5 text-white shadow-xl shadow-emerald-950/20 sm:px-7 sm:py-6">
             <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
             <div className="pointer-events-none absolute -right-10 -bottom-10 h-72 w-72 rounded-full bg-amber-500/10 blur-3xl" />
             <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -1294,7 +1294,7 @@ export function QuickApplyPage() {
                           aria-pressed={on}
                           className={`rounded-md border px-2.5 py-1 text-[11px] font-bold transition-colors ${
                             on
-                              ? "border-brand-dark bg-brand-dark text-white"
+                              ? "border-brand-dark bg-black text-white"
                               : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"
                           }`}
                         >
@@ -1568,7 +1568,7 @@ export function QuickApplyPage() {
             className="flex flex-col gap-3 lg:sticky lg:top-20"
             aria-label="Your Quick Loan"
           >
-            <div className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+            <div className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#000000] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
               <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-60" />
               <div className="relative px-4 py-3.5">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300/90">

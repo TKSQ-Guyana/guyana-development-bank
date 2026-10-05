@@ -253,7 +253,7 @@ function AppointmentRow({
         </div>
         <a
           href={`tel:${row.phone}`}
-          className="rounded-full bg-brand px-4 py-1.5 text-xs font-bold text-white hover:bg-brand-dark"
+          className="rounded-full bg-black px-4 py-1.5 text-xs font-bold text-white hover:bg-[#262626]"
         >
           Call
         </a>
@@ -298,7 +298,7 @@ function AppointmentRow({
           type="button"
           disabled={!dirty || busy}
           onClick={() => void save()}
-          className="rounded-full bg-brand-dark px-5 py-2 text-sm font-bold text-white hover:bg-[#071a3d] disabled:opacity-40"
+          className="rounded-full bg-black px-5 py-2 text-sm font-bold text-white hover:bg-[#262626] disabled:opacity-40"
         >
           {busy ? "Saving…" : "Save"}
         </button>

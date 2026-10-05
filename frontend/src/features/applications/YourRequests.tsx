@@ -200,7 +200,7 @@ export function YourRequests() {
             </div>
             <Link
               to={`/loans/${r.application}`}
-              className="rounded-lg bg-brand-dark px-3 py-1.5 text-xs font-bold text-white hover:bg-brand"
+              className="rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white hover:bg-[#262626]"
             >
               Respond
             </Link>

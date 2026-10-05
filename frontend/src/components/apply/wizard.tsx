@@ -403,6 +403,6 @@ export function QuestionGroup({
 
 /** The primary and secondary buttons used across the wizard. */
 export const primaryButton =
-  "inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50";
+  "inline-flex items-center gap-1.5 rounded-full bg-black px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626] disabled:opacity-50";
 export const secondaryButton =
   "rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";

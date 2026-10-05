@@ -6,7 +6,8 @@
   --color-gdb-gold: #fcd116;
 
   /* The portal wears the landing page's palette (pages/Landing.tsx, 2026-10-05):
-   * navy (#0b2654 / #123a7a) with gold (#f2c14e / #b8860b) on warm cream
+   * black (#000000, where the darkest navy #0b2654 was, 2026-10-05) and navy
+   * (#123a7a) with gold (#f2c14e / #b8860b) on warm cream
    * (#faf8f4). Its navy scale stands in for Tailwind's emerald below, so every
    * emerald-* class in the portal is this navy. */
 
@@ -14,7 +15,7 @@
    * alongside the flag colors above rather than replacing them — pages move
    * over one at a time, so both palettes are live during the migration. */
   --color-brand: #123a7a;
-  --color-brand-dark: #0b2654;
+  --color-brand-dark: #000000;
   --color-brand-light: #eef3fb;
   --color-brand-text: #123a7a;
 
@@ -29,8 +30,8 @@
   --color-emerald-600: #284c86;
   --color-emerald-700: #123a7a;
   --color-emerald-800: #0f3068;
-  --color-emerald-900: #0b2654;
-  --color-emerald-950: #071a3d;
+  --color-emerald-900: #000000;
+  --color-emerald-950: #000000;
 
   /* The landing page's gold for the portal's gold accents (amber-300/400);
    * the rest of amber stays Tailwind's, for warnings. */
@@ -90,8 +91,8 @@
   --color-ql-soft: #f8fafc;
   --color-ql-tint: #eef3fb;
   --color-ql-tintline: #c9d6ec;
-  --color-ql-navy: #0b2654;
-  --color-ql-navy-dark: #071a3d;
+  --color-ql-navy: #000000;
+  --color-ql-navy-dark: #000000;
   --color-ql-brand: #123a7a;
   --color-ql-blue: #284c86;
   --color-ql-green: #1f8a5b;

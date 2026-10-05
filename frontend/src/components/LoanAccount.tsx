@@ -373,7 +373,7 @@ export function LoanAccount({
             <button
               type="submit"
               disabled={busy}
-              className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-60"
+              className="rounded-full bg-black px-5 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626] disabled:opacity-60"
             >
               {busy ? "Recording…" : "Pay"}
             </button>

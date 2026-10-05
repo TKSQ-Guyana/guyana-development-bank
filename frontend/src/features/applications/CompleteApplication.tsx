@@ -314,7 +314,7 @@ function ChecklistRow({
             className={`inline-flex cursor-pointer items-center rounded-full px-4 py-2 text-xs font-semibold text-white ${
               busy || !numberReady
                 ? "pointer-events-none bg-slate-300"
-                : "bg-brand hover:bg-brand-dark"
+                : "bg-black hover:bg-[#262626]"
             }`}
             title={numberReady ? undefined : "Enter the number first"}
           >

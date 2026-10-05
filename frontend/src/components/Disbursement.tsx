@@ -185,7 +185,7 @@ export function Disbursement({
             onClick={() =>
               void run("gdb_bank.api.book_loan", {}, "Loan booked.")
             }
-            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+            className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-60"
           >
             Book loan
           </button>
@@ -231,7 +231,7 @@ export function Disbursement({
             <button
               type="submit"
               disabled={busy}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-60"
+              className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-[#262626] disabled:opacity-60"
             >
               Disburse
             </button>

@@ -76,7 +76,7 @@ export function Payments() {
           </p>
           <Link
             to="/apply"
-            className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+            className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-black px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#262626]"
           >
             See my applications
             <ArrowRightIcon className="h-4 w-4" />

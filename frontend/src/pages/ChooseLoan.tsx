@@ -278,7 +278,7 @@ function OptionCard({
         className={`relative px-5 py-4 ${
           gold
             ? "bg-gradient-to-br from-amber-50 via-amber-50/60 to-white"
-            : "bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white"
+            : "bg-gradient-to-br from-[#000000] via-brand-dark to-brand text-white"
         }`}
       >
         {!gold && (
@@ -389,7 +389,7 @@ function OptionCard({
           <Link
             to={blocked.link.to}
             onClick={(e) => e.stopPropagation()}
-            className="whitespace-nowrap rounded-lg bg-brand-dark px-3 py-1.5 text-xs font-bold text-white hover:bg-brand"
+            className="whitespace-nowrap rounded-lg bg-black px-3 py-1.5 text-xs font-bold text-white hover:bg-[#262626]"
           >
             {blocked.link.label}
           </Link>

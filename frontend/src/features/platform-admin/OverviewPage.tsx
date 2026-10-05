@@ -40,7 +40,7 @@ export function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand p-6 text-white shadow-lg shadow-emerald-950/20 sm:p-8">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#000000] via-brand-dark to-brand p-6 text-white shadow-lg shadow-emerald-950/20 sm:p-8">
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-amber-300/10 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -bottom-24 right-40 h-56 w-56 rounded-full bg-emerald-300/10 blur-2xl" />
         <div className="relative flex flex-wrap items-end justify-between gap-6">

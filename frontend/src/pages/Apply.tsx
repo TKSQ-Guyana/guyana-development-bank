@@ -1792,7 +1792,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         <button
           type="button"
           onClick={() => navigate(assist.home)}
-          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand px-6 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
+          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-black px-6 py-3 text-sm font-bold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626]"
         >
           Done
           <ArrowRightIcon className="h-4 w-4" />
@@ -3381,7 +3381,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         onClick={() =>
                           void (assist ? finishAssisted(true) : onFinalSubmit())
                         }
-                        className="rounded-full bg-brand px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark disabled:opacity-50"
+                        className="rounded-full bg-black px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-black/20 transition-colors hover:bg-[#262626] disabled:opacity-50"
                       >
                         {busy
                           ? "Submitting…"
@@ -3430,7 +3430,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           className="space-y-4 scrollbar-none lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto"
           aria-label="Your SME loan"
         >
-          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#000000] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
             <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-50" />
             <div className="relative px-5 pt-4 pb-3">
               <p className="text-[11px] font-black uppercase tracking-wider text-amber-300">
@@ -3596,7 +3596,7 @@ function ChipGroup({
             onClick={() => onChange(optional && value === v ? 0 : v)}
             className={`rounded-xl border-2 px-3.5 py-2 text-sm font-bold transition-all ${
               value === v
-                ? "border-brand bg-brand text-white shadow-sm shadow-brand/30"
+                ? "border-brand bg-black text-white shadow-sm shadow-black/20"
                 : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/50"
             }`}
           >

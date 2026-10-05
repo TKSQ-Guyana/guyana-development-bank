@@ -285,7 +285,7 @@ function IdentityDialog({
           <button
             type="button"
             onClick={submit}
-            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-bold text-white hover:bg-brand"
+            className="rounded-xl bg-black px-4 py-2 text-sm font-bold text-white hover:bg-[#262626]"
           >
             Upload
           </button>

@@ -372,7 +372,7 @@ export function Review() {
               onClick={() => setStage(t.id)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 stage === t.id
-                  ? "bg-brand text-white"
+                  ? "bg-black text-white"
                   : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
               }`}
             >

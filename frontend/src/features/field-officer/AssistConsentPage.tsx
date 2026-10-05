@@ -101,7 +101,7 @@ export function AssistConsentPage() {
           {live && (
             <Link
               to={`/field/assist/${consent}/apply/new`}
-              className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand/30 hover:bg-brand-dark"
+              className="rounded-full bg-black px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/20 hover:bg-[#262626]"
             >
               New application
             </Link>

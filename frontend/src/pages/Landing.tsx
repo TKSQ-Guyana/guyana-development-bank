@@ -38,7 +38,7 @@ const WRAP = "mx-auto w-full max-w-[1320px]";
 const EYEBROW =
   "text-[14px] font-bold uppercase tracking-[0.08em] text-[#b8860b]";
 const H2 =
-  "m-0 text-[clamp(34px,4vw,52px)] font-extrabold leading-[1.04] tracking-[-0.03em] text-[#0b2654] [text-wrap:balance]";
+  "m-0 text-[clamp(34px,4vw,52px)] font-extrabold leading-[1.04] tracking-[-0.03em] text-[#000000] [text-wrap:balance]";
 const PILL =
   "inline-flex items-center justify-center rounded-full font-bold no-underline transition-colors";
 
@@ -184,7 +184,7 @@ export function ComingSoon() {
           className="block h-auto max-h-12 w-auto min-w-0 max-w-full sm:max-h-16"
         />
       </div>
-      <h1 className="m-0 text-[clamp(44px,7vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#0b2654]">
+      <h1 className="m-0 text-[clamp(44px,7vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#000000]">
         Coming soon
       </h1>
       <p className="m-0 max-w-[32em] text-[clamp(17px,1.5vw,20px)] leading-[1.5] text-[#3d3a4a]">
@@ -256,7 +256,7 @@ function Header() {
 
         <nav
           aria-label="Sections"
-          className="hidden items-center gap-1 rounded-2xl bg-[#0b2654] px-2 py-1.5 shadow-sm lg:flex"
+          className="hidden items-center gap-1 rounded-2xl bg-[#000000] px-2 py-1.5 shadow-sm lg:flex"
         >
           {nav.map(([href, label]) => (
             <a key={href} href={href} className={link}>
@@ -274,7 +274,7 @@ function Header() {
           </Link>
           <Link
             to="/apply/new"
-            className={`${PILL} bg-[#123a7a] px-[18px] py-2.5 text-[15px] font-semibold text-white hover:bg-[#0b2654]`}
+            className={`${PILL} bg-black px-[18px] py-2.5 text-[15px] font-semibold text-white hover:bg-[#262626]`}
           >
             Apply
           </Link>
@@ -284,7 +284,7 @@ function Header() {
             aria-expanded={open}
             aria-controls="site-menu"
             aria-label={open ? "Close menu" : "Open menu"}
-            className="grid h-11 w-11 place-items-center rounded-xl bg-[#0b2654] text-white lg:hidden"
+            className="grid h-11 w-11 place-items-center rounded-xl bg-[#000000] text-white lg:hidden"
           >
             <svg
               viewBox="0 0 24 24"
@@ -309,7 +309,7 @@ function Header() {
         <nav
           id="site-menu"
           aria-label="Sections"
-          className="mt-3 flex flex-col gap-1 rounded-2xl bg-[#0b2654] p-2 shadow-lg lg:hidden"
+          className="mt-3 flex flex-col gap-1 rounded-2xl bg-[#000000] p-2 shadow-lg lg:hidden"
         >
           {nav.map(([href, label]) => (
             <a
@@ -338,7 +338,7 @@ function LaunchBanner() {
   return (
     <Link
       to="/apply/new"
-      className={`flex flex-wrap items-center justify-center gap-2.5 bg-[#f2c14e] py-2.5 text-center text-[15px] font-semibold text-[#0b2654] no-underline hover:bg-[#f5cd6a] ${GUTTER}`}
+      className={`flex flex-wrap items-center justify-center gap-2.5 bg-[#f2c14e] py-2.5 text-center text-[15px] font-semibold text-[#000000] no-underline hover:bg-[#f5cd6a] ${GUTTER}`}
     >
       <span>
         Now accepting applications, with zero-interest financing up to
@@ -379,7 +379,7 @@ function Hero() {
     <section className={`py-[clamp(40px,6vw,88px)] ${GUTTER}`}>
       <div className={`${WRAP} flex flex-col gap-[clamp(36px,5vw,64px)]`}>
         <div className="grid items-end gap-[clamp(24px,4vw,64px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))]">
-          <h1 className="m-0 text-[clamp(44px,6vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#0b2654] [text-wrap:balance]">
+          <h1 className="m-0 text-[clamp(44px,6vw,88px)] font-extrabold leading-[0.95] tracking-[-0.04em] text-[#000000] [text-wrap:balance]">
             Let us help you to{" "}
             <span className="bg-[linear-gradient(transparent_62%,#f2c14e_62%,#f2c14e_92%,transparent_92%)] px-[0.04em]">
               grow
@@ -395,13 +395,13 @@ function Hero() {
             <div className="flex flex-wrap gap-3">
               <a
                 href="#loans"
-                className={`${PILL} bg-[#123a7a] px-[26px] py-4 text-[17px] text-white hover:bg-[#0b2654]`}
+                className={`${PILL} bg-black px-[26px] py-4 text-[17px] text-white hover:bg-[#262626]`}
               >
                 Apply now
               </a>
               <a
                 href="#appointment"
-                className={`${PILL} border-[1.5px] border-[#123a7a] px-[26px] py-4 text-[17px] text-[#123a7a] hover:bg-[#123a7a]/5`}
+                className={`${PILL} border-[1.5px] border-black px-[26px] py-4 text-[17px] text-black hover:bg-black/5`}
               >
                 Schedule an appointment
               </a>
@@ -500,7 +500,7 @@ function Estimator() {
                 onClick={() => setTerm(t)}
                 className={`h-11 cursor-pointer rounded-[10px] border-[1.5px] text-[15px] transition-colors ${
                   on
-                    ? "border-[#f2c14e] bg-[#f2c14e] font-bold text-[#0b2654]"
+                    ? "border-[#f2c14e] bg-[#f2c14e] font-bold text-[#000000]"
                     : "border-[#3a3a3a] bg-transparent font-semibold text-[#faf8f4] hover:border-[#f2c14e]/60"
                 }`}
               >
@@ -531,7 +531,7 @@ function Estimator() {
       </p>
       <Link
         to={quick ? "/apply/quick" : "/apply/new/sme"}
-        className={`${PILL} mt-auto bg-[#f2c14e] px-6 py-4 text-center text-[17px] text-[#0b2654] hover:bg-[#f5cd6a]`}
+        className={`${PILL} mt-auto bg-[#f2c14e] px-6 py-4 text-center text-[17px] text-[#000000] hover:bg-[#f5cd6a]`}
       >
         Apply for {quick ? "a Quick Loan" : "an SME Loan"}
       </Link>
@@ -613,7 +613,7 @@ function Loans() {
         <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
           <article className="flex flex-col gap-6 rounded-[24px] bg-[#f7f1df] p-[clamp(28px,3vw,40px)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <span className="rounded-full bg-[#f2c14e] px-3 py-1.5 text-[15px] font-bold text-[#0b2654]">
+              <span className="rounded-full bg-[#f2c14e] px-3 py-1.5 text-[15px] font-bold text-[#000000]">
                 Quick Loan
               </span>
               <span className="text-[14px] font-medium text-[#6b5a2a]">
@@ -622,7 +622,7 @@ function Loans() {
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-[15px] text-[#5e5b6b]">Borrow up to</span>
-              <span className="text-[clamp(44px,5vw,64px)] font-extrabold leading-none tracking-[-0.03em] text-[#0b2654]">
+              <span className="text-[clamp(44px,5vw,64px)] font-extrabold leading-none tracking-[-0.03em] text-[#000000]">
                 G$300,000
               </span>
             </div>
@@ -642,13 +642,13 @@ function Loans() {
             <div className="mt-auto flex flex-wrap gap-2.5">
               <Link
                 to="/apply/quick"
-                className={`${PILL} bg-[#0b2654] px-[22px] py-3.5 text-[16px] text-white hover:bg-[#123a7a]`}
+                className={`${PILL} bg-black px-[22px] py-3.5 text-[16px] text-white hover:bg-[#262626]`}
               >
                 Start Quick Loan application
               </Link>
               <a
                 href="#appointment"
-                className={`${PILL} border-[1.5px] border-[#0b2654] px-[22px] py-3.5 text-[16px] text-[#0b2654] hover:bg-[#0b2654]/5`}
+                className={`${PILL} border-[1.5px] border-[#000000] px-[22px] py-3.5 text-[16px] text-[#000000] hover:bg-[#000000]/5`}
               >
                 Book an appointment
               </a>
@@ -687,7 +687,7 @@ function Loans() {
             <div className="mt-auto flex flex-wrap gap-2.5">
               <Link
                 to="/apply/new/sme"
-                className={`${PILL} bg-[#f2c14e] px-[22px] py-3.5 text-[16px] text-[#0b2654] hover:bg-[#f5cd6a]`}
+                className={`${PILL} bg-[#f2c14e] px-[22px] py-3.5 text-[16px] text-[#000000] hover:bg-[#f5cd6a]`}
               >
                 Start SME Loan application
               </Link>
@@ -703,7 +703,7 @@ function HowItWorks() {
   return (
     <section
       id="how"
-      className={`scroll-mt-20 bg-[#0b2654] text-white ${SECTION_Y} ${GUTTER}`}
+      className={`scroll-mt-20 bg-[#000000] text-white ${SECTION_Y} ${GUTTER}`}
     >
       <div className={`${WRAP} flex flex-col gap-12`}>
         <div className="flex max-w-[640px] flex-col gap-3">
@@ -714,17 +714,17 @@ function HowItWorks() {
             From application to money in your account.
           </h2>
         </div>
-        <ol className="m-0 grid list-none gap-0.5 overflow-hidden rounded-[20px] bg-[#284c86] p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
+        <ol className="m-0 grid list-none gap-0.5 overflow-hidden rounded-[20px] bg-white/10 ring-1 ring-white/10 p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
           {STEPS.map((s) => (
             <li
               key={s.n}
-              className="flex min-h-[220px] flex-col gap-3.5 bg-[#0f3068] p-7"
+              className="flex min-h-[220px] flex-col gap-3.5 bg-gradient-to-br from-[#2b2b2b] via-[#161616] to-[#050505] p-7"
             >
               <span className="text-[28px] font-extrabold leading-none text-[#f2c14e]">
                 {s.n}
               </span>
               <h3 className="m-0 text-[22px] font-bold">{s.title}</h3>
-              <p className="m-0 text-[16px] leading-[1.5] text-[#d0dcef]">
+              <p className="m-0 text-[16px] leading-[1.5] text-[#cfcfcf]">
                 {s.body}
               </p>
             </li>
@@ -750,7 +750,7 @@ function President() {
         </div>
         <div className="flex flex-[1.6_1_420px] flex-col justify-center gap-6 p-[clamp(32px,5vw,64px)]">
           <span className={EYEBROW}>From the President</span>
-          <blockquote className="m-0 text-[clamp(26px,2.8vw,38px)] font-bold leading-[1.2] tracking-[-0.02em] text-[#0b2654] [text-wrap:pretty]">
+          <blockquote className="m-0 text-[clamp(26px,2.8vw,38px)] font-bold leading-[1.2] tracking-[-0.02em] text-[#000000] [text-wrap:pretty]">
             “You don't have to own anything. You just have to have an idea that
             we will help you develop, that we will help you to nurture.”
           </blockquote>
@@ -829,7 +829,7 @@ function About() {
                 className="aspect-[4/3]"
                 focus="object-[center_18%]"
               />
-              <span className="text-[17px] font-bold text-[#0b2654]">
+              <span className="text-[17px] font-bold text-[#000000]">
                 {s.label}
               </span>
             </li>
@@ -844,7 +844,7 @@ function About() {
               <span className="text-[14px] font-bold text-[#b8860b]">
                 {title}
               </span>
-              <p className="m-0 text-[21px] font-semibold leading-[1.4] text-[#0b2654] [text-wrap:pretty]">
+              <p className="m-0 text-[21px] font-semibold leading-[1.4] text-[#000000] [text-wrap:pretty]">
                 {body}
               </p>
             </div>
@@ -871,7 +871,7 @@ function Faqs() {
                   aria-expanded={isOpen}
                   aria-controls={`faq-${i}`}
                   onClick={() => setOpen(isOpen ? -1 : i)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-5 border-0 bg-transparent py-6 text-left text-[19px] font-bold text-[#0b2654]"
+                  className="flex w-full cursor-pointer items-center justify-between gap-5 border-0 bg-transparent py-6 text-left text-[19px] font-bold text-[#000000]"
                 >
                   <span>{f.q}</span>
                   <span
@@ -910,7 +910,7 @@ interface Industry {
 
 const APPT_INPUT =
   "mt-1.5 w-full rounded-xl border border-[#d9d4c7] bg-white px-4 py-3 text-[15px] text-[#17161d] placeholder:text-[#9a97a6] focus:border-transparent focus:outline-2 focus:outline-offset-1 focus:outline-[#123a7a]";
-const APPT_LABEL = "block text-[14px] font-bold text-[#0b2654]";
+const APPT_LABEL = "block text-[14px] font-bold text-[#000000]";
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** "Book appointment": a contact form, not a sign-up (GDB, 2026-10-05). It
@@ -1006,7 +1006,7 @@ function Appointment() {
 
         <div className="flex flex-col gap-5 rounded-[24px] border border-[#e7e3da] bg-white p-[clamp(24px,3vw,40px)] shadow-[0_20px_50px_rgba(11,38,84,0.06)]">
           <div className="flex flex-col gap-1.5">
-            <h3 className="m-0 text-[24px] font-extrabold text-[#0b2654]">
+            <h3 className="m-0 text-[24px] font-extrabold text-[#000000]">
               {sent ? "Request sent" : "Book an appointment"}
             </h3>
             <p className="m-0 text-[15px] text-[#5e5b6b]">
@@ -1022,7 +1022,7 @@ function Appointment() {
                 We will call you on{" "}
                 <b>+592 {form.phone.replace(/^\+592/, "")}</b>. Your reference
                 is{" "}
-                <span className="font-mono font-bold text-[#0b2654]">
+                <span className="font-mono font-bold text-[#000000]">
                   {sent}
                 </span>
                 .
@@ -1123,7 +1123,7 @@ function Appointment() {
               <button
                 type="submit"
                 disabled={busy}
-                className={`${PILL} h-14 w-full border-0 bg-[#123a7a] px-6 text-[17px] text-white hover:bg-[#0b2654] disabled:opacity-60`}
+                className={`${PILL} h-14 w-full border-0 bg-black px-6 text-[17px] text-white hover:bg-[#262626] disabled:opacity-60`}
               >
                 {busy ? "Sending…" : "Book appointment"}
               </button>
@@ -1141,19 +1141,19 @@ function ReadyBand() {
       <div
         className={`${WRAP} flex flex-wrap items-center justify-between gap-7 rounded-[28px] bg-[#f2c14e] p-[clamp(32px,5vw,64px)]`}
       >
-        <h2 className="m-0 max-w-[16em] text-[clamp(30px,3.6vw,46px)] font-extrabold leading-[1.05] tracking-[-0.03em] text-[#0b2654] [text-wrap:balance]">
+        <h2 className="m-0 max-w-[16em] text-[clamp(30px,3.6vw,46px)] font-extrabold leading-[1.05] tracking-[-0.03em] text-[#000000] [text-wrap:balance]">
           Ready to grow? Your application takes minutes to start.
         </h2>
         <div className="flex flex-wrap gap-3">
           <a
             href="#loans"
-            className={`${PILL} bg-[#0b2654] px-[26px] py-4 text-[17px] text-white hover:bg-[#123a7a]`}
+            className={`${PILL} bg-black px-[26px] py-4 text-[17px] text-white hover:bg-[#262626]`}
           >
             Apply for a loan
           </a>
           <Link
             to="/apply"
-            className={`${PILL} border-[1.5px] border-[#0b2654] px-[26px] py-4 text-[17px] text-[#0b2654] hover:bg-[#0b2654]/5`}
+            className={`${PILL} border-[1.5px] border-[#000000] px-[26px] py-4 text-[17px] text-[#000000] hover:bg-[#000000]/5`}
           >
             Check my application
           </Link>
@@ -1166,7 +1166,7 @@ function ReadyBand() {
 function Footer() {
   const link = "text-[#c9d6ec] hover:text-white";
   return (
-    <footer className={`bg-[#0b2654] pt-14 text-[#c9d6ec] ${GUTTER}`}>
+    <footer className={`bg-[#000000] pt-14 text-[#c9d6ec] ${GUTTER}`}>
       <div className={`${WRAP} flex flex-col gap-10`}>
         <div className="grid gap-8 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
           <div className="flex flex-col gap-3">
