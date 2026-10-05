@@ -766,7 +766,7 @@ function President() {
 const SERVED = [
   {
     src: stockFactoryWorker,
-    label: "Manufacturing and industry",
+    label: "Manufacturing",
     alt: "A confident worker in his high-visibility vest on a factory floor",
   },
   {
