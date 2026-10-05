@@ -296,7 +296,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
             <Field
               label="National ID/Passport/E-ID Number"
               required
-              hint="The number on your National ID card, passport or E-ID. You sign in with it."
+              hint="The number on your National ID card, passport or E-ID."
             >
               <input
                 autoComplete="username"

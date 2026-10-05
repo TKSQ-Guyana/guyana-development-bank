@@ -10,7 +10,7 @@ import {
   stockBasketWeaver,
   stockCafeOwner,
   stockMarketVendor,
-  stockPoultryFarmer,
+  stockFactoryWorker,
   stockSeamstress,
   stockOnlineBusiness,
   gdbLogo,
@@ -69,12 +69,12 @@ const SME_TERMS = [12, 24, 36, 48];
 
 // The identity documents sign-up accepts (tin_auth.DOCUMENT_KINDS).
 const ID_LINE =
-  "One valid ID to create your account: National ID card, driver’s licence or e-ID";
+  "One valid ID to create your account: e-ID, National ID card, driver’s licence or passport";
 const NEED_QUICK = [
   ID_LINE,
   "Phone number",
   "A short description of your business and what the loan is for",
-  "Bank details, provided before loan disbursement",
+  "Bank details must be provided before loan disbursement",
 ];
 const NEED_SME = [
   ID_LINE,
@@ -83,7 +83,7 @@ const NEED_SME = [
   "Business details and location",
   "Market, customers and financial information",
   "How you’ll use the funds",
-  "Bank details, provided before loan disbursement",
+  "Bank details must be provided before loan disbursement",
 ];
 
 const STEPS = [
@@ -115,7 +115,7 @@ const FAQS = [
     a: "Yes. You repay only the amount you borrow — no interest is added. Your letter of offer shows the amount, term and monthly instalment before you accept.",
   },
   {
-    q: "Do I have to pay the loan back?",
+    q: "Do I have to repay the loan?",
     a: "Yes. This is a loan, not a grant. Repaying on time builds your credit history and can help you qualify for larger financing later.",
   },
   {
@@ -123,12 +123,16 @@ const FAQS = [
     a: "If you need up to G$300,000 for a small business, choose the Quick Loan — it is shorter and faster. For larger amounts up to G$3,000,000, choose the SME Loan.",
   },
   {
+    q: "Which forms of IDs are acceptable?",
+    a: "E-ID, National ID Card, Driver's Licence and Passport.",
+  },
+  {
     q: "How do I check on my application?",
     a: "Sign in and open My applications. Each application shows its current status — under review, approved or declined, or loan disbursed — and any action we need from you.",
   },
   {
     q: "How will I receive the money?",
-    a: "Funds are paid directly into your bank account. You provide your bank name, branch and account number in the application.",
+    a: "Funds are paid directly into your bank account. You provide your banking details in the application.",
   },
 ];
 
@@ -517,7 +521,7 @@ function Estimator() {
       <p className="m-0 text-[14px] leading-[1.5] text-[#c9d6ec]">
         {quick
           ? "Short application for small businesses. Apply online in a few short steps."
-          : "For registered businesses ready to scale. You will list how you will use the funds."}
+          : "For small and medium businesses. You will list how you will use the funds."}
       </p>
       <Link
         to={quick ? "/apply/quick" : "/apply/new/sme"}
@@ -651,7 +655,7 @@ function Loans() {
                 SME Loan
               </span>
               <span className="text-[14px] font-medium text-[#c9d6ec]">
-                For registered small &amp; medium businesses
+                For small &amp; medium businesses
               </span>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -661,16 +665,16 @@ function Loans() {
               </span>
             </div>
             <p className="m-0 text-[18px] leading-[1.5] text-[#eaf0f9] [text-wrap:pretty]">
-              For small and medium enterprises ready to scale — in agriculture,
-              agro-processing, manufacturing, tourism, services, technology and
-              the creative industries.
+              For small and medium enterprises — in agriculture,
+              agro-processing, manufacturing, tourism, services, technology, the
+              creative industries and more.
             </p>
             <Dashes
               tone="navy"
               items={[
                 "Details prefilled from your National ID record where available",
                 "List how you'll use the funds",
-                "Track every step in My applications",
+                "Track every step in My application and uplifted commerce",
               ]}
             />
             <Needs items={NEED_SME} tone="navy" />
@@ -761,9 +765,9 @@ function President() {
 /** Some of the businesses GDB lends to, as the About section shows them. */
 const SERVED = [
   {
-    src: stockPoultryFarmer,
-    label: "Farmers and poultry",
-    alt: "A proud farmer holding a hen in his poultry house",
+    src: stockFactoryWorker,
+    label: "Manufacturing and industry",
+    alt: "A confident worker in his high-visibility vest on a factory floor",
   },
   {
     src: stockOnlineBusiness,
@@ -785,11 +789,11 @@ function About() {
     ],
     [
       "Our vision",
-      "A Guyana where every business with the will to grow has access to the capital to do it — from Region 1 to Region 10.",
+      "A Guyana where every business with the will to grow has access to the capital to do it.",
     ],
     [
       "Who we serve",
-      "Farmers, vendors, manufacturers, service providers and enterprises — from Region 1 to Region 10.",
+      "Farmers, vendors, manufacturers, service providers, enterprises and so much more.",
     ],
   ];
   return (
@@ -807,7 +811,7 @@ function About() {
           </div>
           <p className="m-0 text-[18px] leading-[1.55] text-[#3d3a4a] [text-wrap:pretty]">
             A Government of Guyana institution under the Ministry of Finance,
-            serving small and medium businesses from Region 1 to Region 10.
+            serving small and medium businesses.
           </p>
         </div>
         <ul className="m-0 grid list-none gap-5 p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">

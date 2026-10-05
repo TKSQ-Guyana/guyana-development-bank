@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { FocusAlert } from "../shared/FocusAlert";
 import { gdbLogo } from "../components/site/assets";
-import { STAFF_LOGIN } from "../shared/staffRoutes";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { nationalIdLogin, verifyLoginOtp, type OtpChallenge } from "../api";
@@ -193,8 +192,7 @@ export function Login({
           </h1>
 
           <p className="mt-9 max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/80 sm:text-[18px]">
-            An invitation to the Guyanese who already carry this economy. The
-            proposed terms remove the usual barriers:{" "}
+            The proposed terms remove the usual barriers:{" "}
             <strong className="font-extrabold text-gdb-indigo">
               no collateral
             </strong>
@@ -208,15 +206,8 @@ export function Login({
           </p>
 
           <p className="mt-[22px] max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/70 sm:text-[18px]">
-            You prepare your own application and a person makes every decision.
-            Applying is free. No one can move you up the queue, and nobody
-            should be charging you a fee to apply.
+            Apply for free. You can prepare your application or we can help you.
           </p>
-
-          <div className="mt-13 flex items-center gap-[18px] text-[15px] font-extrabold text-gdb-ink/60">
-            <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
-            Guyana, built forward
-          </div>
         </section>
 
         {/* ---------- the credentials ---------- */}
@@ -569,7 +560,7 @@ export function Login({
               disbursement desk, the ledger and the administration console are
               a grant on the staff account, made by the platform administrator. */}
               <p className="max-w-[452px] text-[15px] leading-[1.5] text-gdb-ink/55">
-                {staffOnly ? (
+                {staffOnly && (
                   <>
                     Applying for a loan?{" "}
                     <Link
@@ -577,16 +568,6 @@ export function Login({
                       className="font-extrabold text-gdb-indigo hover:underline"
                     >
                       Citizen sign-in
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    GDB team member?{" "}
-                    <Link
-                      to={STAFF_LOGIN}
-                      className="font-extrabold text-gdb-indigo hover:underline"
-                    >
-                      Staff sign-in
                     </Link>
                   </>
                 )}
