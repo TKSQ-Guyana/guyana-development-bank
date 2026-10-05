@@ -93,19 +93,30 @@ class TestTheRepresentativesQueue(AppointmentCase):
 		self.assertTrue(sign_in_policy.is_staff_account(REP))
 
 
+INFOBIP = {
+	"INFOBIP_BASE_URL": "https://xyz.api.infobip.com",
+	"INFOBIP_API_KEY": "k",
+	"INFOBIP_SENDER": "GDB",
+}
+OFF = {"INFOBIP_BASE_URL": "", "INFOBIP_API_KEY": "", "INFOBIP_SENDER": ""}
+
+
 class TestTheText(IntegrationTestCase):
-	def test_nothing_is_sent_until_twilio_is_set_up(self):
-		with patch.dict("os.environ", {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}), patch.object(
-			frappe, "enqueue"
-		) as enqueue:
+	def test_nothing_is_sent_until_infobip_is_set_up(self):
+		with patch.dict("os.environ", OFF), patch.object(frappe, "enqueue") as enqueue:
 			self.assertFalse(sms.send("+5926004321", "Hello"))
 		enqueue.assert_not_called()
 
 	def test_a_configured_text_goes_to_the_worker(self):
-		env = {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
-		with patch.dict("os.environ", env), patch.object(frappe, "enqueue") as enqueue:
+		with patch.dict("os.environ", INFOBIP), patch.object(frappe, "enqueue") as enqueue:
 			self.assertTrue(sms.send("600 4321", "Hello"))
 		self.assertEqual(enqueue.call_args[1]["to"], "+5926004321")
+
+	def test_infobip_needs_its_three_settings(self):
+		with patch.dict("os.environ", INFOBIP):
+			self.assertTrue(sms.configured())
+		with patch.dict("os.environ", {**INFOBIP, "INFOBIP_API_KEY": ""}):
+			self.assertFalse(sms.configured())
 
 
 class _Reply:
@@ -116,11 +127,8 @@ class _Reply:
 		return self._body
 
 
-ON = {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
-
-
 class TestDelivery(IntegrationTestCase):
-	"""Twilio stubbed at the HTTP call; the outcome lands on the request."""
+	"""Infobip stubbed at the HTTP call; the outcome lands on the request."""
 
 	def setUp(self):
 		super().setUp()
@@ -135,91 +143,6 @@ class TestDelivery(IntegrationTestCase):
 
 	def status(self):
 		return frappe.db.get_value(*self.record, ["sms_status", "sms_sid", "sms_error"], as_dict=True)
-
-	def test_a_delivered_text_is_recorded_with_its_twilio_id(self):
-		with patch.dict("os.environ", ON), patch.object(sms.requests, "post", return_value=_Reply(201, {"sid": "SM123", "status": "queued"})) as post:
-			self.assertTrue(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
-		self.assertEqual(post.call_args[1]["data"], {"To": "+5926004321", "Body": "Hello", "MessagingServiceSid": "MGx"})
-		self.assertEqual((self.status().sms_status, self.status().sms_sid), ("Sent", "SM123"))
-
-	def test_a_refused_text_is_recorded_with_twilios_reason(self):
-		with patch.dict("os.environ", ON), patch.object(sms.requests, "post", return_value=_Reply(400, {"code": 21408, "message": "Permission to send an SMS has not been enabled for the region"})):
-			self.assertFalse(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
-		self.assertEqual(self.status().sms_status, "Failed")
-		self.assertIn("21408", self.status().sms_error)
-
-	def test_only_guyana_numbers_are_texted(self):
-		with patch.dict("os.environ", ON), patch.object(frappe, "enqueue") as enqueue:
-			self.assertFalse(sms.send("+1 212 555 0100", "Hello", record=self.record))
-		enqueue.assert_not_called()
-		self.assertEqual(self.status().sms_status, "No Guyana number")
-
-	def test_without_twilio_the_request_says_so(self):
-		with patch.dict("os.environ", {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}):
-			self.assertFalse(sms.send("600 4321", "Hello", record=self.record))
-		self.assertEqual(self.status().sms_status, "SMS not set up")
-
-
-class TestDeliveryReports(TestDelivery):
-	URL = "https://portal.example.gy/api/method/gdb_bank.integrations.sms.status_callback"
-
-	def signed(self, params: dict) -> str:
-		import base64
-		import hashlib
-		import hmac
-
-		payload = self.URL + "".join(f"{k}{params[k]}" for k in sorted(params))
-		return base64.b64encode(hmac.new(b"t", payload.encode(), hashlib.sha1).digest()).decode()
-
-	def report(self, params: dict, signature: str | None):
-		env = {**ON, "GDB_PUBLIC_URL": "https://portal.example.gy"}
-		frappe.local.form_dict = frappe._dict(params)
-		with patch.dict("os.environ", env), patch.object(frappe, "get_request_header", return_value=signature):
-			sms.status_callback()
-
-	def test_an_undelivered_report_reaches_the_request(self):
-		frappe.db.set_value(*self.record, {"sms_status": "Sent", "sms_sid": "SM9"})
-		params = {"MessageSid": "SM9", "MessageStatus": "undelivered", "ErrorCode": "30008"}
-		self.report(params, self.signed(params))
-		self.assertEqual((self.status().sms_status, self.status().sms_error), ("Undelivered", "Twilio 30008"))
-
-	def test_a_delivered_report_reaches_the_request(self):
-		frappe.db.set_value(*self.record, {"sms_status": "Sent", "sms_sid": "SM9"})
-		params = {"MessageSid": "SM9", "MessageStatus": "delivered"}
-		self.report(params, self.signed(params))
-		self.assertEqual(self.status().sms_status, "Delivered")
-
-	def test_an_unsigned_report_changes_nothing(self):
-		frappe.db.set_value(*self.record, {"sms_status": "Sent", "sms_sid": "SM9"})
-		self.report({"MessageSid": "SM9", "MessageStatus": "delivered"}, "forged")
-		self.assertEqual(self.status().sms_status, "Sent")
-
-	def test_the_callback_is_given_to_twilio_with_a_public_address(self):
-		env = {**ON, "GDB_PUBLIC_URL": "https://portal.example.gy"}
-		with patch.dict("os.environ", env), patch.object(
-			sms.requests, "post", return_value=_Reply(201, {"sid": "SM1"})
-		) as post:
-			sms.deliver("+5926004321", "Hello")
-		self.assertEqual(post.call_args[1]["data"]["StatusCallback"], self.URL)
-
-
-INFOBIP = {
-	"SMS_PROVIDER": "infobip",
-	"INFOBIP_BASE_URL": "https://xyz.api.infobip.com",
-	"INFOBIP_API_KEY": "k",
-	"INFOBIP_SENDER": "GDB",
-}
-
-
-class TestInfobip(TestDelivery):
-	"""Infobip (the provider in use) stubbed at the HTTP call."""
-
-	def test_infobip_is_the_default_and_needs_its_three_settings(self):
-		with patch.dict("os.environ", {**INFOBIP, "SMS_PROVIDER": ""}):
-			self.assertEqual(sms.provider(), "infobip")
-			self.assertTrue(sms.configured())
-		with patch.dict("os.environ", {**INFOBIP, "INFOBIP_API_KEY": ""}):
-			self.assertFalse(sms.configured())
 
 	def test_a_text_is_sent_the_way_infobip_asks(self):
 		reply = {"bulkId": "B1", "messages": [{"messageId": "M1", "destination": "5926004321",
@@ -246,3 +169,14 @@ class TestInfobip(TestDelivery):
 		with patch.dict("os.environ", INFOBIP), patch.object(sms.requests, "post", return_value=_Reply(401, reply)):
 			self.assertFalse(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
 		self.assertIn("Invalid login details", self.status().sms_error)
+
+	def test_only_guyana_numbers_are_texted(self):
+		with patch.dict("os.environ", INFOBIP), patch.object(frappe, "enqueue") as enqueue:
+			self.assertFalse(sms.send("+1 868 555 1234", "Hello", record=self.record))
+		enqueue.assert_not_called()
+		self.assertEqual(self.status().sms_status, "No Guyana number")
+
+	def test_without_infobip_the_request_says_so(self):
+		with patch.dict("os.environ", OFF):
+			self.assertFalse(sms.send("600 4321", "Hello", record=self.record))
+		self.assertEqual(self.status().sms_status, "SMS not set up")

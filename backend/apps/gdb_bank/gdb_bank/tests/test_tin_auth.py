@@ -9,6 +9,7 @@ exercised by hand (docker compose) rather than from a unit test.
 """
 
 import base64
+import re
 from unittest.mock import patch
 
 import frappe
@@ -72,7 +73,7 @@ class TinCase(IntegrationTestCase):
 			patch.object(tin_auth.keycloak_admin, "delete_citizen_account"),
 			patch.object(tin_auth, "_require_door"),
 			patch.object(tin_auth.frappe.db, "commit"),
-			# The fixed demo code, whatever this machine's Twilio settings: the
+			# The fixed demo code, whatever this machine's SMS settings: the
 			# SMS path has its own tests (TestCodesBySms).
 			patch.object(tin_auth.sms_otp, "configured", return_value=False),
 			# The face check has its own tests below; here it applies to nobody.
@@ -457,51 +458,72 @@ class _Reply:
 
 
 class TestCodesBySms(TinCase):
-	"""Twilio Verify, stubbed at the HTTP call."""
+	"""Codes sent through Infobip, stubbed at the HTTP call."""
 
 	def setUp(self):
 		super().setUp()
 		self.mocks[-2].return_value = True  # sms_otp.configured
 		env = patch.dict(
 			"os.environ",
-			{"TWILIO_ACCOUNT_SID": "ACtest", "TWILIO_AUTH_TOKEN": "token", "TWILIO_VERIFY_SERVICE_SID": "VAtest"},
+			{"INFOBIP_BASE_URL": "https://x.api.infobip.com", "INFOBIP_API_KEY": "k", "INFOBIP_SENDER": "GDB"},
 		)
 		env.start()
 		self.addCleanup(env.stop)
-		self.post = patch.object(tin_auth.sms_otp.requests, "post").start()
+		self.post = patch.object(tin_auth.sms_otp.sms.requests, "post").start()
+		self.post.return_value = _Reply(200, {"messages": [{"messageId": "M1", "status": {"groupName": "PENDING"}}]})
 		self.addCleanup(patch.stopall)
 
+	def sent_code(self) -> str:
+		text = self.post.call_args[1]["json"]["messages"][0]["content"]["text"]
+		return re.search(r"code is (\d{6})", text).group(1)
+
 	def test_the_code_is_sent_to_the_phone_and_never_shown(self):
-		self.post.return_value = _Reply(201, {"status": "pending"})
 		out = self.request()
 		self.assertFalse(out["static_code"])
 		self.assertNotIn("demo_code", out)
-		url, kwargs = self.post.call_args[0][0], self.post.call_args[1]
-		self.assertTrue(url.endswith("/Services/VAtest/Verifications"))
-		self.assertEqual(kwargs["data"], {"To": "+5926004321", "Channel": "sms"})
+		message = self.post.call_args[1]["json"]["messages"][0]
+		self.assertEqual(message["destinations"], [{"to": "5926004321"}])
+		# Only a hash of the code is kept.
+		held = frappe.cache.get_value(tin_auth._key(out["challenge"]))
+		self.assertNotIn(self.sent_code(), str(held))
 
-	def test_twilio_decides_whether_the_code_is_right(self):
-		self.post.return_value = _Reply(201, {"status": "pending"})
+	def test_only_the_sent_code_is_right(self):
 		challenge = self.request()["challenge"]
-		self.post.return_value = _Reply(200, {"status": "pending"})
 		with self.assertRaisesRegex(frappe.ValidationError, "4 tries left"):
-			tin_auth._redeem(challenge, "111111", tin_auth.SIGNUP)
+			tin_auth._redeem(challenge, "000000" if self.sent_code() != "000000" else "111111", tin_auth.SIGNUP)
 		# The demo code means nothing once codes are sent.
-		with self.assertRaisesRegex(frappe.ValidationError, "3 tries left"):
-			tin_auth._redeem(challenge, tin_auth._static_otp(), tin_auth.SIGNUP)
-		self.post.return_value = _Reply(200, {"status": "approved"})
-		self.assertEqual(tin_auth._redeem(challenge, "482913", tin_auth.SIGNUP)["national_id"], NID)
-		self.assertEqual(self.post.call_args[1]["data"], {"To": "+5926004321", "Code": "482913"})
+		if tin_auth._static_otp() != self.sent_code():
+			with self.assertRaisesRegex(frappe.ValidationError, "3 tries left"):
+				tin_auth._redeem(challenge, tin_auth._static_otp(), tin_auth.SIGNUP)
+		self.assertEqual(tin_auth._redeem(challenge, self.sent_code(), tin_auth.SIGNUP)["national_id"], NID)
 
 	def test_a_refused_send_says_why_and_opens_no_challenge(self):
-		self.post.return_value = _Reply(429, {"code": 60203, "message": "Max send attempts reached"})
-		with self.assertRaisesRegex(frappe.ValidationError, "Too many codes"):
+		self.post.return_value = _Reply(
+			200, {"messages": [{"status": {"groupName": "REJECTED", "name": "REJECTED_DESTINATION"}}]}
+		)
+		with self.assertRaisesRegex(frappe.ValidationError, "cannot receive text messages"):
 			self.request()
 
-	def test_an_unreachable_twilio_is_a_plain_message(self):
-		self.post.side_effect = tin_auth.sms_otp.requests.ConnectionError("down")
+	def test_an_unreachable_infobip_is_a_plain_message(self):
+		self.post.side_effect = tin_auth.sms_otp.sms.requests.ConnectionError("down")
 		with self.assertRaisesRegex(frappe.ValidationError, "could not send your code"):
 			self.request()
+
+
+class TestTheCodeSwitch(IntegrationTestCase):
+	"""Codes are texted once Infobip is set up, unless GDB_SMS_OTP=0."""
+
+	INFOBIP = {"INFOBIP_BASE_URL": "https://x.api.infobip.com", "INFOBIP_API_KEY": "k", "INFOBIP_SENDER": "GDB"}
+
+	def test_codes_follow_infobip_and_the_switch(self):
+		from gdb_bank.integrations import sms_otp
+
+		with patch.dict("os.environ", {**self.INFOBIP, "GDB_SMS_OTP": ""}):
+			self.assertTrue(sms_otp.configured())
+		with patch.dict("os.environ", {**self.INFOBIP, "GDB_SMS_OTP": "0"}):
+			self.assertFalse(sms_otp.configured())
+		with patch.dict("os.environ", {**self.INFOBIP, "INFOBIP_API_KEY": "", "GDB_SMS_OTP": ""}):
+			self.assertFalse(sms_otp.configured())
 
 
 class TestAgeLimits(TinCase):

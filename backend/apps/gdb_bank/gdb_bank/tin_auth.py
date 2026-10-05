@@ -26,13 +26,13 @@ short-lived challenge in the cache; the accounts and the document are made by
 the second call, after the code is checked. An abandoned sign-up therefore
 holds no TIN and leaves no half-made account behind.
 
-THE CODE GOES BY SMS through Twilio Verify (integrations/sms_otp) once its
-three settings are present: Twilio makes, sends and checks the code, so it never
-passes through GDB. Each attempt is still a challenge here — bound to the
-National ID and phone it was issued for, expiring after ten minutes and dying
-after five wrong codes.
+THE CODE GOES BY SMS through Infobip (integrations/sms_otp) once Infobip is
+set up: six random digits, of which only a salted hash is kept, in the
+challenge. Each attempt is a challenge here — bound to the National ID and
+phone it was issued for, expiring after ten minutes and dying after five wrong
+codes.
 
-Without Twilio, the code is a FIXED DEMO CODE (`gdb_static_otp` in site_config
+Without Infobip (or with GDB_SMS_OTP=0), the code is a FIXED DEMO CODE (`gdb_static_otp` in site_config
 or GDB_STATIC_OTP, default 123456), and the SPA shows it. A fixed code proves
 nothing about the phone: it must not reach production.
 """
@@ -107,13 +107,16 @@ def _key(challenge: str) -> str:
 def _issue(purpose: str, **bound) -> dict:
 	"""Open a challenge and send its code. Answers what the form needs."""
 	sms = sms_otp.configured()
+	kept = None
 	if sms:
-		# Sent before the challenge exists: a code Twilio could not send leaves
+		# Sent before the challenge exists: a code that could not be sent leaves
 		# nothing behind, and the person is told why.
-		sms_otp.send(bound.get("phone"))
+		kept = sms_otp.send(bound.get("phone"))
 	challenge = secrets.token_urlsafe(24)
 	frappe.cache.set_value(
-		_key(challenge), {"purpose": purpose, "attempts": 0, "sms": sms, **bound}, expires_in_sec=OTP_TTL
+		_key(challenge),
+		{"purpose": purpose, "attempts": 0, "sms": sms, "code_hash": kept, **bound},
+		expires_in_sec=OTP_TTL,
 	)
 	out = {
 		"challenge": challenge,
@@ -130,7 +133,7 @@ def _issue(purpose: str, **bound) -> dict:
 
 def _code_is_right(held: dict, otp: str) -> bool:
 	if held.get("sms"):
-		return sms_otp.check(held.get("phone"), otp)
+		return sms_otp.check(held.get("code_hash"), otp)
 	return secrets.compare_digest((otp or "").strip(), _static_otp())
 
 

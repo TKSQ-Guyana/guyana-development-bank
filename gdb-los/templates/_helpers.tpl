@@ -178,12 +178,7 @@ bootstrap=true adds what site creation needs (web pods run start-backend.sh).
     "KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET" "keycloak-citizen-admin-client-secret"
     "DCRA_API_KEY" "dcra-api-key"
     "BANK_REGISTRY_API_KEY" "bank-registry-api-key"
-    "TWILIO_ACCOUNT_SID" "twilio-account-sid"
-    "TWILIO_AUTH_TOKEN" "twilio-auth-token"
-    "TWILIO_VERIFY_SERVICE_SID" "twilio-verify-service-sid"
-    "TWILIO_MESSAGING_SERVICE_SID" "twilio-messaging-service-sid"
-    "TWILIO_FROM_NUMBER" "twilio-from-number"
-    "SMS_PROVIDER" "sms-provider"
+    "GDB_SMS_OTP" "gdb-sms-otp"
     "INFOBIP_BASE_URL" "infobip-base-url"
     "INFOBIP_API_KEY" "infobip-api-key"
     "INFOBIP_SENDER" "infobip-sender" }}

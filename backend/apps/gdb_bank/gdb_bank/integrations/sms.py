@@ -1,36 +1,21 @@
-"""Text messages to applicants, through Infobip (in use) or Twilio (kept, off).
+"""Text messages to applicants, through Infobip (SMS API v3).
 
 The personalised notes GDB sends — "we received your appointment request",
-"we received your application" — not the one-time codes, which go through
-Twilio Verify (integrations/sms_otp.py).
+"we received your application" — and, through integrations/sms_otp.py, the
+one-time sign-up and sign-in codes.
 
-OFF UNTIL CONFIGURED, and never in the way. Without the account and a sender,
-nothing is sent and nothing fails. A message is queued to the background
-worker after the request commits, so a slow or failing provider never holds
-up, or undoes, the action the message is about.
+OFF UNTIL CONFIGURED, and never in the way. Without the three settings below,
+nothing is sent and nothing fails. A note is queued to the background worker
+after the request commits, so a slow or failing Infobip never holds up, or
+undoes, the action the note is about.
 
-  SMS_PROVIDER                    "infobip" (the default) or "twilio"
+  INFOBIP_BASE_URL     the account's own API address, e.g. https://xxxxx.api.infobip.com
+  INFOBIP_API_KEY      sent as "Authorization: App <key>"
+  INFOBIP_SENDER       the sender name or number the texts come from
 
-Infobip (SMS API v3, POST {base}/sms/3/messages):
-  INFOBIP_BASE_URL                the account's own API address, e.g. https://xxxxx.api.infobip.com
-  INFOBIP_API_KEY                 sent as "Authorization: App <key>"
-  INFOBIP_SENDER                  the sender name or number the texts come from
-
-Twilio (Programmable Messaging) — kept for a switch back, not used:
-  TWILIO_ACCOUNT_SID              the same account as the codes
-  TWILIO_AUTH_TOKEN
-  TWILIO_MESSAGING_SERVICE_SID    MG…, Twilio console → Messaging → Services   (preferred)
-  TWILIO_FROM_NUMBER              +1…, a Twilio number able to text Guyana     (or this)
-  GDB_PUBLIC_URL                  the portal's public address, e.g. https://loans.gdb.gov.gy —
-                                  when set, Twilio reports each text's delivery back to
-                                  status_callback below (Delivered / Undelivered + error code)
-
-Environment first, site_config.json as the alternative (infobip_* / twilio_* in lower case).
+Environment first, site_config.json as the alternative (infobip_* in lower case).
 """
 
-import base64
-import hashlib
-import hmac
 import os
 import re
 
@@ -40,8 +25,7 @@ from frappe import _
 
 from gdb_bank.utils.formatters import _normalised_phone
 
-API = "https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json"
-INFOBIP_PATH = "/sms/3/messages"
+PATH = "/sms/3/messages"
 TIMEOUT = 15
 
 APPOINTMENT_RECEIVED = (
@@ -58,44 +42,16 @@ def _setting(key: str) -> str:
 	return str(os.environ.get(key.upper()) or frappe.conf.get(key) or "").strip()
 
 
-def provider() -> str:
-	"""Which service sends the texts: Infobip unless told otherwise."""
-	return "twilio" if _setting("sms_provider").lower() == "twilio" else "infobip"
-
-
-def infobip_settings() -> dict:
+def settings() -> dict:
 	base = _setting("infobip_base_url").rstrip("/")
 	if base and not base.startswith(("https://", "http://")):
 		base = "https://" + base
 	return {"base": base, "key": _setting("infobip_api_key"), "sender": _setting("infobip_sender")}
 
 
-def settings() -> dict:
-	"""Twilio's settings."""
-	return {
-		"account": _setting("twilio_account_sid"),
-		"token": _setting("twilio_auth_token"),
-		"service": _setting("twilio_messaging_service_sid"),
-		"from": _setting("twilio_from_number"),
-		"public": _setting("gdb_public_url").rstrip("/"),
-	}
-
-
-CALLBACK_PATH = "/api/method/gdb_bank.integrations.sms.status_callback"
-
-
-def callback_url() -> str | None:
-	"""Where Twilio reports delivery — only with a public address to give it."""
-	base = settings()["public"]
-	return f"{base}{CALLBACK_PATH}" if base.startswith("https://") else None
-
-
 def configured() -> bool:
-	if provider() == "infobip":
-		i = infobip_settings()
-		return bool(i["base"] and i["key"] and i["sender"])
 	s = settings()
-	return bool(s["account"] and s["token"] and (s["service"] or s["from"]))
+	return bool(s["base"] and s["key"] and s["sender"])
 
 
 # Guyana only, for now: +592 and seven digits.
@@ -161,25 +117,19 @@ def send(phone: str | None, body: str, record: tuple | None = None) -> bool:
 		return False
 
 
-def deliver(to: str, body: str, record=None) -> dict:
-	"""Send now (the background job, and send_test). Never raises; answers
-	{"sent": bool, "sid"?, "error"?} and records it on `record`."""
-	record = tuple(record) if record else None
-	if provider() == "infobip":
-		return _deliver_infobip(to, body, record)
-	return _deliver_twilio(to, body, record)
-
-
 # Infobip's status groups that mean the text will not go out.
-INFOBIP_REFUSED = {"REJECTED", "UNDELIVERABLE", "EXPIRED"}
+REFUSED = {"REJECTED", "UNDELIVERABLE", "EXPIRED"}
 
 
-def _deliver_infobip(to: str, body: str, record: tuple | None) -> dict:
-	i = infobip_settings()
+def deliver(to: str, body: str, record=None) -> dict:
+	"""Send now (the background job, the one-time codes, and send_test). Never
+	raises; answers {"sent": bool, "sid"?, "error"?} and records it on `record`."""
+	record = tuple(record) if record else None
+	s = settings()
 	payload = {
 		"messages": [
 			{
-				"sender": i["sender"],
+				"sender": s["sender"],
 				# Infobip takes the number without the "+": 5926354444.
 				"destinations": [{"to": to.lstrip("+")}],
 				"content": {"text": body},
@@ -188,9 +138,9 @@ def _deliver_infobip(to: str, body: str, record: tuple | None) -> dict:
 	}
 	try:
 		response = requests.post(
-			i["base"] + INFOBIP_PATH,
+			s["base"] + PATH,
 			json=payload,
-			headers={"Authorization": f"App {i['key']}", "Accept": "application/json"},
+			headers={"Authorization": f"App {s['key']}", "Accept": "application/json"},
 			timeout=TIMEOUT,
 		)
 	except requests.RequestException as exc:
@@ -211,106 +161,25 @@ def _deliver_infobip(to: str, body: str, record: tuple | None) -> dict:
 	message = (detail.get("messages") or [{}])[0]
 	status = message.get("status") or {}
 	sid = message.get("messageId")
-	if (status.get("groupName") or "").upper() in INFOBIP_REFUSED:
+	if (status.get("groupName") or "").upper() in REFUSED:
 		error = f"Infobip {status.get('name')}: {status.get('description')}"
 		frappe.logger("gdb_bank").error(f"sms: refused ({error})")
 		_record(record, FAILED, sid=sid, error=error)
-		return {"sent": False, "sid": sid, "error": error}
+		return {"sent": False, "sid": sid, "error": error, "refused": True}
 	_record(record, SENT, sid=sid)
 	return {"sent": True, "sid": sid, "status": status.get("name")}
-
-
-def _deliver_twilio(to: str, body: str, record: tuple | None) -> dict:
-	s = settings()
-	data = {"To": to, "Body": body}
-	if callback_url():
-		data["StatusCallback"] = callback_url()
-	if s["service"]:
-		data["MessagingServiceSid"] = s["service"]
-	else:
-		data["From"] = s["from"]
-	try:
-		response = requests.post(
-			API.format(account=s["account"]), data=data, auth=(s["account"], s["token"]), timeout=TIMEOUT
-		)
-	except requests.RequestException as exc:
-		error = f"Twilio unreachable: {type(exc).__name__}"
-		frappe.logger("gdb_bank").error(f"sms: {error}: {exc}")
-		_record(record, FAILED, error=error)
-		return {"sent": False, "error": error}
-	try:
-		detail = response.json()
-	except ValueError:
-		detail = {}
-	if response.status_code >= 400:
-		error = f"Twilio {detail.get('code')}: {detail.get('message')}"
-		frappe.logger("gdb_bank").error(f"sms: refused ({response.status_code}, {error})")
-		_record(record, FAILED, error=error)
-		return {"sent": False, "error": error}
-	_record(record, SENT, sid=detail.get("sid"))
-	return {"sent": True, "sid": detail.get("sid"), "status": detail.get("status")}
 
 
 @frappe.whitelist(methods=["POST"])
 def send_test(to: str) -> dict:
 	"""Send one text now, to check the SMS settings — System Manager or
-	Platform Admin. Answers what the provider said."""
+	Platform Admin. Answers what Infobip said."""
 	roles = set(frappe.get_roles())
 	if not roles & {"System Manager", "Platform Admin"}:
 		frappe.throw(_("Only an administrator may send a test text."), frappe.PermissionError)
 	if not configured():
-		needed = (
-			"INFOBIP_BASE_URL, INFOBIP_API_KEY and INFOBIP_SENDER"
-			if provider() == "infobip"
-			else "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM_NUMBER)"
-		)
-		return {"sent": False, "error": f"SMS is not set up: {needed} are needed."}
+		return {"sent": False, "error": "SMS is not set up: INFOBIP_BASE_URL, INFOBIP_API_KEY and INFOBIP_SENDER are needed."}
 	number = guyana_number(to)
 	if not number:
 		return {"sent": False, "error": "Give a Guyana number: +592 and seven digits."}
 	return deliver(number, "GDB portal: this is a test message. No reply is needed.")
-
-
-# Twilio's delivery statuses -> what the record says. Later news never gives
-# way to earlier: a "sent" arriving after "delivered" changes nothing.
-DELIVERY = {"delivered": "Delivered", "undelivered": "Undelivered", "failed": "Failed"}
-DOCTYPES = ("GDB Appointment Request",)
-
-
-def _signature_ok(url: str, params: dict, signature: str | None) -> bool:
-	"""Twilio's X-Twilio-Signature: HMAC-SHA1 of the URL and the sorted POST
-	parameters, keyed with the auth token."""
-	token = settings()["token"]
-	if not (token and signature):
-		return False
-	payload = url + "".join(f"{k}{params[k]}" for k in sorted(params))
-	expected = base64.b64encode(hmac.new(token.encode(), payload.encode(), hashlib.sha1).digest()).decode()
-	return hmac.compare_digest(expected, signature)
-
-
-@frappe.whitelist(allow_guest=True, methods=["POST"])
-def status_callback(**_kwargs):
-	"""Twilio reporting how a text went. Signed by Twilio — anything else is
-	refused — and it only ever updates the delivery status of a record that
-	already carries that message's SID."""
-	params = {k: v for k, v in frappe.form_dict.items() if k != "cmd"}
-	url = callback_url()
-	if not url or not _signature_ok(url, params, frappe.get_request_header("X-Twilio-Signature")):
-		frappe.logger("gdb_bank").warning("sms: status callback refused (bad or missing signature)")
-		frappe.local.response["http_status_code"] = 403
-		return
-	sid, status = params.get("MessageSid"), (params.get("MessageStatus") or "").lower()
-	if not sid or status not in DELIVERY:
-		return
-	code = params.get("ErrorCode")
-	for doctype in DOCTYPES:
-		name = frappe.db.get_value(doctype, {"sms_sid": sid})
-		if name:
-			frappe.db.set_value(
-				doctype,
-				name,
-				{"sms_status": DELIVERY[status], "sms_error": f"Twilio {code}" if code else None},
-				update_modified=False,
-			)
-			frappe.db.commit()
-			frappe.logger("gdb_bank").info(f"sms: {sid} {status} ({doctype} {name})")

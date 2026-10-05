@@ -141,7 +141,7 @@
   {
    "fieldname": "sms_sid",
    "fieldtype": "Data",
-   "label": "Twilio Message SID",
+   "label": "SMS Message ID",
    "read_only": 1
   },
   {

@@ -105,26 +105,16 @@ services:
       # DEV SECRET, as above.
       KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID:-gdb-citizen-admin}
       KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET:-gdb-citizen-admin-dev-secret}
-      # Sign-up / sign-in codes by SMS (integrations/sms_otp.py, Twilio Verify).
-      # All three set in .env: codes are texted. Any missing: the fixed code
-      # below is used instead and shown on screen — NOT FOR PRODUCTION.
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
-      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:-}
-      # The "we received your request / application" texts
-      # (integrations/sms.py): a Messaging Service, or a sending number.
-      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
-      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
-      # Texts go out through Infobip; SMS_PROVIDER=twilio switches back.
-      SMS_PROVIDER: ${SMS_PROVIDER:-infobip}
+      # SMS through Infobip (integrations/sms.py): the "we received your
+      # request / application" texts and the sign-up / sign-in codes. Without
+      # the three INFOBIP_* settings, or with GDB_SMS_OTP=0, codes are the fixed
+      # code below, shown on screen — NOT FOR PRODUCTION.
+      GDB_SMS_OTP: ${GDB_SMS_OTP:-}
       # Appointment requests per address per hour (1000 unless set).
       GDB_APPOINTMENT_RATE_LIMIT: ${GDB_APPOINTMENT_RATE_LIMIT:-}
       INFOBIP_BASE_URL: ${INFOBIP_BASE_URL:-}
       INFOBIP_API_KEY: ${INFOBIP_API_KEY:-}
       INFOBIP_SENDER: ${INFOBIP_SENDER:-}
-      # The portal's public https address: Twilio reports each text's
-      # delivery back to it (integrations/sms.status_callback).
-      GDB_PUBLIC_URL: ${GDB_PUBLIC_URL:-}
       GDB_STATIC_OTP: ${GDB_STATIC_OTP:-123456}
       # --- outside APIs ---------------------------------------------------
       #
