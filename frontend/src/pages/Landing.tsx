@@ -353,10 +353,13 @@ function Photo({
   src,
   alt,
   className = "",
+  focus = "object-center",
 }: {
   src: string;
   alt: string;
   className?: string;
+  /** Where the crop centres (an object-position class) — on the person. */
+  focus?: string;
 }) {
   return (
     <div
@@ -365,7 +368,7 @@ function Photo({
       <img
         src={src}
         alt={alt}
-        className="absolute inset-0 h-full w-full object-cover"
+        className={`absolute inset-0 h-full w-full object-cover ${focus}`}
       />
     </div>
   );
@@ -411,14 +414,17 @@ function Hero() {
               src={stockMarketVendor}
               alt="A vendor at her produce stall in Stabroek Market, Georgetown"
               className="row-span-2"
+              focus="object-[48%_center]"
             />
             <Photo
               src={stockBasketWeaver}
               alt="A craftswoman weaving a basket by the river"
+              focus="object-[38%_center]"
             />
             <Photo
               src={stockBarber}
               alt="A barber cutting a customer's hair in his shop"
+              focus="object-[28%_center]"
             />
           </div>
           <Estimator />
@@ -739,7 +745,7 @@ function President() {
           <img
             src={presidentPhoto}
             alt="H.E. Dr. Mohamed Irfaan Ali"
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-top"
           />
         </div>
         <div className="flex flex-[1.6_1_420px] flex-col justify-center gap-6 p-[clamp(32px,5vw,64px)]">
@@ -767,7 +773,7 @@ const SERVED = [
   {
     src: stockFactoryWorker,
     label: "Manufacturing",
-    alt: "A confident worker in his high-visibility vest on a factory floor",
+    alt: "A smiling foreman in a hard hat and high-visibility vest on a factory floor",
   },
   {
     src: stockOnlineBusiness,
@@ -817,7 +823,12 @@ function About() {
         <ul className="m-0 grid list-none gap-5 p-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]">
           {SERVED.map((s) => (
             <li key={s.label} className="flex flex-col gap-3">
-              <Photo src={s.src} alt={s.alt} className="aspect-[4/3]" />
+              <Photo
+                src={s.src}
+                alt={s.alt}
+                className="aspect-[4/3]"
+                focus="object-[center_18%]"
+              />
               <span className="text-[17px] font-bold text-[#0b2654]">
                 {s.label}
               </span>

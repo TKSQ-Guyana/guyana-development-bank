@@ -329,7 +329,7 @@ export function Login({
                         )}
                         <label className="block">
                           <span className={fieldLabel}>
-                            National ID number
+                            National ID/Passport/E-ID Number
                             <RequiredMark />
                           </span>
                           <input
@@ -350,8 +350,8 @@ export function Login({
                           />
                         </label>
                         <p className={fieldHelp}>
-                          The Identity No. on your National ID card — the number
-                          you signed up with.
+                          The number on your National ID card, passport or E-ID
+                          — the one you signed up with.
                         </p>
                       </div>
                       <label className="mt-4 block">

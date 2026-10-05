@@ -30,7 +30,7 @@ export { default as stockBarber } from "../../assets/landing/stock/barber.png";
 export { default as stockOnlineBusiness } from "../../assets/landing/stock/online-business.png";
 export { default as stockBasketWeaver } from "../../assets/landing/stock/basket-weaver.png";
 export { default as stockPoultryFarmer } from "../../assets/landing/stock/poultry-farmer.jpg";
-export { default as stockFactoryWorker } from "../../assets/landing/stock/factory-worker.jpg";
+export { default as stockFactoryWorker } from "../../assets/landing/stock/factory-foreman.jpg";
 export { default as stockSeamstress } from "../../assets/landing/stock/seamstress.jpg";
 export { default as stockCafeOwner } from "../../assets/landing/stock/cafe-owner.jpg";
 export { default as appointmentPhoto } from "../../assets/landing/appointment.png";
