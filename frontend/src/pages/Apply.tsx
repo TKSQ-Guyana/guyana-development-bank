@@ -2278,13 +2278,16 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       !profileHas.email) && (
                       <div className="mt-3 grid gap-4 border-t border-emerald-100 pt-3 sm:grid-cols-2 lg:grid-cols-3">
                         {!profileHas.dob && (
-                          <TextField
-                            label="Date of birth"
-                            type="date"
-                            value={profileDob}
-                            onChange={setProfileDob}
-                            required
-                          />
+                          // Three dropdowns need two columns' width.
+                          <div className="sm:col-span-2">
+                            <TextField
+                              label="Date of birth"
+                              type="date"
+                              value={profileDob}
+                              onChange={setProfileDob}
+                              required
+                            />
+                          </div>
                         )}
                         {!profileHas.phone && (
                           <PhoneField
@@ -3427,7 +3430,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           className="space-y-4 scrollbar-none lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto"
           aria-label="Your SME loan"
         >
-          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+          <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
             <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-50" />
             <div className="relative px-5 pt-4 pb-3">
               <p className="text-[11px] font-black uppercase tracking-wider text-amber-300">
@@ -3711,7 +3714,7 @@ function TermSlider({
           }
           className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full accent-emerald-700"
           style={{
-            background: `linear-gradient(to right, #047857 ${pct}%, #e2e8f0 ${pct}%)`,
+            background: `linear-gradient(to right, #123a7a ${pct}%, #e2e8f0 ${pct}%)`,
           }}
         />
         <div className="mt-1 flex justify-between text-[11px] font-semibold text-slate-400">

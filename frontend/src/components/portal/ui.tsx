@@ -515,8 +515,8 @@ export function RadioCard({
       className={cx(
         "group relative flex cursor-pointer items-start gap-3 rounded-xl border bg-white px-4 py-3.5 transition-all",
         selected
-          ? "border-brand-dark shadow-[0_14px_36px_-20px_rgba(2,44,25,0.45)] ring-2 ring-brand-dark"
-          : "border-slate-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_12px_30px_-20px_rgba(2,44,25,0.35)]",
+          ? "border-brand-dark shadow-[0_14px_36px_-20px_rgba(11,38,84,0.45)] ring-2 ring-brand-dark"
+          : "border-slate-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_12px_30px_-20px_rgba(11,38,84,0.35)]",
       )}
     >
       <input
@@ -842,7 +842,7 @@ export function Modal({
  *  reach on a long step. */
 export function Footer({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-3 z-20 -mx-2 flex items-center justify-between gap-2 rounded-xl sm:gap-3 border border-white/60 bg-white/75 px-3 py-2 shadow-[0_12px_40px_-14px_rgba(2,44,25,0.35)] backdrop-blur-xl backdrop-saturate-150 sm:-mx-4 sm:px-4">
+    <div className="sticky bottom-3 z-20 -mx-2 flex items-center justify-between gap-2 rounded-xl sm:gap-3 border border-white/60 bg-white/75 px-3 py-2 shadow-[0_12px_40px_-14px_rgba(11,38,84,0.35)] backdrop-blur-xl backdrop-saturate-150 sm:-mx-4 sm:px-4">
       {children}
     </div>
   );

@@ -231,7 +231,7 @@ export function Profile() {
   return (
     <form onSubmit={(e) => void save(e)} className="space-y-5" noValidate>
       {/* Who this is, how GDB knows it, and how much of the rest is filled in. */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
         <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-50" />
         <div className="relative flex flex-wrap items-center gap-5 px-6 py-5 sm:px-8">
           <span className="grid h-16 w-16 flex-none place-items-center rounded-2xl bg-white/10 text-2xl font-black text-amber-300 ring-1 ring-white/20">

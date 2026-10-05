@@ -86,7 +86,7 @@ export function RecordAccountOffer({
             <button
               type="button"
               onClick={() => onUse(account)}
-              className="rounded-lg bg-brand-dark px-3.5 py-2 text-sm font-bold text-white hover:bg-[#022c19]"
+              className="rounded-lg bg-brand-dark px-3.5 py-2 text-sm font-bold text-white hover:bg-[#071a3d]"
             >
               Use this account
             </button>

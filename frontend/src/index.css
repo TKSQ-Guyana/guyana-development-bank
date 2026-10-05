@@ -5,16 +5,37 @@
   --color-gdb-green-dark: #00592d;
   --color-gdb-gold: #fcd116;
 
-  /* Guyana sovereign theme: forest green (#004225 / #0a5c36) with gold
-   * accents (#d97706 / #f59e0b) on slate neutrals. */
+  /* The portal wears the landing page's palette (pages/Landing.tsx, 2026-10-05):
+   * navy (#0b2654 / #123a7a) with gold (#f2c14e / #b8860b) on warm cream
+   * (#faf8f4). Its navy scale stands in for Tailwind's emerald below, so every
+   * emerald-* class in the portal is this navy. */
 
   /* New enterprise theme (finance persona + design-system migration). Lives
    * alongside the flag colors above rather than replacing them — pages move
    * over one at a time, so both palettes are live during the migration. */
-  --color-brand: #0a5c36;
-  --color-brand-dark: #004225;
-  --color-brand-light: #d1fae5;
-  --color-brand-text: #0a5c36;
+  --color-brand: #123a7a;
+  --color-brand-dark: #0b2654;
+  --color-brand-light: #eef3fb;
+  --color-brand-text: #123a7a;
+
+  /* Tailwind's emerald, re-pointed at the landing page's navy: the portal used
+   * emerald for its brand colour throughout. True success greens use green-*. */
+  --color-emerald-50: #eef3fb;
+  --color-emerald-100: #dde7f5;
+  --color-emerald-200: #c9d6ec;
+  --color-emerald-300: #9db3da;
+  --color-emerald-400: #6a8cc4;
+  --color-emerald-500: #3d66a8;
+  --color-emerald-600: #284c86;
+  --color-emerald-700: #123a7a;
+  --color-emerald-800: #0f3068;
+  --color-emerald-900: #0b2654;
+  --color-emerald-950: #071a3d;
+
+  /* The landing page's gold for the portal's gold accents (amber-300/400);
+   * the rest of amber stays Tailwind's, for warnings. */
+  --color-amber-300: #f5cd6a;
+  --color-amber-400: #f2c14e;
 
   /* ------------------------------------------------------------------ *
    * PUBLIC SITE PALETTE — the landing page and sign-in.
@@ -27,21 +48,21 @@
    * ceremonial gold the public pages rule and underline with, and the two
    * are not interchangeable.
    * ------------------------------------------------------------------ */
-  /* Same green as the staff portal: ink = slate-900, indigo = --color-brand. */
-  --color-gdb-ink: #0f172a;
-  --color-gdb-indigo: #0a5c36;
-  --color-gdb-goldleaf: #d97706;
+  /* The landing page's own: headings navy, gold rules, cream ground. */
+  --color-gdb-ink: #17161d;
+  --color-gdb-indigo: #123a7a;
+  --color-gdb-goldleaf: #b8860b;
 
-  --color-gdb-page: #f3f3ef;
-  --color-gdb-paper: #fafaf7;
+  --color-gdb-page: #f3f1ea;
+  --color-gdb-paper: #faf8f4;
   --color-gdb-mist: #f9f9f7;
   --color-gdb-cream: #fbf4dd;
   --color-gdb-pill: #f6ecc9;
-  --color-gdb-lav: #ecfdf5;
+  --color-gdb-lav: #eef3fb;
   --color-gdb-rail: #f2f1ed;
-  --color-gdb-line: #e6e2da;
-  --color-gdb-border: #dedcd6;
-  --color-gdb-lavline: #d1fae5;
+  --color-gdb-line: #ece8de;
+  --color-gdb-border: #e7e3da;
+  --color-gdb-lavline: #c9d6ec;
 
   /* The Golden Arrowhead's own five bands, for the ribbon across the top. */
   --color-flag-green: #009e49;
@@ -58,7 +79,7 @@
 
   /* QUICK LOAN PALETTE — the Quick Loan flow's own look, from the approved
    * prototype (gdb-quick-loan-flow). Used only inside `.theme-citizen`. */
-  --color-ql-bg: #f8fafc;
+  --color-ql-bg: #faf8f4;
   --color-ql-ink: #0f172a;
   --color-ql-ink2: #334155;
   --color-ql-muted: #64748b;
@@ -67,12 +88,12 @@
   --color-ql-input: #cbd5e1;
   --color-ql-step: #94a3b8;
   --color-ql-soft: #f8fafc;
-  --color-ql-tint: #ecfdf5;
-  --color-ql-tintline: #a7f3d0;
-  --color-ql-navy: #004225;
-  --color-ql-navy-dark: #022c19;
-  --color-ql-brand: #0a5c36;
-  --color-ql-blue: #0d7647;
+  --color-ql-tint: #eef3fb;
+  --color-ql-tintline: #c9d6ec;
+  --color-ql-navy: #0b2654;
+  --color-ql-navy-dark: #071a3d;
+  --color-ql-brand: #123a7a;
+  --color-ql-blue: #284c86;
   --color-ql-green: #1f8a5b;
   --color-ql-green-bg: #eaf6f0;
   --color-ql-green-line: #bfe3cf;
@@ -103,7 +124,7 @@
 
 body {
   @apply text-slate-900 antialiased;
-  background: #f8fafc;
+  background: #faf8f4;
   /* House style: every visible word starts with a capital ("Sign In With Your
    * National ID") — including server messages and data shown on the page. An
    * element that needs its text as written opts out with `normal-case`. */

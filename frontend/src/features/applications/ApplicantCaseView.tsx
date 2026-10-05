@@ -97,7 +97,7 @@ export function ApplicantCaseView({
       </Link>
 
       {/* Which case this is and what it is for, at a glance. */}
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
         <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-60" />
         <div className="relative flex flex-wrap items-start justify-between gap-4 px-6 pt-5 pb-4 sm:px-8">
           <div className="min-w-0">

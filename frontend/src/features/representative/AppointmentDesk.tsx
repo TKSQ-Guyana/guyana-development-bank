@@ -298,7 +298,7 @@ function AppointmentRow({
           type="button"
           disabled={!dirty || busy}
           onClick={() => void save()}
-          className="rounded-full bg-brand-dark px-5 py-2 text-sm font-bold text-white hover:bg-[#022c19] disabled:opacity-40"
+          className="rounded-full bg-brand-dark px-5 py-2 text-sm font-bold text-white hover:bg-[#071a3d] disabled:opacity-40"
         >
           {busy ? "Saving…" : "Save"}
         </button>

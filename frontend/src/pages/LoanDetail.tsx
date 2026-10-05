@@ -332,7 +332,7 @@ export function LoanDetail() {
       </Link>
 
       {/* ------------------------------------------------------------ the case */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white shadow-lg shadow-emerald-950/20">
         <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-50" />
         <div className="relative flex flex-wrap items-start justify-between gap-4 px-6 pt-5 pb-4">
           <div className="min-w-0">
@@ -486,7 +486,7 @@ export function LoanDetail() {
             <button
               type="button"
               onClick={() => setTab(next.go!)}
-              className="rounded-lg bg-brand-dark px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#022c19]"
+              className="rounded-lg bg-brand-dark px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#071a3d]"
             >
               {next.cta} →
             </button>

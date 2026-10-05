@@ -269,8 +269,8 @@ function OptionCard({
         blocked
           ? "cursor-default border-amber-200"
           : selected
-            ? "cursor-pointer border-brand-dark shadow-[0_18px_44px_-20px_rgba(2,44,25,0.45)] ring-2 ring-brand-dark"
-            : "cursor-pointer border-slate-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_14px_36px_-20px_rgba(2,44,25,0.35)]"
+            ? "cursor-pointer border-brand-dark shadow-[0_18px_44px_-20px_rgba(11,38,84,0.45)] ring-2 ring-brand-dark"
+            : "cursor-pointer border-slate-200 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_14px_36px_-20px_rgba(11,38,84,0.35)]"
       }`}
     >
       {/* Head band: the loan's identity and its one headline figure. */}
@@ -278,7 +278,7 @@ function OptionCard({
         className={`relative px-5 py-4 ${
           gold
             ? "bg-gradient-to-br from-amber-50 via-amber-50/60 to-white"
-            : "bg-gradient-to-br from-[#022c19] via-brand-dark to-brand text-white"
+            : "bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand text-white"
         }`}
       >
         {!gold && (
@@ -438,7 +438,7 @@ function ActionBar({
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 md:left-[256px]">
       <div className="mx-auto max-w-7xl px-4 pb-3 sm:px-6 lg:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/60 bg-white/70 px-4 py-2.5 shadow-[0_12px_40px_-12px_rgba(2,44,25,0.3)] backdrop-blur-xl backdrop-saturate-150">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/60 bg-white/70 px-4 py-2.5 shadow-[0_12px_40px_-12px_rgba(11,38,84,0.3)] backdrop-blur-xl backdrop-saturate-150">
           <p
             className="hidden text-sm text-slate-600 sm:block"
             aria-live="polite"

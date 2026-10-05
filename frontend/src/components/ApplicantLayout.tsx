@@ -214,7 +214,7 @@ export function ApplicantLayout() {
       <div
         className={`flex min-w-0 flex-1 flex-col ${staff ? "bg-slate-50" : "bg-ql-bg"}`}
       >
-        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-white/60 bg-white/55 px-4 py-2 shadow-[0_4px_24px_-12px_rgba(2,44,25,0.18)] backdrop-blur-xl backdrop-saturate-150 sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-white/60 bg-white/55 px-4 py-2 shadow-[0_4px_24px_-12px_rgba(11,38,84,0.18)] backdrop-blur-xl backdrop-saturate-150 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <MenuButton onClick={nav.show} />
             <div className="min-w-0 leading-tight">

@@ -23,7 +23,7 @@ export function SubmittedScreen({
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand p-7 text-white shadow-xl shadow-emerald-950/20 sm:p-9">
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#071a3d] via-brand-dark to-brand p-7 text-white shadow-xl shadow-emerald-950/20 sm:p-9">
         <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
         <div className="relative">
           <span className="grid h-16 w-16 place-items-center rounded-2xl bg-amber-400 text-emerald-950 shadow-lg ring-8 ring-amber-400/20">

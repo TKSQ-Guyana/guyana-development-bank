@@ -110,7 +110,7 @@ export function DateInput({
     <div
       role="group"
       aria-label={label}
-      className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1fr)] gap-2"
+      className="grid grid-cols-[minmax(4.5rem,0.8fr)_minmax(5.25rem,1.2fr)_minmax(5.25rem,1fr)] gap-2"
     >
       <select
         id={id}
