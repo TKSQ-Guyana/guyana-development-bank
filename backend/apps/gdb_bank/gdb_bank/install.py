@@ -34,6 +34,9 @@ ROLES = (
 	("Facilitator", 1),
 	# Assists applicants and carries out field tasks. Staff door, in no authority set.
 	("Field Officer", 1),
+	# Works the appointment requests from the public site (services/appointments).
+	# Staff door, in no authority set.
+	("GDB Representative", 1),
 )
 
 # The banks a citizen may nominate for a payout — (name, enabled). Seeded,
@@ -64,6 +67,10 @@ BANK_ALIASES = {"Nova Scotia": "Scotiabank", "Bank of Nova Scotia": "Scotiabank"
 # The banks the Help Desk helps an applicant without an account open one with —
 # GDB's list as of 2026-10-04 (patches/set_facilitated_banks.py). After that the
 # desk owns it: Bank > Facilitated for Applicants Without an Account.
+# "Are you employed?" — the follow-up choices (2026-10-05).
+EMPLOYER_CATEGORIES = ("Public Sector", "Private Sector")
+INCOME_BANDS = ("Less than $200K", "Between $200K and $500K", "Above $500K")
+
 FACILITATED_BANKS = ("GBTI", "Scotiabank", "Republic Bank", "Demerara Bank")
 
 # Each bank's public site, linked from the facilitated-banks list. Seeded only
@@ -81,42 +88,31 @@ BANK_WEBSITES = {
 # GDB's five priority sectors (the public site's), each with its sub-sectors.
 # Seeded ONCE (ensure_sectors adds what is missing, never overwrites), so the
 # desk's corrections to GDB Sector / GDB Sub Sector survive every migrate.
+# GDB's industries (2026-10-05). No sub-sectors yet: the desk may add them
+# (GDB Sub Sector), and a sub-sector is asked only of an industry that has some.
 SECTORS = (
-	("Agriculture", (
-		"Crop farming",
-		"Livestock and poultry",
-		"Fisheries and aquaculture",
-		"Agro-processing",
-		"Forestry",
-	)),
-	("Tourism & hospitality", (
-		"Accommodation",
-		"Food and beverage services",
-		"Tour operations and guiding",
-		"Eco-tourism",
-		"Visitor transport",
-	)),
-	("Manufacturing", (
-		"Food and beverage processing",
-		"Wood and furniture",
-		"Garments and textiles",
-		"Construction materials",
-		"Light manufacturing and assembly",
-	)),
-	("Technology & services", (
-		"Software and digital services",
-		"ICT services and repair",
-		"E-commerce",
-		"Business process outsourcing",
-		"Professional services",
-	)),
-	("Orange & care economy", (
-		"Arts, crafts and design",
-		"Music, film and media",
-		"Fashion",
-		"Childcare",
-		"Elderly and health care services",
-	)),
+	("Fishing", ()),
+	("Livestock", ()),
+	("Rice", ()),
+	("Other Crop", ()),
+	("Poultry", ()),
+	("Wholesale and Retail Trade", ()),
+	("Transport and Storage", ()),
+	("Tourism and Hospitality", ()),
+	("Food Services", ()),
+	("Logging and Lumber", ()),
+	("Arts, Entertainment and Recreation", ()),
+	("Manufacturing", ()),
+)
+
+# The five priority sectors the list began with. Switched off, never deleted:
+# a case already classified under one still shows it.
+RETIRED_SECTORS = (
+	"Agriculture",
+	"Tourism & hospitality",
+	"Manufacturing",
+	"Technology & services",
+	"Orange & care economy",
 )
 
 BANK_BRANCHES = (
@@ -190,7 +186,7 @@ GDB_PRODUCT_NAMES = (LOAN_PRODUCT_NAME, QUICK_LOAN_PRODUCT_NAME)
 
 # The Quick Loan's two closed questions — the Select options on the Custom
 # Fields below, so Frappe itself refuses an answer outside them.
-QUICK_TRADE_LOCATIONS = ("From home", "Market", "Mobile")
+QUICK_TRADE_LOCATIONS = ("From home", "Other Locations - Fixed", "Mobile")
 QUICK_TRADING_SINCE = ("Less than 6 months", "6 months to 1 year", "1 to 3 years", "More than 3 years")
 
 # The sixteen accounts lending makes mandatory on a Loan Product once
@@ -397,6 +393,15 @@ APPLICATION_SECTIONS = (
 	("gdb_public_service_under_250k", "Earns Under GYD 250,000 a Month (Declared, Quick Loan)", "Select", "\nYes\nNo"),
 	("gdb_requires_loan_officer_review", "Requires Loan Officer Review", "Check"),
 	("gdb_related_to_gdb_employee", "Related to a GDB Employee (Declared, Quick Loan)", "Select", "\nYes\nNo"),
+	# 2026-10-05: "Do you have an E-ID?" asked before the number, and the
+	# employment questions that replace the public-service ones above (kept for
+	# applications made before). A public-sector employee earning GYD 200,000 a
+	# month or more is routed to a Loan Officer (gdb_requires_loan_officer_review).
+	("gdb_has_eid", "Has an E-ID (Declared)", "Select", "\nYes\nNo"),
+	("gdb_employed", "Employed (Declared)", "Select", "\nYes\nNo"),
+	("gdb_employer_category", "Employer Category (Declared)", "Select", "\n" + "\n".join(EMPLOYER_CATEGORIES)),
+	("gdb_employer_name", "Employer Name (Declared)", "Data"),
+	("gdb_income_band", "Monthly Income (Declared)", "Select", "\n" + "\n".join(INCOME_BANDS)),
 	# "I don't have a bank account": the applicant is sent to the Help Desk and
 	# the facilitated banks (Bank.gdb_facilitated) rather than stopped.
 	("gdb_no_bank_account", "Has No Bank Account (Declared, Quick Loan)", "Check"),
@@ -855,10 +860,12 @@ def after_migrate():
 	from gdb_bank.patches.national_id_from_tin import execute as national_id_from_tin
 
 	national_id_from_tin()
-	# "Fixed location" became "Market" (2026-10-04): move answers already given.
+	# "Fixed location" became "Market" (2026-10-04), and "Market" became "Other
+	# Locations - Fixed" (2026-10-05): move answers already given.
 	if frappe.db.has_column("Loan Application", "gdb_trade_location"):
 		frappe.db.sql(
-			"update `tabLoan Application` set gdb_trade_location='Market' where gdb_trade_location='Fixed location'"
+			"update `tabLoan Application` set gdb_trade_location='Other Locations - Fixed' "
+			"where gdb_trade_location in ('Fixed location', 'Market')"
 		)
 	frappe.db.commit()
 	ensure_lending_rule_proposal_workflow()

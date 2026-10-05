@@ -198,6 +198,7 @@ export const ROLE_INFO: Record<string, { summary: string; tone: string }> = {
   'Finance Officer': { summary: 'Reconciles repayments and reads the portfolio.', tone: 'bg-violet-50 text-violet-700 ring-violet-200' },
   Facilitator: { summary: "Prepares a cluster's group application. Held alone.", tone: 'bg-amber-50 text-amber-700 ring-amber-200' },
   'Field Officer': { summary: 'Visits applicants in one region and reports. Held alone.', tone: 'bg-teal-50 text-teal-700 ring-teal-200' },
+  'GDB Representative': { summary: 'Calls back and books the appointment requests from the website. Held alone.', tone: 'bg-indigo-50 text-indigo-700 ring-indigo-200' },
   'Platform Admin': { summary: 'Runs this console. Can do none of the Bank’s work.', tone: 'bg-slate-100 text-slate-700 ring-slate-200' },
   'System Manager': { summary: 'ERPNext system manager.', tone: 'bg-rose-50 text-rose-700 ring-rose-200' },
   Citizen: { summary: 'Applies for loans.', tone: 'bg-slate-100 text-slate-600 ring-slate-200' },

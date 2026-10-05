@@ -85,7 +85,8 @@ export function ApplicantLayout() {
       user?.is_underwriter ||
       user?.is_finance ||
       user?.is_disbursement ||
-      user?.is_field_officer,
+      user?.is_field_officer ||
+      user?.is_representative,
     );
     await logout();
     navigate(staff ? STAFF_LOGIN : "/login");
@@ -125,6 +126,13 @@ export function ApplicantLayout() {
       to: "/facilitator",
       label: "Groups",
       icon: <ClusterIcon />,
+    });
+  }
+  if (user?.is_representative) {
+    staffItems.push({
+      to: "/appointments",
+      label: "Appointments",
+      icon: <UsersIcon />,
     });
   }
   if (user?.is_field_officer) {
@@ -256,6 +264,11 @@ export function ApplicantLayout() {
             {user?.is_field_officer && (
               <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-800">
                 Field Officer
+              </span>
+            )}
+            {user?.is_representative && (
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-800">
+                GDB Representative
               </span>
             )}
           </div>

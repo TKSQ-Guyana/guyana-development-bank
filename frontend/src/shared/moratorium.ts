@@ -7,7 +7,7 @@
 
 /** "2 months", for a chip or a summary; "Not chosen" before one is. */
 export function moratoriumChoice(months: number): string {
-  if (!months) return "Not chosen";
+  if (!months) return "None";
   return `${months} month${months === 1 ? "" : "s"}`;
 }
 

@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
+from gdb_bank.services import credit_classification
 from gdb_bank.install import QUICK_LOAN_PRODUCT_NAME, QUICK_TRADE_LOCATIONS, QUICK_TRADING_SINCE
 from gdb_bank.utils import policy
 from gdb_bank.utils.constants import QUICK_PRODUCT
@@ -42,6 +43,8 @@ def terms() -> dict:
 		"rate_of_interest": flt(product.rate_of_interest) if product else policy.rate_of_interest(),
 		"trade_locations": list(QUICK_TRADE_LOCATIONS),
 		"trading_since": list(QUICK_TRADING_SINCE),
+		# GDB's industries, so the form knows when a sub-sector is asked.
+		"industries": credit_classification.sector_options(),
 	}
 
 

@@ -1,3 +1,4 @@
+import { DateInput, yearsAgo } from "../components/DateInput";
 import {
   type AppointmentReason,
   AppointmentRequest,
@@ -5,7 +6,7 @@ import {
 import { FocusAlert } from "../shared/FocusAlert";
 import { gdbLogo } from "../components/site/assets";
 import { useEffect, useRef, useState } from "react";
-import { IdSampleLink } from "../components/IdSamples";
+import { IdSampleLinks } from "../components/IdSamples";
 import { isGuyanaPhone, PhoneInput } from "../components/PhoneInput";
 import type { FormEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -49,11 +50,13 @@ const FACE_CHECK_ON = false;
 const NID_SHAPE = /^[A-Z0-9]{6,15}$/;
 // tin_auth.PASSWORD_MIN.
 const PASSWORD_MIN = 8;
-// The latest date of birth the form offers: 18 years ago today.
-const ADULT_BY = (() => {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - 18);
-  return d.toISOString().slice(0, 10);
+// The dates of birth the form offers: 18 to 60 years old (tin_auth.MIN_AGE /
+// MAX_AGE).
+const ADULT_BY = yearsAgo(18);
+const NOT_OVER_60 = (() => {
+  const d = new Date(`${yearsAgo(61)}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 })();
 
 const EMPTY: TinSignupForm = {
@@ -291,9 +294,9 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
               application.
             </p>
             <Field
-              label="National ID number"
+              label="National ID/Passport/E-ID Number"
               required
-              hint="The Identity No. on your National ID card. You sign in with it."
+              hint="The number on your National ID card, passport or E-ID. You sign in with it."
             >
               <input
                 autoComplete="username"
@@ -311,7 +314,7 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 className={`${textInput} font-mono tracking-wider`}
               />
               <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
-                <IdSampleLink kind="National ID Card" />
+                <IdSampleLinks />
                 <span className="text-xs text-gdb-ink/60">
                   Don&apos;t have a National ID?{" "}
                   <button
@@ -404,21 +407,24 @@ export function SignupCard({ onSignIn }: { onSignIn: () => void }) {
                 className={textInput}
               />
             </Field>
-            <Field
-              label="Date of birth"
-              required
-              hint="You must be 18 or older."
-            >
-              <input
-                type="date"
-                autoComplete="bday"
-                max={ADULT_BY}
-                value={form.date_of_birth}
-                onChange={(e) => set("date_of_birth")(e.target.value)}
-                disabled={busy}
-                className={textInput}
-              />
-            </Field>
+            {/* The whole row: three dropdowns need the width. */}
+            <div className="sm:col-span-2">
+              <Field
+                label="Date of birth"
+                required
+                hint="You must be between 18 and 60."
+              >
+                <DateInput
+                  value={form.date_of_birth}
+                  onChange={(v) => set("date_of_birth")(v)}
+                  min={NOT_OVER_60}
+                  max={ADULT_BY}
+                  label="Date of birth"
+                  disabled={busy}
+                  className={`${textInput} px-3`}
+                />
+              </Field>
+            </div>
             {recordPhone ? (
               <div>
                 <span className={fieldLabel}>

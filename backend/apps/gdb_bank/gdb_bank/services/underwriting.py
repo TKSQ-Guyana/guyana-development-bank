@@ -47,11 +47,13 @@ _QUEUE_FIELDS = [
 	"gdb_submitted_on",
 	"gdb_requires_loan_officer_review",
 	"gdb_public_service_employed",
+	"gdb_employer_category",
 ]
 
 
-# The review queue's Employment filter -> the applicant's public-service answer.
-EMPLOYMENT = {"public": "Yes", "private": "No"}
+# The review queue's Employment filter -> the applicant's employer category
+# (2026-10-05), or, for applications made before, the public-service answer.
+EMPLOYMENT = {"public": ("Public Sector", "Yes"), "private": ("Private Sector", "No")}
 
 
 def _queue_facts() -> dict:
@@ -159,7 +161,13 @@ def all_loans(
 	if cint(officer_review):
 		light = [r for r in light if cint(r.gdb_requires_loan_officer_review)]
 	if employment in EMPLOYMENT:
-		light = [r for r in light if r.gdb_public_service_employed == EMPLOYMENT[employment]]
+		category, old = EMPLOYMENT[employment]
+		light = [
+			r
+			for r in light
+			if r.gdb_employer_category == category
+			or (not r.gdb_employer_category and r.gdb_public_service_employed == old)
+		]
 	if evidence in ("complete", "missing"):
 		gaps = missing_by_application(light)
 		light = [r for r in light if bool(gaps.get(r.name)) == (evidence == "missing")]

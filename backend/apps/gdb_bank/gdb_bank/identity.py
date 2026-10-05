@@ -73,6 +73,7 @@ from gdb_bank.utils.session import (
 	_is_disbursement,
 	_is_facilitator,
 	_is_field_officer,
+	_is_representative,
 	_is_finance,
 	_is_platform_admin,
 	_is_underwriter,
@@ -352,6 +353,8 @@ def _session_summary(user: str, *, realm: str, provisioned: bool) -> dict:
 		"is_platform_admin": _is_platform_admin(user),
 		"is_facilitator": _is_facilitator(user),
 		"is_field_officer": _is_field_officer(user),
+		# The appointment queue; nothing else.
+		"is_representative": _is_representative(user),
 		"provisioned": provisioned,
 		"realm": realm,
 	}

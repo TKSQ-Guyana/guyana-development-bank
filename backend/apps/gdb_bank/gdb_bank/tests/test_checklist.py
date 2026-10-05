@@ -209,7 +209,7 @@ class TestTheLoanOfficersChecklist(RoadToPayment):
 		from gdb_bank.services import application_edit
 
 		name = self.submitted()
-		frappe.db.set_value("Loan Application", name, "gdb_applicant_eid", None)
+		frappe.db.set_value("Loan Application", name, {"gdb_applicant_eid": None, "gdb_has_eid": "Yes"})
 		with self.set_user(TRADER):
 			keys = [g["fieldname"] for g in api.application_gaps(name=name)["fields"]]
 		self.assertIn("gdb_applicant_eid", keys)

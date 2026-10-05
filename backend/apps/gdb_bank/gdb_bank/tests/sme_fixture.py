@@ -17,8 +17,10 @@ SME_ANSWERS = {
 	"gdb_applicant_eid": "592-2001-0101",
 	"gdb_dcra_number": "BN-2024-000001",
 	"gdb_registration_date": "2024-01-15",
-	"gdb_public_service_employed": "No",
-	"gdb_related_to_gdb_employee": "No",
+	"gdb_has_eid": "Yes",
+	"gdb_employed": "No",
+	"gdb_sector": "Manufacturing",
+	"gdb_sub_sector": "",
 }
 
 

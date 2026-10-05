@@ -1,7 +1,6 @@
-import { EidWithName } from './EidWithName';
-import { Notice, TextField } from './fields';
-import { EMPTY_EID } from '../../eid';
-import type { OwnershipRow } from '../../types';
+import { Notice, TextField } from "./fields";
+import { EMPTY_EID } from "../../eid";
+import type { OwnershipRow } from "../../types";
 
 /** Who owns the business, and how much of it each of them owns.
  *
@@ -33,9 +32,9 @@ export function OwnershipBlock({
    *  so the wizard's own validation and this display can never disagree. */
   declared: number;
 }) {
-  const partnership = structure === 'Partnership';
-  const word = partnership ? 'partner' : 'shareholder';
-  const plural = partnership ? 'partners' : 'shareholders';
+  const partnership = structure === "Partnership";
+  const word = partnership ? "partner" : "shareholder";
+  const plural = partnership ? "partners" : "shareholders";
 
   const update = (i: number, patch: Partial<OwnershipRow>) =>
     onOwners(owners.map((o, j) => (j === i ? { ...o, ...patch } : o)));
@@ -44,16 +43,23 @@ export function OwnershipBlock({
     <div className="space-y-4 rounded-lg bg-slate-50/80 p-4">
       <div>
         <p className="text-sm font-bold text-slate-800">
-          {partnership ? 'Ownership of the partnership' : 'Ownership of the company'}
+          {partnership
+            ? "Ownership of the partnership"
+            : "Ownership of the company"}
         </p>
-        <p className="mt-1 text-xs text-slate-500">Declared ownership. Each {word} confirms separately.</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Declared ownership. Each {word} confirms separately.
+        </p>
       </div>
 
       <div className="sm:max-w-xs">
         <TextField
-          label={partnership ? 'Your partner share (%)' : 'Your ownership share (%)'}
+          label={
+            partnership ? "Your Partnership share %" : "Your ownership share %"
+          }
+          hint="Less than 100% — the other owners hold the rest."
           value={applicantShare}
-          onChange={(v) => onApplicantShare(v.replace(/[^\d.]/g, ''))}
+          onChange={(v) => onApplicantShare(v.replace(/[^\d.]/g, ""))}
           inputMode="numeric"
           required
           placeholder="e.g. 50"
@@ -70,20 +76,9 @@ export function OwnershipBlock({
         {owners.map((o, i) => (
           <div
             key={i}
-            className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[auto_1fr_auto]"
+            className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-[1fr_auto]"
           >
-            <EidWithName
-              value={o.eid}
-              onChange={(next) => update(i, { eid: next })}
-              onResolved={(found) =>
-                // A registered e-ID names itself. Only fill a blank — an
-                // applicant who typed a name should keep the one they typed.
-                found?.registered && found.name && !o.name.trim()
-                  ? update(i, { name: found.name })
-                  : undefined
-              }
-              unknownNote="Not yet registered with GDB. Confirmed separately."
-            />
+            {/* Name, share and Remove only (GDB, 2026-10-05): no e-ID asked. */}
             <TextField
               label="Name"
               value={o.name}
@@ -94,8 +89,10 @@ export function OwnershipBlock({
               <div className="w-24">
                 <TextField
                   label="Share %"
-                  value={o.share ? String(o.share) : ''}
-                  onChange={(v) => update(i, { share: Number(v.replace(/[^\d.]/g, '')) || 0 })}
+                  value={o.share ? String(o.share) : ""}
+                  onChange={(v) =>
+                    update(i, { share: Number(v.replace(/[^\d.]/g, "")) || 0 })
+                  }
                   inputMode="numeric"
                 />
               </div>
@@ -111,7 +108,9 @@ export function OwnershipBlock({
         ))}
         <button
           type="button"
-          onClick={() => onOwners([...owners, { eid: EMPTY_EID, name: '', share: 0 }])}
+          onClick={() =>
+            onOwners([...owners, { eid: EMPTY_EID, name: "", share: 0 }])
+          }
           className="text-xs font-semibold text-brand underline"
         >
           Add {owners.length === 0 ? `a ${word}` : `another ${word}`}
@@ -122,6 +121,9 @@ export function OwnershipBlock({
           100 is allowed on purpose: an applicant who does not know every
           shareholder should not be blocked from applying, and an underwriter
           reading 60% declared knows to ask about the rest. */}
+      {Number(applicantShare) >= 100 && (
+        <Notice tone="warn">Your share must be less than 100%.</Notice>
+      )}
       {declared > 100 && (
         <Notice tone="warn">
           Shares total {declared}%. They cannot exceed 100%.

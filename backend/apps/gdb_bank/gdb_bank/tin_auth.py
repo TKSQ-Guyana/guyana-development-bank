@@ -26,12 +26,15 @@ short-lived challenge in the cache; the accounts and the document are made by
 the second call, after the code is checked. An abandoned sign-up therefore
 holds no TIN and leaves no half-made account behind.
 
-THE CODE IS STATIC FOR NOW (`gdb_static_otp` in site_config or GDB_STATIC_OTP,
-default 123456). Everything around it is already the real shape — a challenge
-per attempt, bound to the TIN and phone it was issued for, expiring after ten
-minutes and dying after five wrong codes — so sending a real code by SMS is a
-change to `_issue` alone. A static code proves nothing about the phone: it must
-not reach production.
+THE CODE GOES BY SMS through Twilio Verify (integrations/sms_otp) once its
+three settings are present: Twilio makes, sends and checks the code, so it never
+passes through GDB. Each attempt is still a challenge here — bound to the
+National ID and phone it was issued for, expiring after ten minutes and dying
+after five wrong codes.
+
+Without Twilio, the code is a FIXED DEMO CODE (`gdb_static_otp` in site_config
+or GDB_STATIC_OTP, default 123456), and the SPA shows it. A fixed code proves
+nothing about the phone: it must not reach production.
 """
 
 import base64
@@ -44,7 +47,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 
 from gdb_bank import face_check, identity
-from gdb_bank.integrations import keycloak_admin, kyc_registry
+from gdb_bank.integrations import keycloak_admin, kyc_registry, sms_otp
 from gdb_bank.security import sign_in_policy
 from gdb_bank.services.evidence import (
 	ID_DOCUMENT_KINDS,
@@ -64,7 +67,7 @@ TIN_SHAPE = re.compile(r"^\d{9}$")
 # An ID number as the register holds it: national IDs are digits, passport-
 # style IDs a letter or two then digits, e-IDs eleven digits.
 NID_SHAPE = re.compile(r"^[A-Z0-9]{6,15}$")
-NID_MESSAGE = "Enter your National ID number, as printed on your ID card."
+NID_MESSAGE = "Enter your National ID, Passport or E-ID number, as printed on the card."
 
 # The identity documents a person may sign up with — one, attached. Filed as
 # the person's own `Identity` document, which follows them across cases.
@@ -102,18 +105,33 @@ def _key(challenge: str) -> str:
 
 
 def _issue(purpose: str, **bound) -> dict:
-	"""Open a challenge and (one day) send its code. Answers what the form needs."""
+	"""Open a challenge and send its code. Answers what the form needs."""
+	sms = sms_otp.configured()
+	if sms:
+		# Sent before the challenge exists: a code Twilio could not send leaves
+		# nothing behind, and the person is told why.
+		sms_otp.send(bound.get("phone"))
 	challenge = secrets.token_urlsafe(24)
-	frappe.cache.set_value(_key(challenge), {"purpose": purpose, "attempts": 0, **bound}, expires_in_sec=OTP_TTL)
-	return {
+	frappe.cache.set_value(
+		_key(challenge), {"purpose": purpose, "attempts": 0, "sms": sms, **bound}, expires_in_sec=OTP_TTL
+	)
+	out = {
 		"challenge": challenge,
 		"phone": _masked(bound.get("phone") or ""),
 		"expires_in": OTP_TTL,
-		# While codes are fixed the SPA says so, and which code to use. A real
-		# sender drops both — the code then only ever travels to the phone.
-		"static_code": True,
-		"demo_code": _static_otp(),
+		"static_code": not sms,
 	}
+	# Only while codes are fixed does the SPA learn which code to use; a sent
+	# code only ever travels to the phone.
+	if not sms:
+		out["demo_code"] = _static_otp()
+	return out
+
+
+def _code_is_right(held: dict, otp: str) -> bool:
+	if held.get("sms"):
+		return sms_otp.check(held.get("phone"), otp)
+	return secrets.compare_digest((otp or "").strip(), _static_otp())
 
 
 def _redeem(challenge: str, otp: str, purpose: str) -> dict:
@@ -125,7 +143,7 @@ def _redeem(challenge: str, otp: str, purpose: str) -> dict:
 	if held["attempts"] >= OTP_ATTEMPTS:
 		frappe.cache.delete_value(key)
 		frappe.throw(_("Too many incorrect codes. Request a new one."))
-	if not secrets.compare_digest((otp or "").strip(), _static_otp()):
+	if not _code_is_right(held, otp):
 		held["attempts"] += 1
 		frappe.cache.set_value(key, held, expires_in_sec=OTP_TTL)
 		left = OTP_ATTEMPTS - held["attempts"]
@@ -183,8 +201,9 @@ def _username(nid: str) -> str:
 	return nid.lower()
 
 
-# The youngest a person may be to hold a GDB account.
+# The youngest and oldest a person may be to open a GDB account (2026-10-05).
 MIN_AGE = 18
+MAX_AGE = 60
 
 
 def _birth_date(value) -> "datetime.date":
@@ -198,8 +217,8 @@ def _birth_date(value) -> "datetime.date":
 		frappe.throw(_("Enter your date of birth."))
 	if born > getdate(add_years(today(), -MIN_AGE)):
 		frappe.throw(_("You must be at least {0} to open an account.").format(MIN_AGE))
-	if born < getdate(add_years(today(), -110)):
-		frappe.throw(_("Check your date of birth."))
+	if born < getdate(add_years(today(), -(MAX_AGE + 1))):
+		frappe.throw(_("You must be between {0} and {1} to open an account.").format(MIN_AGE, MAX_AGE))
 	return born
 
 
@@ -360,7 +379,7 @@ def start_face_check(national_id: str) -> dict:
 	return face_check.start(_required_nid(national_id))
 
 
-APPOINTMENT_REASONS = ("No National ID", "Change phone number", "Other")
+APPOINTMENT_REASONS = ("Book appointment", "No National ID", "Change phone number", "Other")
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -371,11 +390,16 @@ def request_appointment(
 	phone: str,
 	reason: str | None = None,
 	national_id: str | None = None,
+	email: str | None = None,
+	region: str | None = None,
+	industry_sector: str | None = None,
 ) -> dict:
-	"""Ask GDB to book an appointment, from sign-up — for someone with no
-	National ID yet, or whose phone on record is not theirs. No account needed:
-	only a name and a number to call. Rate-limited per caller (5 an hour),
-	because it answers anyone."""
+	"""Ask GDB to book an appointment — from the home page's "Book appointment"
+	form, or from sign-up (no National ID yet, or a phone on record that is not
+	theirs). No account needed: a name and a number to call; the home page adds
+	an email, a region and an industry. It goes to the GDB Representative's
+	queue (services/appointments), and the person gets a text saying so.
+	Rate-limited per caller (5 an hour), because it answers anyone."""
 	first = (first_name or "").strip()
 	last = (last_name or "").strip()
 	if not first:
@@ -389,12 +413,23 @@ def request_appointment(
 		frappe.throw(_("Enter a valid phone number, e.g. +592 600 1234."))
 	reason = reason if reason in APPOINTMENT_REASONS else "Other"
 	nid = _normalize_nid(national_id) if national_id else None
+	mail = (email or "").strip().lower()
+	if mail and not frappe.utils.validate_email_address(mail):
+		frappe.throw(_("Enter a valid email address, or leave it blank."))
+	sector = (industry_sector or "").strip()
+	if sector and not frappe.db.exists("GDB Sector", {"name": sector, "disabled": 0}):
+		frappe.throw(_("Choose your industry sector from the list."))
+	if reason == "Book appointment" and not sector:
+		frappe.throw(_("Choose your industry sector."))
 	doc = frappe.get_doc(
 		{
 			"doctype": "GDB Appointment Request",
 			"first_name": first,
 			"last_name": last,
 			"phone": number,
+			"email": mail or None,
+			"region": (region or "").strip()[:140] or None,
+			"industry_sector": sector or None,
 			"reason": reason,
 			"national_id": nid if nid and NID_SHAPE.match(nid) else None,
 			"status": "New",
@@ -403,6 +438,14 @@ def request_appointment(
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"appointment request {doc.name} ({reason})")
+	if sector:
+		from gdb_bank.integrations import sms
+
+		sms.send(
+			number,
+			sms.APPOINTMENT_RECEIVED.format(first_name=first, sector=sector),
+			record=("GDB Appointment Request", doc.name),
+		)
 	return {"name": doc.name}
 
 
@@ -623,7 +666,16 @@ def national_id_login(national_id: str, password: str) -> dict:
 			frappe.AuthenticationError,
 		)
 	_check_may_enter(user)
-	return {"otp_required": True, **_issue(LOGIN, user=user, phone=frappe.db.get_value("User", user, "mobile_no") or "")}
+	return {"otp_required": True, **_issue(LOGIN, user=user, phone=_phone_of(user))}
+
+
+def _phone_of(user: str) -> str:
+	"""Where a sign-in code goes: the account's mobile, else the profile's."""
+	phone = frappe.db.get_value("User", user, "mobile_no")
+	if not phone:
+		row = frappe.db.get_value("GDB Citizen Profile", {"user": user}, ["phone", "verified_phone"], as_dict=True)
+		phone = row and (row.phone or row.verified_phone)
+	return phone or ""
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

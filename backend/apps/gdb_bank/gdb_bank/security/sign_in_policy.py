@@ -29,6 +29,7 @@ from gdb_bank.utils.constants import (
 	FACILITATOR_ROLES,
 	FIELD_OFFICER_ROLES,
 	PLATFORM_ADMIN_ROLES,
+	REPRESENTATIVE_ROLES,
 	STAFF_ROLES,
 )
 from gdb_bank.utils.session import _logger
@@ -47,7 +48,10 @@ def mark(channel: str) -> None:
 def is_staff_account(user: str) -> bool:
 	if user == "Administrator":
 		return True
-	return bool(set(frappe.get_roles(user)) & (STAFF_ROLES | PLATFORM_ADMIN_ROLES | FACILITATOR_ROLES | FIELD_OFFICER_ROLES))
+	return bool(
+		set(frappe.get_roles(user))
+		& (STAFF_ROLES | PLATFORM_ADMIN_ROLES | FACILITATOR_ROLES | FIELD_OFFICER_ROLES | REPRESENTATIVE_ROLES)
+	)
 
 
 def refusal(user: str, channel: str | None) -> str | None:

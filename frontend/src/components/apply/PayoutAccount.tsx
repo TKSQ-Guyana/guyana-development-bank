@@ -28,18 +28,50 @@ export interface PayoutValue {
   manual: boolean;
 }
 
+/** Whether this person already has a bank account on file — one the payment
+ *  switch holds in their name, or one nominated with GDB before. null while
+ *  asking. With one on file, "I don't have a bank account" is not offered
+ *  (GDB, 2026-10-05). */
+export function useAccountOnFile(): boolean | null {
+  const [has, setHas] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      call<BankAccountRecord[]>("gdb_bank.api.my_bank_accounts").catch(
+        () => [],
+      ),
+      call<{ bank_account_no?: string } | null>(
+        "gdb_bank.api.my_bank_details",
+      ).catch(() => null),
+    ]).then(([found, saved]) => {
+      if (live) setHas((found?.length ?? 0) > 0 || !!saved?.bank_account_no);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return has;
+}
+
+/** An account on file: the switch's, or the one already nominated with GDB. */
+type OnFile = BankAccountRecord & { gdb_branch?: string };
+
 export function PayoutAccount({
   value,
   onChange,
   onAccountType,
+  onAccountOnFile,
 }: {
   value: PayoutValue;
   onChange: (next: PayoutValue) => void;
   /** Checking / Savings, when the account on record says which. */
   onAccountType?: (type: string) => void;
+  /** Whether the person already has an account on file (GDB, 2026-10-05):
+   *  the parent then drops "I don't have a bank account". */
+  onAccountOnFile?: (has: boolean) => void;
 }) {
   const [banks, setBanks] = useState<string[]>([]);
-  const [mine, setMine] = useState<BankAccountRecord[] | null>(null);
+  const [mine, setMine] = useState<OnFile[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [manual, setManual] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -70,16 +102,18 @@ export function PayoutAccount({
       .catch(() => setBranches([]));
   }, [value.bank]);
 
-  const pick = (a: BankAccountRecord) => {
+  const pick = (a: OnFile) => {
     onChange({
       ...value,
       bank: a.bank,
       accountNo: a.account_number,
       branchCode: a.branch_code ?? "",
+      branch: a.gdb_branch ?? value.branch,
       holder: a.account_name ?? value.holder,
       confirmNo: a.account_number,
       manual: false,
     });
+    if (a.account_type) onAccountType?.(a.account_type);
     setCheck(null);
     setNote(null);
   };
@@ -95,30 +129,41 @@ export function PayoutAccount({
       .catch(() => setBanks([]));
     (async () => {
       try {
-        const found = await call<BankAccountRecord[]>(
-          "gdb_bank.api.my_bank_accounts",
-        );
-        setMine(found ?? []);
-        if (found?.length === 1 && !value.accountNo) pick(found[0]);
-        if (!found?.length) {
-          setManual(true);
-          const saved = await call<{
+        // The accounts on file: what the payment switch holds in this
+        // person's name, and the one they already nominated with GDB.
+        const [found, saved] = await Promise.all([
+          call<BankAccountRecord[]>("gdb_bank.api.my_bank_accounts"),
+          call<{
             bank: string;
             bank_account_no: string;
             branch_code: string;
+            account_name?: string | null;
+            account_type?: string | null;
             gdb_bank_branch?: string | null;
-          } | null>("gdb_bank.api.my_bank_details").catch(() => null);
-          if (saved && !value.accountNo) {
-            onChange({
-              ...value,
-              bank: saved.bank ?? "",
-              accountNo: saved.bank_account_no ?? "",
-              branchCode: saved.branch_code ?? "",
-              branch: saved.gdb_bank_branch ?? "",
-              manual: true,
-            });
-          }
+          } | null>("gdb_bank.api.my_bank_details").catch(() => null),
+        ]);
+        const onFile: OnFile[] = [...(found ?? [])];
+        if (
+          saved?.bank_account_no &&
+          !onFile.some((a) => a.account_number === saved.bank_account_no)
+        ) {
+          onFile.push({
+            bank: saved.bank,
+            account_number: saved.bank_account_no,
+            account_name: saved.account_name ?? null,
+            account_type: saved.account_type ?? undefined,
+            branch_code: saved.branch_code,
+            gdb_branch: saved.gdb_bank_branch ?? undefined,
+            status: "Active",
+            source: "bank_registry",
+          });
         }
+        setMine(onFile);
+        onAccountOnFile?.(onFile.length > 0);
+        // An account on file is offered as a choice, never as a form to fill:
+        // the form is for "Use a different bank account" only.
+        if (onFile.length === 1 && !value.accountNo) pick(onFile[0]);
+        if (!onFile.length) setManual(true);
       } catch {
         setMine([]);
         setManual(true);
@@ -154,7 +199,7 @@ export function PayoutAccount({
     return (
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-700">
-          {mine?.length === 1 ? "Your registered account" : "Choose an account"}
+          {mine?.length === 1 ? "Your bank account" : "Choose an account"}
         </p>
         {mine?.map((a) => {
           const payable = a.status === "Active";
@@ -183,7 +228,7 @@ export function PayoutAccount({
           }}
           className="text-xs font-semibold text-brand underline"
         >
-          Use a different account
+          Use a different bank account
         </button>
       </div>
     );
@@ -294,7 +339,7 @@ export function PayoutAccount({
           }}
           className="text-xs font-semibold text-brand underline"
         >
-          Use a registered account
+          Use my account on file
         </button>
       )}
     </div>

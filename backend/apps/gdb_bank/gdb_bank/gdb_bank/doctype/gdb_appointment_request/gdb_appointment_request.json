@@ -11,6 +11,9 @@
   "first_name",
   "last_name",
   "phone",
+  "email",
+  "region",
+  "industry_sector",
   "column_break_head",
   "status",
   "reason",
@@ -18,35 +21,179 @@
   "requested_on",
   "section_break_officer",
   "handled_by",
-  "outcome_note"
+  "outcome_note",
+  "section_break_sms",
+  "sms_status",
+  "sms_sid",
+  "sms_error"
  ],
  "fields": [
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "GDB-APT-.YYYY.-", "reqd": 1, "default": "GDB-APT-.YYYY.-"},
-  {"fieldname": "first_name", "fieldtype": "Data", "label": "First Name", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "last_name", "fieldtype": "Data", "label": "Last Name", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "phone", "fieldtype": "Data", "label": "Phone Number", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "column_break_head", "fieldtype": "Column Break"},
-  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "New\nContacted\nBooked\nClosed", "default": "New", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "reason", "fieldtype": "Select", "label": "Reason", "options": "No National ID\nChange phone number\nOther", "default": "Other", "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "national_id", "fieldtype": "Data", "label": "National ID (if given)"},
-  {"fieldname": "requested_on", "fieldtype": "Datetime", "label": "Requested On", "read_only": 1},
-  {"fieldname": "section_break_officer", "fieldtype": "Section Break", "label": "Follow-up"},
-  {"fieldname": "handled_by", "fieldtype": "Link", "options": "User", "label": "Handled By"},
-  {"fieldname": "outcome_note", "fieldtype": "Small Text", "label": "Outcome Note"}
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "GDB-APT-.YYYY.-",
+   "reqd": 1,
+   "default": "GDB-APT-.YYYY.-"
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone Number",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "label": "Region",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "industry_sector",
+   "fieldtype": "Data",
+   "label": "Industry Sector",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "New\nContacted\nBooked\nClosed",
+   "default": "New",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Reason",
+   "options": "Book appointment\nNo National ID\nChange phone number\nOther",
+   "default": "Other",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "national_id",
+   "fieldtype": "Data",
+   "label": "National ID (if given)"
+  },
+  {
+   "fieldname": "requested_on",
+   "fieldtype": "Datetime",
+   "label": "Requested On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_officer",
+   "fieldtype": "Section Break",
+   "label": "Follow-up"
+  },
+  {
+   "fieldname": "handled_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Handled By"
+  },
+  {
+   "fieldname": "outcome_note",
+   "fieldtype": "Small Text",
+   "label": "Outcome Note"
+  },
+  {
+   "fieldname": "section_break_sms",
+   "fieldtype": "Section Break",
+   "label": "Text message"
+  },
+  {
+   "fieldname": "sms_status",
+   "fieldtype": "Data",
+   "label": "SMS Status",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "sms_sid",
+   "fieldtype": "Data",
+   "label": "Twilio Message SID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sms_error",
+   "fieldtype": "Small Text",
+   "label": "SMS Error",
+   "read_only": 1
+  }
  ],
  "index_web_pages_for_search": 0,
  "istable": 0,
  "links": [],
- "modified": "2026-10-04 00:00:00.000000",
+ "modified": "2026-10-05 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "GDB Bank",
  "name": "GDB Appointment Request",
  "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"read": 1, "report": 1, "print": 1, "write": 1, "role": "Loan Underwriter"},
-  {"read": 1, "report": 1, "print": 1, "write": 1, "role": "Field Officer"}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "write": 1,
+   "role": "Loan Underwriter"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "write": 1,
+   "role": "Field Officer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "write": 1,
+   "role": "GDB Representative"
+  }
  ],
  "sort_field": "creation",
  "sort_order": "DESC",

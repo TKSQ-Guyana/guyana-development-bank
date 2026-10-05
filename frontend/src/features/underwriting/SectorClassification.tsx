@@ -47,9 +47,7 @@ export function SectorClassification({
 
   const subs = options.find((o) => o.sector === sector)?.sub_sectors ?? [];
   const subLabel = (name: string | null | undefined) =>
-    options
-      .flatMap((o) => o.sub_sectors)
-      .find((s) => s.name === name)?.label ??
+    options.flatMap((o) => o.sub_sectors).find((s) => s.name === name)?.label ??
     name?.split(" - ").slice(1).join(" - ") ??
     "";
   const changed =
@@ -119,7 +117,9 @@ export function SectorClassification({
             )}
             <Button
               onClick={() => void save()}
-              disabled={busy || !sector || !subSector || !changed}
+              disabled={
+                busy || !sector || (subs.length > 0 && !subSector) || !changed
+              }
             >
               {busy ? "Saving…" : "Save classification"}
             </Button>

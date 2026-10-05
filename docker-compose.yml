@@ -105,8 +105,19 @@ services:
       # DEV SECRET, as above.
       KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID:-gdb-citizen-admin}
       KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET: ${KEYCLOAK_CITIZEN_ADMIN_CLIENT_SECRET:-gdb-citizen-admin-dev-secret}
-      # The sign-up / TIN sign-in code, fixed until SMS is wired (tin_auth.py).
-      # NOT FOR PRODUCTION: a fixed code proves nothing about the phone.
+      # Sign-up / sign-in codes by SMS (integrations/sms_otp.py, Twilio Verify).
+      # All three set in .env: codes are texted. Any missing: the fixed code
+      # below is used instead and shown on screen — NOT FOR PRODUCTION.
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_VERIFY_SERVICE_SID: ${TWILIO_VERIFY_SERVICE_SID:-}
+      # The "we received your request / application" texts
+      # (integrations/sms.py): a Messaging Service, or a sending number.
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      # The portal's public https address: Twilio reports each text's
+      # delivery back to it (integrations/sms.status_callback).
+      GDB_PUBLIC_URL: ${GDB_PUBLIC_URL:-}
       GDB_STATIC_OTP: ${GDB_STATIC_OTP:-123456}
       # --- outside APIs ---------------------------------------------------
       #

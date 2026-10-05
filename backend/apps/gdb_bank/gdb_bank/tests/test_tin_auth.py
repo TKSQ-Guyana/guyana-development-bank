@@ -72,6 +72,9 @@ class TinCase(IntegrationTestCase):
 			patch.object(tin_auth.keycloak_admin, "delete_citizen_account"),
 			patch.object(tin_auth, "_require_door"),
 			patch.object(tin_auth.frappe.db, "commit"),
+			# The fixed demo code, whatever this machine's Twilio settings: the
+			# SMS path has its own tests (TestCodesBySms).
+			patch.object(tin_auth.sms_otp, "configured", return_value=False),
 			# The face check has its own tests below; here it applies to nobody.
 			# Kept LAST: those tests reach it as self.mocks[-1].
 			patch.object(tin_auth.face_check, "policy", return_value=("skip", None)),
@@ -103,8 +106,8 @@ class TestTheSignupForm(TinCase):
 		self.assertRefused("identity document", document_kind="Passport")
 
 	def test_the_national_id_is_required_and_may_be_typed_with_dashes(self):
-		self.assertRefused("National ID number", national_id="")
-		self.assertRefused("National ID number", national_id="12#45")
+		self.assertRefused("National ID, Passport or E-ID number", national_id="")
+		self.assertRefused("National ID, Passport or E-ID number", national_id="12#45")
 		self.assertEqual(self.request(national_id="987-654-321")["phone"], "•••-4321")
 
 	def test_a_national_id_card_carries_the_national_id(self):
@@ -443,3 +446,67 @@ class TestTheFaceCheck(TinCase):
 			tin_auth.start_face_check(national_id=NID)
 		with self.assertRaisesRegex(frappe.ValidationError, "branch"):
 			self.request()
+
+
+class _Reply:
+	def __init__(self, status: int, body: dict):
+		self.status_code, self._body = status, body
+
+	def json(self):
+		return self._body
+
+
+class TestCodesBySms(TinCase):
+	"""Twilio Verify, stubbed at the HTTP call."""
+
+	def setUp(self):
+		super().setUp()
+		self.mocks[-2].return_value = True  # sms_otp.configured
+		env = patch.dict(
+			"os.environ",
+			{"TWILIO_ACCOUNT_SID": "ACtest", "TWILIO_AUTH_TOKEN": "token", "TWILIO_VERIFY_SERVICE_SID": "VAtest"},
+		)
+		env.start()
+		self.addCleanup(env.stop)
+		self.post = patch.object(tin_auth.sms_otp.requests, "post").start()
+		self.addCleanup(patch.stopall)
+
+	def test_the_code_is_sent_to_the_phone_and_never_shown(self):
+		self.post.return_value = _Reply(201, {"status": "pending"})
+		out = self.request()
+		self.assertFalse(out["static_code"])
+		self.assertNotIn("demo_code", out)
+		url, kwargs = self.post.call_args[0][0], self.post.call_args[1]
+		self.assertTrue(url.endswith("/Services/VAtest/Verifications"))
+		self.assertEqual(kwargs["data"], {"To": "+5926004321", "Channel": "sms"})
+
+	def test_twilio_decides_whether_the_code_is_right(self):
+		self.post.return_value = _Reply(201, {"status": "pending"})
+		challenge = self.request()["challenge"]
+		self.post.return_value = _Reply(200, {"status": "pending"})
+		with self.assertRaisesRegex(frappe.ValidationError, "4 tries left"):
+			tin_auth._redeem(challenge, "111111", tin_auth.SIGNUP)
+		# The demo code means nothing once codes are sent.
+		with self.assertRaisesRegex(frappe.ValidationError, "3 tries left"):
+			tin_auth._redeem(challenge, tin_auth._static_otp(), tin_auth.SIGNUP)
+		self.post.return_value = _Reply(200, {"status": "approved"})
+		self.assertEqual(tin_auth._redeem(challenge, "482913", tin_auth.SIGNUP)["national_id"], NID)
+		self.assertEqual(self.post.call_args[1]["data"], {"To": "+5926004321", "Code": "482913"})
+
+	def test_a_refused_send_says_why_and_opens_no_challenge(self):
+		self.post.return_value = _Reply(429, {"code": 60203, "message": "Max send attempts reached"})
+		with self.assertRaisesRegex(frappe.ValidationError, "Too many codes"):
+			self.request()
+
+	def test_an_unreachable_twilio_is_a_plain_message(self):
+		self.post.side_effect = tin_auth.sms_otp.requests.ConnectionError("down")
+		with self.assertRaisesRegex(frappe.ValidationError, "could not send your code"):
+			self.request()
+
+
+class TestAgeLimits(TinCase):
+	def test_an_applicant_over_60_is_refused(self):
+		from frappe.utils import add_years, today
+
+		with self.assertRaisesRegex(frappe.ValidationError, "between 18 and 60"):
+			self.request(date_of_birth=str(add_years(today(), -62)))

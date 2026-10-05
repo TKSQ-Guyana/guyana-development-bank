@@ -732,32 +732,61 @@ export function LoanDetail() {
                   1 && (
                   <div className="my-2">
                     <Badge tone="warning">
-                      Loan Officer review — public servant earning $250,000 or
-                      more a month
+                      Loan Officer review — public-sector employee earning $200K
+                      or more a month
                     </Badge>
                   </div>
                 )}
-                <Row label="E-ID" value={trade("applicant_eid")} />
+                <Row label="Industry" value={trade("sector")} />
                 <Row
-                  label="Employed in public service"
-                  value={trade("public_service_employed")}
+                  label="Sub sector"
+                  value={trade("sub_sector").replace(/^.*? - /, "")}
                 />
-                {loan.sections?.public_service_employed === "Yes" && (
+                <Row label="E-ID" value={trade("applicant_eid")} />
+                {loan.sections?.employed ? (
+                  <>
+                    <Row label="Employed" value={trade("employed")} />
+                    {loan.sections?.employed === "Yes" && (
+                      <>
+                        <Row
+                          label="Employer category"
+                          value={trade("employer_category")}
+                        />
+                        <Row
+                          label="Employer name"
+                          value={trade("employer_name")}
+                        />
+                        <Row
+                          label="Monthly income"
+                          value={trade("income_band")}
+                        />
+                      </>
+                    )}
+                  </>
+                ) : (
                   <>
                     <Row
-                      label="Ministry or agency"
-                      value={trade("public_service_ministry")}
+                      label="Employed in public service"
+                      value={trade("public_service_employed")}
                     />
+                    {loan.sections?.public_service_employed === "Yes" && (
+                      <>
+                        <Row
+                          label="Ministry or agency"
+                          value={trade("public_service_ministry")}
+                        />
+                        <Row
+                          label="Making less than $250,000 a month"
+                          value={trade("public_service_under_250k")}
+                        />
+                      </>
+                    )}
                     <Row
-                      label="Making less than $250,000 a month"
-                      value={trade("public_service_under_250k")}
+                      label="Related to a GDB employee"
+                      value={trade("related_to_gdb_employee")}
                     />
                   </>
                 )}
-                <Row
-                  label="Related to a GDB employee"
-                  value={trade("related_to_gdb_employee")}
-                />
                 <Row
                   label="Bank account"
                   value={

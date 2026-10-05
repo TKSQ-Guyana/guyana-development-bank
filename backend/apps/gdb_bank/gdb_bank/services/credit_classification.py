@@ -62,15 +62,20 @@ def set_credit_sector(user: str, application: str, sector: str, sub_sector: str)
 		frappe.throw(_("You cannot classify your own application."), frappe.PermissionError)
 
 	sector, sub_sector = (sector or "").strip(), (sub_sector or "").strip()
-	if not sector or not sub_sector:
-		frappe.throw(_("Choose a sector and a sub-sector."))
+	if not sector:
+		frappe.throw(_("Choose a sector."))
 	if not frappe.db.get_value(SECTOR, {"name": sector, "disabled": 0}):
 		frappe.throw(_("{0} is not a sector GDB classifies under.").format(sector))
-	sub = frappe.db.get_value(SUB_SECTOR, sub_sector, ["sector", "disabled"], as_dict=True)
-	if not sub or cint(sub.disabled):
-		frappe.throw(_("{0} is not a sub-sector GDB classifies under.").format(sub_sector))
-	if sub.sector != sector:
-		frappe.throw(_("{0} is not a sub-sector of {1}.").format(sub_sector, sector))
+	# A sub-sector is asked only of a sector that has some (2026-10-05).
+	if not sub_sector:
+		if frappe.db.exists(SUB_SECTOR, {"sector": sector, "disabled": 0}):
+			frappe.throw(_("Choose a sector and a sub-sector."))
+	else:
+		sub = frappe.db.get_value(SUB_SECTOR, sub_sector, ["sector", "disabled"], as_dict=True)
+		if not sub or cint(sub.disabled):
+			frappe.throw(_("{0} is not a sub-sector GDB classifies under.").format(sub_sector))
+		if sub.sector != sector:
+			frappe.throw(_("{0} is not a sub-sector of {1}.").format(sub_sector, sector))
 
 	changes = {"gdb_credit_sector": sector, "gdb_credit_sub_sector": sub_sector}
 	changed = [[f, row.get(f), v] for f, v in changes.items() if row.get(f) != v]

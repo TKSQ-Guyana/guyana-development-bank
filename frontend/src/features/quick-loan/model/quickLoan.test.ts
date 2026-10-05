@@ -10,8 +10,12 @@ const TERMS: QuickLoanTerms = {
   term_options: [6, 12, 18, 24],
   moratorium_options: [1, 2, 3],
   rate_of_interest: 0,
-  trade_locations: ['From home', 'Market', 'Mobile'],
+  trade_locations: ['From home', 'Other Locations - Fixed', 'Mobile'],
   trading_since: ['Less than 6 months', '6 months to 1 year', '1 to 3 years', 'More than 3 years'],
+  industries: [
+    { sector: 'Agriculture', sub_sectors: [{ name: 'Agriculture - Crop farming', label: 'Crop farming' }] },
+    { sector: 'Poultry', sub_sectors: [] },
+  ],
 };
 
 /** A market vendor who has answered everything. */
@@ -20,14 +24,16 @@ const VENDOR: QuickAnswers = {
   how: 'self',
   dob: '1988-04-09',
   phone: '600 1234',
+  hasEid: 'Yes',
   eid: '592-2001-0101',
-  publicService: 'No',
-  relatedToGdb: 'No',
+  employed: 'No',
   businessName: 'Singh Fresh Greens',
+  sector: 'Agriculture',
+  subSector: 'Agriculture - Crop farming',
   tradeActivity: 'Sell vegetables',
   region: 'Region 3 — Essequibo Islands-West Demerara',
   tradingSince: '1 to 3 years',
-  tradeLocation: 'Market',
+  tradeLocation: 'Other Locations - Fixed',
   lat: 6.8013,
   lng: -58.1551,
   place: 'Stabroek Market, Georgetown',
@@ -48,7 +54,6 @@ const VENDOR: QuickAnswers = {
   holder: 'Ravi Singh',
   confirmNo: '0009 1111 2222 3333',
   consentGiven: true,
-  warningAcknowledged: true,
 };
 
 describe('what stops each step', () => {
@@ -67,28 +72,53 @@ describe('what stops each step', () => {
     expect(blockerFor('about', { ...VENDOR, dob: '' }, TERMS)).toMatch(/date of birth/i);
   });
 
-  test('the E-ID is optional', () => {
-    expect(blockerFor('about', { ...VENDOR, eid: '' }, TERMS)).toBeNull();
+  test('"Do you have an E-ID?" is asked; a No needs no number', () => {
+    expect(blockerFor('about', { ...VENDOR, hasEid: '' }, TERMS)).toMatch(/have an E-ID/);
+    expect(blockerFor('about', { ...VENDOR, hasEid: 'No', eid: '' }, TERMS)).toBeNull();
   });
 
-  test('public service: a Yes asks for the Ministry and the $250,000 question', () => {
-    expect(blockerFor('about', { ...VENDOR, publicService: '' }, TERMS)).toMatch(/public service/i);
-    const servant = { ...VENDOR, publicService: 'Yes' as const };
-    expect(blockerFor('about', servant, TERMS)).toMatch(/Ministry or agency/);
-    expect(blockerFor('about', { ...servant, ministry: 'Ministry of Health' }, TERMS)).toMatch(/\$250,000/);
-    expect(blockerFor('about', { ...servant, ministry: 'Ministry of Health', under250k: 'Yes' }, TERMS)).toBeNull();
+  test('a Yes needs the E-ID as xxx-xxxx-xxxx', () => {
+    expect(blockerFor('about', { ...VENDOR, eid: '' }, TERMS)).toBe('Enter your E-ID.');
+    expect(blockerFor('about', { ...VENDOR, eid: '592-2001' }, TERMS)).toMatch(/xxx-xxxx-xxxx/);
   });
 
-  test('earning $250,000 or more never blocks — it routes the case to a Loan Officer', () => {
-    const highEarner = { ...VENDOR, publicService: 'Yes' as const, ministry: 'Ministry of Health', under250k: 'No' as const };
-    expect(blockerFor('about', highEarner, TERMS)).toBeNull();
-    expect(needsOfficerReview(highEarner)).toBe(true);
-    expect(needsOfficerReview({ ...highEarner, under250k: 'Yes' })).toBe(false);
+  test('employed: a Yes asks the category, the employer and the income', () => {
+    expect(blockerFor('about', { ...VENDOR, employed: '' }, TERMS)).toMatch(/are employed/);
+    const worker = { ...VENDOR, employed: 'Yes' as const };
+    expect(blockerFor('about', worker, TERMS)).toMatch(/employer category/);
+    expect(blockerFor('about', { ...worker, employerCategory: 'Private Sector' }, TERMS)).toMatch(/employer's name/);
+    expect(
+      blockerFor('about', { ...worker, employerCategory: 'Private Sector', employerName: 'Banks DIH' }, TERMS),
+    ).toMatch(/monthly income/);
+    expect(
+      blockerFor(
+        'about',
+        { ...worker, employerCategory: 'Private Sector', employerName: 'Banks DIH', incomeBand: 'Above $500K' },
+        TERMS,
+      ),
+    ).toBeNull();
+  });
+
+  test('a public-sector employee earning $200K or more never blocks — a Loan Officer reviews', () => {
+    const servant = {
+      ...VENDOR,
+      employed: 'Yes' as const,
+      employerCategory: 'Public Sector' as const,
+      employerName: 'Ministry of Health',
+      incomeBand: 'Between $200K and $500K',
+    };
+    expect(blockerFor('about', servant, TERMS)).toBeNull();
+    expect(needsOfficerReview(servant)).toBe(true);
+    expect(needsOfficerReview({ ...servant, incomeBand: 'Less than $200K' })).toBe(false);
+    expect(needsOfficerReview({ ...servant, employerCategory: 'Private Sector' })).toBe(false);
     expect(needsOfficerReview(VENDOR)).toBe(false);
   });
 
-  test('whether the applicant is related to a GDB employee is asked', () => {
-    expect(blockerFor('about', { ...VENDOR, relatedToGdb: '' }, TERMS)).toMatch(/related to an employee/i);
+  test('the industry and sub-sector are asked on the business step', () => {
+    expect(blockerFor('business', { ...VENDOR, sector: '' }, TERMS)).toBe('Choose your industry.');
+    expect(blockerFor('business', { ...VENDOR, subSector: '' }, TERMS)).toBe('Choose your sub-sector.');
+    // An industry with no sub-sectors asks for none.
+    expect(blockerFor('business', { ...VENDOR, sector: 'Poultry', subSector: '' }, TERMS)).toBeNull();
   });
 
   test('the business must be pinned on the map; no photos are asked for', () => {
@@ -141,9 +171,9 @@ describe('what stops each step', () => {
     expect(blockerFor('business', VENDOR, TERMS)).toBeNull();
   });
 
-  test('the loan step needs one of the moratoria', () => {
-    for (const moratorium of ['', '0', '4'])
-      expect(blockerFor('loan', { ...VENDOR, moratorium }, TERMS)).toMatch(/moratorium/i);
+  test('the moratorium is optional, but one chosen must be offered', () => {
+    for (const moratorium of ['', '0']) expect(blockerFor('loan', { ...VENDOR, moratorium }, TERMS)).toBeNull();
+    expect(blockerFor('loan', { ...VENDOR, moratorium: '4' }, TERMS)).toMatch(/moratorium/i);
     expect(blockerFor('loan', VENDOR, TERMS)).toBeNull();
   });
 
@@ -172,8 +202,7 @@ describe('what stops each step', () => {
   });
 
   test('the submit page needs all three confirmations', () => {
-    expect(blockerFor('confirm', { ...VENDOR, consentGiven: false }, TERMS)).toMatch(/consent/i);
-    expect(blockerFor('confirm', { ...VENDOR, warningAcknowledged: false }, TERMS)).toMatch(/read this statement/i);
+    expect(blockerFor('confirm', { ...VENDOR, consentGiven: false }, TERMS)).toMatch(/declaration/i);
   });
 });
 
@@ -195,10 +224,12 @@ describe('what is sent and read back', () => {
       phone: '600 1234',
       business_name: 'Singh Fresh Greens',
       sections: {
+        sector: 'Agriculture',
+        sub_sector: 'Agriculture - Crop farming',
         trade_activity: 'Sell vegetables',
         trade_region: 'Region 3 — Essequibo Islands-West Demerara',
         trading_since: '1 to 3 years',
-        trade_location: 'Market',
+        trade_location: 'Other Locations - Fixed',
         support_1_name: 'Asha Persaud',
         support_1_relationship: 'Neighbour',
         support_1_phone: '+592 600 1111',
@@ -210,23 +241,31 @@ describe('what is sent and read back', () => {
         trade_latitude: 6.8013,
         trade_longitude: -58.1551,
         trade_address: 'Stabroek Market, Georgetown',
+        has_eid: 'Yes',
         applicant_eid: '592-2001-0101',
-        public_service_employed: 'No',
-        public_service_ministry: '',
-        public_service_under_250k: '',
-        related_to_gdb_employee: 'No',
+        employed: 'No',
+        employer_category: '',
+        employer_name: '',
+        income_band: '',
         no_bank_account: 0,
       },
     });
   });
 
-  test('the public-service follow-ups are sent only with a Yes', () => {
-    const no = toSavePayload({ ...VENDOR, ministry: 'Ministry of Health', under250k: 'No' }).sections;
-    expect(no.public_service_ministry).toBe('');
-    expect(no.public_service_under_250k).toBe('');
-    const yes = toSavePayload({ ...VENDOR, publicService: 'Yes', ministry: ' Ministry of Health ', under250k: 'No' }).sections;
-    expect(yes.public_service_ministry).toBe('Ministry of Health');
-    expect(yes.public_service_under_250k).toBe('No');
+  test('the follow-ups are sent only with their Yes', () => {
+    const no = toSavePayload({ ...VENDOR, hasEid: 'No', employerName: 'Ministry of Health' }).sections;
+    expect(no.applicant_eid).toBe('');
+    expect(no.employer_name).toBe('');
+    const yes = toSavePayload({
+      ...VENDOR,
+      employed: 'Yes',
+      employerCategory: 'Public Sector',
+      employerName: ' Ministry of Health ',
+      incomeBand: 'Above $500K',
+    }).sections;
+    expect(yes.employer_name).toBe('Ministry of Health');
+    expect(yes.employer_category).toBe('Public Sector');
+    expect(yes.income_band).toBe('Above $500K');
   });
 
   test('a first save opens a draft rather than naming one', () => {
@@ -254,10 +293,12 @@ describe('what is sent and read back', () => {
         moratorium_months: 2,
         resides_in_guyana: 1,
         applicant_eid: '592-2001-0101',
-        public_service_employed: 'Yes',
-        public_service_ministry: 'Ministry of Health',
-        public_service_under_250k: 'No',
-        related_to_gdb_employee: 'Yes',
+        employed: 'Yes',
+        employer_category: 'Public Sector',
+        employer_name: 'Ministry of Health',
+        income_band: 'Above $500K',
+        sector: 'Agriculture',
+        sub_sector: 'Agriculture - Crop farming',
         no_bank_account: 1,
       },
     } as unknown as LoanApplication;
@@ -271,11 +312,14 @@ describe('what is sent and read back', () => {
       term: '6',
       moratorium: '2',
       residesInGuyana: true,
+      hasEid: 'Yes',
       eid: '592-2001-0101',
-      publicService: 'Yes',
-      ministry: 'Ministry of Health',
-      under250k: 'No',
-      relatedToGdb: 'Yes',
+      employed: 'Yes',
+      employerCategory: 'Public Sector',
+      employerName: 'Ministry of Health',
+      incomeBand: 'Above $500K',
+      sector: 'Agriculture',
+      subSector: 'Agriculture - Crop farming',
       noBankAccount: true,
       contacts: [
         { name: 'Asha Persaud', relationship: 'Neighbour', phone: '+5926001111' },

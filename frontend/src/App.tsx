@@ -103,6 +103,11 @@ const GroupWizard = page(() =>
     default: m.GroupWizard,
   })),
 );
+const AppointmentDesk = page(() =>
+  import("./features/representative/AppointmentDesk").then((m) => ({
+    default: m.AppointmentDesk,
+  })),
+);
 const FieldDesk = page(() =>
   import("./features/field-officer/FieldDesk").then((m) => ({
     default: m.FieldDesk,
@@ -297,6 +302,14 @@ function RequireFacilitator({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** The GDB Representative's queue: appointment requests from the public site.
+ *  Mirrored server-side in _require_representative. */
+function RequireRepresentative({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_representative) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 /** The Field Officer's desk: assist requests, assisted applications and
  *  field tasks. Mirrored server-side in _require_field_officer, and per record
  *  (region, assignment, the applicant's consent) in services/field_operations. */
@@ -420,6 +433,14 @@ export function App() {
             {/* The Field Officer's screens. The assisted application is the
                 applicant's own form (pages/Apply) under the applicant's
                 consent, so it lives here rather than behind CitizenOnly. */}
+            <Route
+              path="/appointments"
+              element={
+                <RequireRepresentative>
+                  <AppointmentDesk />
+                </RequireRepresentative>
+              }
+            />
             <Route
               path="/field"
               element={

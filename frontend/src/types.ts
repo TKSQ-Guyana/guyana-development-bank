@@ -602,6 +602,8 @@ export interface Whoami {
   is_facilitator: boolean;
   /** Assist requests, assisted applications and field tasks — nothing else. */
   is_field_officer: boolean;
+  /** The appointment requests from the public site — nothing else. */
+  is_representative?: boolean;
 }
 
 /** One row off ERPNext's Bank Transaction — money the bank has confirmed

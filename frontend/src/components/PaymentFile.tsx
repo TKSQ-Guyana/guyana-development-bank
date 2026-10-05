@@ -1,3 +1,4 @@
+import { DateInput } from "./DateInput";
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, runReport } from '../api';
 import type { ReportColumn } from '../api';
@@ -102,21 +103,11 @@ export function PaymentFile({ company }: { company: string | null }) {
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="text-sm">
           <span className="mb-1 block text-slate-600">From</span>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2"
-          />
+          <DateInput value={from} onChange={(v) => setFrom(v)} />
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-slate-600">To</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-2"
-          />
+          <DateInput value={to} onChange={(v) => setTo(v)} />
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-slate-600">Bank</span>

@@ -1,6 +1,9 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { call } from "../api";
+import { REGIONS } from "../components/apply/cluster";
+import { isGuyanaPhone, PhoneInput } from "../components/PhoneInput";
 import {
   coatOfArms,
   stockBarber,
@@ -132,7 +135,7 @@ const FAQS = [
 export function Landing() {
   // TEMPORARY — "Coming soon" until the public launch. Remove this line (and
   // the ComingSoon component below) to release the full landing page.
-  return <ComingSoon />;
+  // return <ComingSoon />;
 
   return (
     <div
@@ -158,7 +161,7 @@ export function Landing() {
 }
 
 /** TEMPORARY: the pre-launch page. Delete with the early return above. */
-function ComingSoon() {
+export function ComingSoon() {
   return (
     <div
       className="gdb-public flex min-h-screen flex-col items-center justify-center gap-8 bg-[#faf8f4] px-4 text-center text-[#17161d] antialiased"
@@ -884,23 +887,93 @@ function Faqs() {
  *  citizen (services/quick_loan.request_field_officer) — the officer's queue,
  *  consent and assisted draft all hang off that account — so the card takes a
  *  visitor there rather than collecting details the page could not send. */
+/** GDB's industries, from gdb_bank.api.industry_options (the desk's list). */
+interface Industry {
+  sector: string;
+  sub_sectors: { name: string; label: string }[];
+}
+
+const APPT_INPUT =
+  "mt-1.5 w-full rounded-xl border border-[#d9d4c7] bg-white px-4 py-3 text-[15px] text-[#17161d] placeholder:text-[#9a97a6] focus:border-transparent focus:outline-2 focus:outline-offset-1 focus:outline-[#123a7a]";
+const APPT_LABEL = "block text-[14px] font-bold text-[#0b2654]";
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** "Book appointment": a contact form, not a sign-up (GDB, 2026-10-05). It
+ *  goes to the GDB Representative's queue (gdb_bank.tin_auth.request_appointment)
+ *  and the person gets a text saying it arrived. On a phone only the form is
+ *  shown — the photograph and its heading take the screen without helping. */
 function Appointment() {
-  const step = (n: string, body: ReactNode) => (
-    <li className="flex gap-3.5">
-      <span className="grid h-8 w-8 flex-none place-items-center rounded-full bg-[#f2c14e] text-[15px] font-extrabold text-[#0b2654]">
-        {n}
-      </span>
-      <span className="pt-1 text-[16px] leading-[1.5] text-[#2c2a38]">
-        {body}
-      </span>
-    </li>
-  );
+  const [form, setForm] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone: "",
+    region: "",
+    industry_sector: "",
+  });
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    call<Industry[]>("gdb_bank.api.industry_options")
+      .then((rows) => setIndustries(rows ?? []))
+      .catch(() => setIndustries([]));
+  }, []);
+  useEffect(() => {
+    if (error) errorRef.current?.focus();
+  }, [error]);
+
+  const set = (key: keyof typeof form) => (value: string) => {
+    setError(null);
+    setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.first_name.trim()) return setError("Enter your first name.");
+    if (!form.last_name.trim()) return setError("Enter your last name.");
+    if (!isGuyanaPhone(form.phone))
+      return setError("Enter your phone number, e.g. 600 1234.");
+    if (form.email.trim() && !EMAIL_SHAPE.test(form.email.trim()))
+      return setError("Enter a valid email address, or leave it blank.");
+    if (!form.region) return setError("Choose your region.");
+    if (!form.industry_sector) return setError("Choose your industry sector.");
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await call<{ name: string }>(
+        "gdb_bank.tin_auth.request_appointment",
+        {
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          phone: form.phone,
+          email: form.email.trim() || undefined,
+          region: form.region,
+          industry_sector: form.industry_sector,
+          reason: "Book appointment",
+        },
+      );
+      setSent(res.name);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Your request could not be sent. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section id="appointment" className={`scroll-mt-20 ${SECTION_Y} ${GUTTER}`}>
       <div
         className={`${WRAP} grid items-center gap-[clamp(32px,5vw,72px)] [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]`}
       >
-        <div className="flex flex-col gap-5">
+        <div className="hidden flex-col gap-5 md:flex">
           <span className={EYEBROW}>Book an appointment</span>
           <h2 className={H2}>Prefer to apply with a GDB team member?</h2>
           <p className="m-0 max-w-[32em] text-[18px] leading-[1.55] text-[#3d3a4a] [text-wrap:pretty]">
@@ -919,54 +992,128 @@ function Appointment() {
         <div className="flex flex-col gap-5 rounded-[24px] border border-[#e7e3da] bg-white p-[clamp(24px,3vw,40px)] shadow-[0_20px_50px_rgba(11,38,84,0.06)]">
           <div className="flex flex-col gap-1.5">
             <h3 className="m-0 text-[24px] font-extrabold text-[#0b2654]">
-              Book an appointment
+              {sent ? "Request sent" : "Book an appointment"}
             </h3>
             <p className="m-0 text-[15px] text-[#5e5b6b]">
-              We'll contact you within two working days.
+              {sent
+                ? "Thank you. A GDB representative will contact you soon."
+                : "Tell us how to reach you. We will contact you within two working days."}
             </p>
           </div>
-          <ol className="m-0 flex list-none flex-col gap-4 p-0">
-            {step(
-              "1",
-              <>
-                Create your account with your National ID — or sign in if you
-                have one.
-              </>,
-            )}
-            {step(
-              "2",
-              <>
-                Open the Quick Loan application and choose{" "}
-                <b className="font-bold">“I need help from a field officer”</b>.
-                Tell us your region, your business and the best time to call.
-              </>,
-            )}
-            {step(
-              "3",
-              <>
-                A GDB team member calls you to confirm a time and helps you
-                finish your application.
-              </>,
-            )}
-          </ol>
-          <div className="flex flex-wrap gap-2.5">
-            <Link
-              to="/signup"
-              className={`${PILL} h-14 flex-1 bg-[#123a7a] px-6 text-[17px] text-white hover:bg-[#0b2654]`}
+
+          {sent ? (
+            <div className="flex flex-col gap-4">
+              <p className="m-0 text-[15px] leading-[1.55] text-[#3d3a4a]">
+                We will call you on{" "}
+                <b>+592 {form.phone.replace(/^\+592/, "")}</b>. Your reference
+                is{" "}
+                <span className="font-mono font-bold text-[#0b2654]">
+                  {sent}
+                </span>
+                .
+              </p>
+              <p className="m-0 text-[13px] leading-[1.5] text-[#6b6878]">
+                Please bring a valid ID to your appointment.
+              </p>
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => void submit(e)}
+              noValidate
+              className="flex flex-col gap-4"
             >
-              Create an account
-            </Link>
-            <Link
-              to="/login"
-              state={{ from: "/apply/quick" }}
-              className={`${PILL} h-14 flex-1 border-[1.5px] border-[#123a7a] px-6 text-[17px] text-[#123a7a] hover:bg-[#123a7a]/5`}
-            >
-              Sign in
-            </Link>
-          </div>
-          <p className="m-0 text-[13px] leading-[1.5] text-[#6b6878]">
-            Please bring a valid ID to your appointment.
-          </p>
+              {error && (
+                <p
+                  ref={errorRef}
+                  tabIndex={-1}
+                  role="alert"
+                  className="m-0 rounded-xl bg-red-50 px-4 py-3 text-[14px] font-medium text-red-700 outline-none"
+                >
+                  {error}
+                </p>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={APPT_LABEL}>
+                  First name <span className="text-red-600">*</span>
+                  <input
+                    value={form.first_name}
+                    onChange={(e) => set("first_name")(e.target.value)}
+                    autoComplete="given-name"
+                    className={APPT_INPUT}
+                  />
+                </label>
+                <label className={APPT_LABEL}>
+                  Last name <span className="text-red-600">*</span>
+                  <input
+                    value={form.last_name}
+                    onChange={(e) => set("last_name")(e.target.value)}
+                    autoComplete="family-name"
+                    className={APPT_INPUT}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={APPT_LABEL}>
+                  Phone <span className="text-red-600">*</span>
+                  <PhoneInput
+                    value={form.phone}
+                    onChange={set("phone")}
+                    className={APPT_INPUT}
+                  />
+                </label>
+                <label className={APPT_LABEL}>
+                  Email{" "}
+                  <span className="font-normal text-[#6b6878]">(optional)</span>
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => set("email")(e.target.value)}
+                    autoComplete="email"
+                    className={APPT_INPUT}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className={APPT_LABEL}>
+                  Region <span className="text-red-600">*</span>
+                  <select
+                    value={form.region}
+                    onChange={(e) => set("region")(e.target.value)}
+                    className={APPT_INPUT}
+                  >
+                    <option value="">Choose your region</option>
+                    {REGIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={APPT_LABEL}>
+                  Industry sector <span className="text-red-600">*</span>
+                  <select
+                    value={form.industry_sector}
+                    onChange={(e) => set("industry_sector")(e.target.value)}
+                    className={APPT_INPUT}
+                  >
+                    <option value="">Choose your industry</option>
+                    {industries.map((i) => (
+                      <option key={i.sector} value={i.sector}>
+                        {i.sector}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={busy}
+                className={`${PILL} h-14 w-full border-0 bg-[#123a7a] px-6 text-[17px] text-white hover:bg-[#0b2654] disabled:opacity-60`}
+              >
+                {busy ? "Sending…" : "Book appointment"}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </section>

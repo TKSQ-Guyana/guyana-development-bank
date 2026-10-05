@@ -23,6 +23,7 @@ from gdb_bank.utils.constants import (
 	PLATFORM_ADMIN_ROLES,
 	STAFF_ROLES,
 	UNDERWRITER_ROLES,
+	REPRESENTATIVE_ROLES,
 )
 
 
@@ -126,6 +127,19 @@ def _require_facilitator() -> str:
 	if not _is_facilitator(user):
 		_logger().warning(f"denied facilitator endpoint to {user}")
 		frappe.throw(_("Only a GDB facilitator may do this."), frappe.PermissionError)
+	return user
+
+
+def _is_representative(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & REPRESENTATIVE_ROLES)
+
+
+def _require_representative() -> str:
+	"""The appointment queue — nothing else."""
+	user = _session_user()
+	if not _is_representative(user):
+		_logger().warning(f"denied representative endpoint to {user}")
+		frappe.throw(_("Only a GDB Representative may do this."), frappe.PermissionError)
 	return user
 
 

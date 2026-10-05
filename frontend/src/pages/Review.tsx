@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "../components/ui/Badge";
@@ -302,23 +303,11 @@ export function Review() {
             />
             <label className="block text-xs font-medium text-slate-500">
               Submitted from
-              <input
-                type="date"
-                value={filters.from_date ?? ""}
-                max={filters.to_date || undefined}
-                onChange={(e) => update({ from_date: e.target.value })}
-                className={`${FIELD} mt-1`}
-              />
+              <DateInput value={filters.from_date ?? ""} onChange={(v) => update({ from_date: v })} max={filters.to_date || undefined} />
             </label>
             <label className="block text-xs font-medium text-slate-500">
               Submitted to
-              <input
-                type="date"
-                value={filters.to_date ?? ""}
-                min={filters.from_date || undefined}
-                onChange={(e) => update({ to_date: e.target.value })}
-                className={`${FIELD} mt-1`}
-              />
+              <DateInput value={filters.to_date ?? ""} onChange={(v) => update({ to_date: v })} min={filters.from_date || undefined} />
             </label>
           </div>
         )}

@@ -55,6 +55,11 @@ NOT_OFFERED = {
 	# The underwriter's to classify (Credit risk tab), never the applicant's.
 	"gdb_sector",
 	"gdb_sub_sector",
+	# Retired 2026-10-05: no longer asked on either form.
+	"gdb_public_service_employed",
+	"gdb_public_service_ministry",
+	"gdb_public_service_under_250k",
+	"gdb_related_to_gdb_employee",
 	# Never asked by the apply form, so never a gap the applicant left: offering
 	# them here would be asking new questions after submission, not completing
 	# old ones. Ask them on the form first if GDB wants them.
@@ -127,8 +132,10 @@ def _applies(fieldname: str, doc) -> bool:
 		"gdb_mentor_first_name": doc.gdb_has_mentor == "Yes",
 		"gdb_mentor_last_name": doc.gdb_has_mentor == "Yes",
 		"gdb_mentor_phone": doc.gdb_has_mentor == "Yes",
-		"gdb_public_service_ministry": doc.gdb_public_service_employed == "Yes",
-		"gdb_public_service_under_250k": doc.gdb_public_service_employed == "Yes",
+		"gdb_applicant_eid": doc.gdb_has_eid != "No",
+		"gdb_employer_category": doc.gdb_employed == "Yes",
+		"gdb_employer_name": doc.gdb_employed == "Yes",
+		"gdb_income_band": doc.gdb_employed == "Yes",
 	}
 	return follows.get(fieldname, True)
 

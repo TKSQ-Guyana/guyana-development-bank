@@ -1,3 +1,4 @@
+import { DateInput } from "../../components/DateInput";
 import { useEffect, useState } from "react";
 import { call } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -395,12 +396,7 @@ export function FieldTaskDrawer({
       </label>
       <label className="mt-3 block text-sm font-medium text-slate-700">
         Due
-        <input
-          type="date"
-          value={due}
-          onChange={(e) => setDue(e.target.value)}
-          className={FIELD}
-        />
+        <DateInput value={due} onChange={(v) => setDue(v)} />
       </label>
       {kind === "Site Visit" && (
         <label className="mt-3 block text-sm font-medium text-slate-700">

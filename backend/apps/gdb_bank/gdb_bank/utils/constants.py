@@ -58,6 +58,13 @@ FACILITATOR_ROLES = {FACILITATOR_ROLE, "System Manager"}
 FIELD_OFFICER_ROLE = "Field Officer"
 FIELD_OFFICER_ROLES = {FIELD_OFFICER_ROLE, "System Manager"}
 
+# Calls back the people who asked for an appointment on the public site, and
+# books them (services/appointments). The facilitator's footing: NOT in
+# STAFF_ROLES nor in any authority set — a representative reads no case, decides
+# no credit and moves no money; role_policy holds the role alone.
+REPRESENTATIVE_ROLE = "GDB Representative"
+REPRESENTATIVE_ROLES = {REPRESENTATIVE_ROLE, "System Manager"}
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}
@@ -195,6 +202,17 @@ SHARED_SECTIONS = (
 	"gdb_requires_loan_officer_review",
 	"gdb_related_to_gdb_employee",
 	"gdb_no_bank_account",
+	# 2026-10-05: asked on both forms.
+	"gdb_has_eid",
+	"gdb_employed",
+	"gdb_employer_category",
+	"gdb_employer_name",
+	"gdb_income_band",
+	# The industry and sub-sector the applicant says the business is in (GDB
+	# Sector / GDB Sub Sector) — beside, never instead of, the underwriter's own
+	# classification (gdb_credit_sector).
+	"gdb_sector",
+	"gdb_sub_sector",
 )
 SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY + SHARED_SECTIONS)
 

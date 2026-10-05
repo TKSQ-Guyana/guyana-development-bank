@@ -53,7 +53,7 @@ TRADER_EID = "592-9100-0001"
 # What a market vendor tells the Quick Loan form about their trade.
 TRADE = {
 	"trade_activity": "Sell vegetables",
-	"trade_location": "Market",
+	"trade_location": "Other Locations - Fixed",
 	"trading_since": "1 to 3 years",
 	"trade_region": "Region 4",
 	"support_1_name": "Asha Persaud",
@@ -67,16 +67,19 @@ TRADE = {
 	"trade_longitude": -58.1551,
 	"trade_address": "Stabroek Market, Georgetown",
 	"moratorium_months": 1,
-	"public_service_employed": "No",
-	"related_to_gdb_employee": "No",
+	"has_eid": "No",
+	"employed": "No",
+	"sector": "Rice",
+	"sub_sector": "",
 }
 
-# A public servant's answers, on top of TRADE.
+# A public-sector employee's answers, on top of TRADE.
 PUBLIC_SERVANT = {
 	**TRADE,
-	"public_service_employed": "Yes",
-	"public_service_ministry": "Ministry of Health",
-	"public_service_under_250k": "Yes",
+	"employed": "Yes",
+	"employer_category": "Public Sector",
+	"employer_name": "Ministry of Health",
+	"income_band": "Less than $200K",
 }
 
 
@@ -255,7 +258,7 @@ class TestSavingAQuickLoan(QuickLoanCase):
 		self.assertEqual(draft["product"], "quick")
 		self.assertEqual(draft["status"], "Draft")
 		self.assertEqual(draft["sections"]["trade_activity"], "Sell vegetables")
-		self.assertEqual(draft["sections"]["trade_location"], "Market")
+		self.assertEqual(draft["sections"]["trade_location"], "Other Locations - Fixed")
 		self.assertEqual(draft["sections"]["trading_since"], "1 to 3 years")
 
 	def test_it_is_filed_on_the_quick_loan_product(self):
@@ -362,11 +365,12 @@ class TestSavingAQuickLoan(QuickLoanCase):
 			business_stage="Existing",
 			dcra_number="REG-1",
 			business_name="Stall Co",
-			sections={**TRADE, "sector": "Mining and quarrying", "annual_revenue": 900000},
+			sections={**TRADE, "annual_revenue": 900000},
 		)
 		self.assertFalse(draft["business_stage"])
 		self.assertFalse(draft["dcra_number"])
-		self.assertFalse(draft["sections"]["sector"])
+		# The industry is asked on both forms (2026-10-05), so it stays.
+		self.assertEqual(draft["sections"]["sector"], "Rice")
 		self.assertFalse(draft["sections"]["annual_revenue"])
 
 	def test_an_sme_application_carries_no_quick_loan_answers(self):
@@ -405,14 +409,14 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		with self.set_user(TRADER), self.assertRaisesRegex(frappe.ValidationError, message):
 			api.submit_application(name=name, accept_terms=1, credit_check_consent=1)
 
-	def test_a_public_servant_earning_250k_or_more_is_routed_to_a_loan_officer_not_refused(self):
-		name = self.submitted(**{**PUBLIC_SERVANT, "public_service_under_250k": "No"})
+	def test_a_public_servant_earning_200k_or_more_is_routed_to_a_loan_officer_not_refused(self):
+		name = self.submitted(**{**PUBLIC_SERVANT, "income_band": "Between $200K and $500K"})
 		case = self.in_queue(name)
 		self.assertEqual(case["status"], "Submitted")
 		self.assertEqual(case["sections"]["requires_loan_officer_review"], 1)
 		self.assertIsNotNone(self.in_queue(name, officer_review=1))
 
-	def test_a_public_servant_earning_under_250k_is_not_flagged(self):
+	def test_a_public_servant_earning_under_200k_is_not_flagged(self):
 		name = self.submitted(**PUBLIC_SERVANT)
 		self.assertEqual(self.in_queue(name)["sections"]["requires_loan_officer_review"], 0)
 		self.assertIsNone(self.in_queue(name, officer_review=1))
@@ -421,28 +425,76 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		draft = self.save(sections={**TRADE, "requires_loan_officer_review": 1})
 		self.assertEqual(draft["sections"]["requires_loan_officer_review"], 0)
 
-	def test_a_no_to_public_service_clears_its_follow_up_answers(self):
-		draft = self.save(sections={**PUBLIC_SERVANT, "public_service_employed": "No"})
-		self.assertFalse(draft["sections"]["public_service_ministry"])
-		self.assertFalse(draft["sections"]["public_service_under_250k"])
+	def test_a_no_to_employed_clears_its_follow_up_answers(self):
+		draft = self.save(sections={**PUBLIC_SERVANT, "employed": "No"})
+		for key in ("employer_category", "employer_name", "income_band"):
+			self.assertFalse(draft["sections"][key], key)
+
+	def test_a_private_sector_employee_is_never_flagged(self):
+		draft = self.save(sections={**PUBLIC_SERVANT, "employer_category": "Private Sector", "income_band": "Above $500K"})
+		self.assertEqual(draft["sections"]["requires_loan_officer_review"], 0)
 
 	def test_the_declarations_are_kept_on_the_application(self):
-		draft = self.save(sections={**PUBLIC_SERVANT, "applicant_eid": " 592-2001-0101 ", "related_to_gdb_employee": "Yes"})
+		draft = self.save(sections={**PUBLIC_SERVANT, "has_eid": "Yes", "applicant_eid": " 592-2001-0101 "})
 		self.assertEqual(draft["sections"]["applicant_eid"], "592-2001-0101")
-		self.assertEqual(draft["sections"]["public_service_ministry"], "Ministry of Health")
-		self.assertEqual(draft["sections"]["related_to_gdb_employee"], "Yes")
+		self.assertEqual(draft["sections"]["employer_name"], "Ministry of Health")
+		self.assertEqual(draft["sections"]["sector"], "Rice")
 
-	def test_submission_asks_whether_the_applicant_is_a_public_servant(self):
-		self.refused_at_submission("public service", public_service_employed="")
+	def test_a_no_to_the_e_id_question_clears_the_number(self):
+		draft = self.save(sections={**TRADE, "has_eid": "No", "applicant_eid": "592-2001-0101"})
+		self.assertFalse(draft["sections"]["applicant_eid"])
 
-	def test_a_public_servant_names_their_ministry(self):
-		self.refused_at_submission("Ministry or agency", **{**PUBLIC_SERVANT, "public_service_ministry": ""})
+	def test_submission_asks_whether_the_applicant_has_an_e_id(self):
+		self.refused_at_submission("have an E-ID", has_eid="")
 
-	def test_a_public_servant_answers_the_income_question(self):
-		self.refused_at_submission("250,000", **{**PUBLIC_SERVANT, "public_service_under_250k": ""})
+	def test_a_yes_to_the_e_id_question_needs_the_number(self):
+		self.refused_at_submission("Enter your E-ID", has_eid="Yes", applicant_eid="")
 
-	def test_submission_asks_whether_the_applicant_is_related_to_a_gdb_employee(self):
-		self.refused_at_submission("related to an employee", related_to_gdb_employee="")
+	def test_an_e_id_given_has_its_format(self):
+		self.refused_at_submission("xxx-xxxx-xxxx", has_eid="Yes", applicant_eid="12345")
+
+	def test_submission_asks_whether_the_applicant_is_employed(self):
+		self.refused_at_submission("are employed", employed="")
+
+	def test_an_employee_names_their_employer_category(self):
+		self.refused_at_submission("employer category", **{**PUBLIC_SERVANT, "employer_category": ""})
+
+	def test_an_employee_names_their_employer(self):
+		self.refused_at_submission("employer's name", **{**PUBLIC_SERVANT, "employer_name": ""})
+
+	def test_an_employee_gives_their_monthly_income(self):
+		self.refused_at_submission("monthly income", **{**PUBLIC_SERVANT, "income_band": ""})
+
+	def test_submission_asks_for_the_industry(self):
+		self.refused_at_submission("industry", sector="", sub_sector="")
+
+	def sub_sector(self, sector: str, name: str) -> str:
+		return frappe.get_doc(
+			{"doctype": "GDB Sub Sector", "sector": sector, "sub_sector_name": name}
+		).insert(ignore_permissions=True, set_name=f"{sector} - {name}").name
+
+	def test_the_twelve_industries_are_offered(self):
+		with self.set_user(TRADER):
+			offered = [i["sector"] for i in api.industry_options()]
+		self.assertEqual(len(offered), 12)
+		self.assertIn("Wholesale and Retail Trade", offered)
+		self.assertNotIn("Agriculture", offered)
+
+	def test_an_industry_without_sub_sectors_needs_none(self):
+		self.assertEqual(self.in_queue(self.submitted(sector="Poultry", sub_sector=""))["status"], "Submitted")
+
+	def test_an_industry_with_sub_sectors_asks_for_one(self):
+		self.sub_sector("Rice", "Paddy")
+		self.refused_at_submission("sub-sector", sub_sector="")
+
+	def test_a_sub_sector_belongs_to_its_industry(self):
+		other = self.sub_sector("Fishing", "Shrimp")
+		with self.assertRaisesRegex(frappe.ValidationError, "sub-sector of Rice"):
+			self.save(sections={**TRADE, "sub_sector": other})
+
+	def test_the_moratorium_is_optional(self):
+		name = self.submitted(moratorium_months=0)
+		self.assertEqual(self.in_queue(name)["status"], "Submitted")
 
 	def test_an_applicant_without_a_bank_account_may_submit(self):
 		name = self.submitted(no_bank_account=1)

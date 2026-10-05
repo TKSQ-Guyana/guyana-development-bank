@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime, nowdate
 
-from gdb_bank.install import APPLICATION_SECTIONS
+from gdb_bank.install import APPLICATION_SECTIONS, EMPLOYER_CATEGORIES, INCOME_BANDS
 from gdb_bank.utils import policy
 from gdb_bank.utils.constants import (
 	EXISTING_ONLY,
@@ -265,6 +265,10 @@ def _check_shares(values: dict) -> None:
 	the rest. Only a total over 100, which cannot be true of anything, is
 	refused.
 	"""
+	if values.get("gdb_legal_structure") in ("Partnership", "Incorporated (Inc.)") and flt(
+		values.get("gdb_applicant_share")
+	) >= 100:
+		frappe.throw(_("Your share must be less than 100%. The other owners hold the rest."))
 	declared = flt(values.get("gdb_applicant_share"))
 	declared += sum(flt(row.get("share_percent")) for row in values.get("gdb_ownership_lines") or [])
 	if declared > 100:
@@ -439,52 +443,103 @@ def _validated(
 	return values
 
 
+
 MORATORIUM_MESSAGE = "Choose when you want to start repaying: after {0} months."
 
 
-def _public_service(values: dict) -> None:
-	"""The public-service answers, kept consistent, and the review flag they set.
+# A public-sector employee in these bands is routed to a Loan Officer: the
+# successor of the old "public servant earning GYD 250,000 or more" rule.
+REVIEW_BANDS = ("Between $200K and $500K", "Above $500K")
 
-	The follow-up questions belong to a "Yes", so a "No" clears them. A public
-	servant who does NOT earn under GYD 250,000 a month may still apply: the
-	case is routed to a Loan Officer, never refused. The flag is the server's
-	conclusion, so whatever the form sent for it is overwritten.
+
+def _public_service(values: dict) -> None:
+	"""The applicant's declarations, kept consistent, and the review flag they set.
+
+	Each follow-up belongs to its "Yes", so a "No" clears it: no E-ID, no
+	number; not employed, no employer. A public-sector employee earning GYD
+	200,000 a month or more may still apply: the case is routed to a Loan
+	Officer, never refused. The flag is the server's conclusion, so whatever
+	the form sent for it is overwritten.
 	"""
-	for fieldname in ("gdb_applicant_eid", "gdb_public_service_ministry"):
+	for fieldname in ("gdb_applicant_eid", "gdb_public_service_ministry", "gdb_employer_name"):
 		values[fieldname] = (values.get(fieldname) or "").strip()
+	# A draft from before the question: a number given means "Yes".
+	if not values.get("gdb_has_eid") and values.get("gdb_applicant_eid"):
+		values["gdb_has_eid"] = "Yes"
+	if values.get("gdb_has_eid") == "No":
+		values["gdb_applicant_eid"] = ""
+	if values.get("gdb_employed") != "Yes":
+		values["gdb_employer_category"] = values["gdb_employer_name"] = values["gdb_income_band"] = ""
 	if values.get("gdb_public_service_employed") != "Yes":
 		values["gdb_public_service_ministry"] = ""
 		values["gdb_public_service_under_250k"] = ""
 	values["gdb_requires_loan_officer_review"] = int(
-		values.get("gdb_public_service_employed") == "Yes"
-		and values.get("gdb_public_service_under_250k") == "No"
+		(
+			values.get("gdb_employed") == "Yes"
+			and values.get("gdb_employer_category") == "Public Sector"
+			and values.get("gdb_income_band") in REVIEW_BANDS
+		)
+		# Applications made before 2026-10-05 keep the old rule.
+		or (values.get("gdb_public_service_employed") == "Yes" and values.get("gdb_public_service_under_250k") == "No")
 	)
+	_check_industry(values)
+
+
+def _check_industry(values: dict) -> None:
+	"""The industry and sub-sector, when given, are GDB's own and agree."""
+	sector, sub = (values.get("gdb_sector") or "").strip(), (values.get("gdb_sub_sector") or "").strip()
+	values["gdb_sector"], values["gdb_sub_sector"] = sector, sub
+	if sector and not frappe.db.exists("GDB Sector", {"name": sector, "disabled": 0}):
+		frappe.throw(_("Choose your industry from the list."))
+	if sub and frappe.db.get_value("GDB Sub Sector", sub, "sector") != sector:
+		frappe.throw(_("Choose a sub-sector of {0}.").format(sector or _("your industry")))
 
 
 def _require_declarations(doc) -> None:
-	"""The applicant's yes/no declarations (both forms), answered before the
-	case goes to GDB. Asked at submission rather than on every save, so a draft
-	saved before the questions existed can still be opened and finished."""
-	if doc.gdb_public_service_employed not in ("Yes", "No"):
-		frappe.throw(_("Tell us whether you are employed in any public service."))
-	if doc.gdb_public_service_employed == "Yes":
-		if not (doc.gdb_public_service_ministry or "").strip():
-			frappe.throw(_("Tell us which Ministry or agency you work for."))
-		if doc.gdb_public_service_under_250k not in ("Yes", "No"):
-			frappe.throw(_("Tell us whether you are making less than $250,000 a month."))
-	if doc.gdb_related_to_gdb_employee not in ("Yes", "No"):
-		frappe.throw(_("Tell us whether you are related to an employee of Guyana Development Bank."))
+	"""The applicant's declarations (both forms), answered before the case goes
+	to GDB. Asked at submission rather than on every save, so a draft saved
+	before the questions existed can still be opened and finished.
+
+	2026-10-05: "Are you employed?" replaces the public-service question, and
+	"related to a GDB employee" is no longer asked."""
+	from gdb_bank.utils.eid import EID_SHAPE, normalize_eid
+
+	if doc.gdb_has_eid not in ("Yes", "No"):
+		frappe.throw(_("Tell us whether you have an E-ID."))
+	if doc.gdb_has_eid == "Yes":
+		eid = normalize_eid(doc.gdb_applicant_eid)
+		if not eid:
+			frappe.throw(_("Enter your E-ID."))
+		if not EID_SHAPE.match(eid):
+			frappe.throw(_("Enter your E-ID in the format xxx-xxxx-xxxx."))
+		doc.gdb_applicant_eid = eid
+	if doc.gdb_employed not in ("Yes", "No"):
+		frappe.throw(_("Tell us whether you are employed."))
+	if doc.gdb_employed == "Yes":
+		if doc.gdb_employer_category not in EMPLOYER_CATEGORIES:
+			frappe.throw(_("Choose your employer category: Public Sector or Private Sector."))
+		if not (doc.gdb_employer_name or "").strip():
+			frappe.throw(_("Enter your employer's name."))
+		if doc.gdb_income_band not in INCOME_BANDS:
+			frappe.throw(_("Choose your monthly income."))
+	if not (doc.gdb_sector or "").strip():
+		frappe.throw(_("Choose your industry."))
+	# Asked only of an industry that has sub-sectors (GDB Sub Sector).
+	if not (doc.gdb_sub_sector or "").strip() and frappe.db.exists(
+		"GDB Sub Sector", {"sector": doc.gdb_sector, "disabled": 0}
+	):
+		frappe.throw(_("Choose your sub-sector."))
 
 
 def _require_sme_details(doc) -> None:
 	"""What a single SME application must carry before it goes to GDB."""
 	from gdb_bank.utils.eid import EID_SHAPE, normalize_eid
 
-	# The e-ID is optional on an SME Loan (GDB, 2026-10-04); one given must be
-	# a real e-ID number.
+	# The e-ID is optional on an SME Loan (GDB, 2026-10-04): "Do you have an
+	# E-ID?" decides whether it is asked (_require_declarations).
 	eid = normalize_eid(doc.gdb_applicant_eid)
 	if eid and not EID_SHAPE.match(eid):
-		frappe.throw(_("Enter your E-ID as its 11 digits, e.g. 592-2001-0101."))
+		frappe.throw(_("Enter your E-ID in the format xxx-xxxx-xxxx."))
 	doc.gdb_applicant_eid = eid
 	# A new business is not asked for a registration (GDB, 2026-10-04): only an
 	# existing one names its DCRA number, and the date it was established
@@ -646,7 +701,10 @@ def submit_application(
 	eligibility.require_none_open(
 		user, _portal_product(doc.loan_product), include_drafts=False, except_name=name
 	)
-	if not doc.gdb_cluster and cint(doc.gdb_moratorium_months) not in policy.moratorium_options():
+	# The moratorium is optional (2026-10-05): none chosen is 0, repayments from
+	# the month after release; one chosen must be one GDB offers.
+	moratorium = cint(doc.gdb_moratorium_months)
+	if not doc.gdb_cluster and moratorium and moratorium not in policy.moratorium_options():
 		frappe.throw(_(MORATORIUM_MESSAGE).format(policy.months_phrase(policy.moratorium_options())))
 	if not doc.gdb_cluster and _portal_product(doc.loan_product) != QUICK_PRODUCT:
 		if doc.gdb_has_existing_debts not in ("Yes", "No"):
@@ -682,11 +740,24 @@ def submit_application(
 	# anything" were both true at once. See notify_group_submitted.
 	if doc.gdb_cluster:
 		notify_group_submitted(user, doc.gdb_cluster, name)
+	else:
+		_text_received(doc)
 	_logger().info(
 		f"loan application {name} submitted by {submitted_by or user} for {doc.loan_amount}"
 		+ (f" with documents outstanding: {', '.join(outstanding)}" if outstanding else "")
 	)
 	return _portal_dict(frappe.db.get_value("Loan Application", name, LOAN_FIELDS, as_dict=True))
+
+
+def _text_received(doc) -> None:
+	"""'We received your application' by SMS (2026-10-05), to the applicant's
+	phone. Queued after commit; off until SMS is configured."""
+	from gdb_bank.integrations import sms
+
+	first = (frappe.db.get_value("User", doc.gdb_owner, "first_name") or "").strip() or "there"
+	phone = doc.applicant_phone_number or frappe.db.get_value("User", doc.gdb_owner, "mobile_no")
+	sector = (doc.gdb_sector or "").strip() or "your business"
+	sms.send(phone, sms.APPLICATION_RECEIVED.format(first_name=first, sector=sector))
 
 
 def discard_application(user: str, name: str):

@@ -1,3 +1,4 @@
+import { DateInput } from "../components/DateInput";
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { call } from '../api';
@@ -120,23 +121,11 @@ export function Statements() {
               </label>
               <label className="text-sm">
                 <span className="mb-1.5 block font-medium text-slate-600">From</span>
-                <input
-                  type="date"
-                  value={from}
-                  max={to}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                />
+                <DateInput value={from} onChange={(v) => setFrom(v)} max={to} />
               </label>
               <label className="text-sm">
                 <span className="mb-1.5 block font-medium text-slate-600">To</span>
-                <input
-                  type="date"
-                  value={to}
-                  min={from}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                />
+                <DateInput value={to} onChange={(v) => setTo(v)} min={from} />
               </label>
             </div>
           </Card>

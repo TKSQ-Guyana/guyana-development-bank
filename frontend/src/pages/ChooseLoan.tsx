@@ -95,13 +95,12 @@ function options(
         note: "GDB decides the approved amount",
       },
       facts: [
-        { label: "Registration", value: "Not needed" },
         { label: "Term", value: "Up to 24 months" },
         { label: "Application", value: `${QUICK_STEP_COUNT} short steps` },
       ],
       needs: [
         "A short description of your business",
-        "Bank account in your name, if you have one",
+        "Bank account in your name",
       ],
       to: "/apply/quick",
     },
@@ -121,11 +120,10 @@ function options(
         note: "GDB decides the approved amount",
       },
       facts: [
-        { label: "Registration", value: "Business registration required" },
         { label: "Term", value: "Up to 5 years" },
         { label: "Application", value: `${SME_STEP_COUNT} steps` },
       ],
-      needs: ["Business plan", "Financial statements", "Bank statements"],
+      needs: ["Business plan", "Financial statements"],
       to: "/apply/new/sme",
     },
   ];
@@ -354,7 +352,7 @@ function OptionCard({
       >
         <p className="text-sm text-slate-600">{o.tagline}</p>
 
-        <dl className="grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/60">
+        <dl className="grid grid-cols-2 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/60">
           {o.facts.map((f) => (
             <div key={f.label} className="px-3 py-2">
               <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">

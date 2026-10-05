@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DateInput } from "../DateInput";
 import { PhoneInput } from "../PhoneInput";
 import { RequiredMark } from "../ui/RequiredMark";
 
@@ -133,6 +134,21 @@ export function TextField({
   min,
   max,
 }: TextFieldProps) {
+  // Every date in the portal is the same three dropdowns (DateInput).
+  if (type === "date") {
+    return (
+      <Field label={label} hint={hint} required={required} tag={tag}>
+        <DateInput
+          value={value}
+          onChange={onChange}
+          min={min}
+          max={max}
+          disabled={disabled}
+          label={label}
+        />
+      </Field>
+    );
+  }
   return (
     <Field label={label} hint={hint} required={required} tag={tag}>
       <input

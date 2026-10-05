@@ -128,7 +128,10 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
               "Repayments start",
               moratoriumValue(Number(text(s, "moratorium_months") ?? 0)),
             ],
-            ["New business", loan.business_stage ? (isNew ? "Yes" : "No") : null],
+            [
+              "New business",
+              loan.business_stage ? (isNew ? "Yes" : "No") : null,
+            ],
             ["DCRA #", loan.dcra_number || null],
             [
               "Date of registration",
@@ -138,7 +141,10 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
             ],
             ...(isNew
               ? ([
-                  ["Industrial training program", text(s, "industrial_training")],
+                  [
+                    "Industrial training program",
+                    text(s, "industrial_training"),
+                  ],
                   [
                     "Mentor",
                     text(s, "has_mentor") === "Yes"
@@ -155,6 +161,11 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
                 : null,
             ],
             ["Employees", text(s, "staff_count")],
+            ["Industry (declared)", text(s, "sector")],
+            [
+              "Sub sector (declared)",
+              text(s, "sub_sector")?.replace(/^.*? - /, "") ?? null,
+            ],
             ["Jobs to be created", text(s, "jobs_created")],
             ["Location", text(s, "operating_location")],
             ["What it does", text(s, "products_services")],
@@ -167,24 +178,49 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
         <CardHead title="Applicant" tag="Declared" />
         <Fields
           rows={[
+            ["Has an E-ID", text(s, "has_eid")],
             ["E-ID", text(s, "applicant_eid")],
-            ["Employed in public service", text(s, "public_service_employed")],
-            ...(text(s, "public_service_employed") === "Yes"
+            // 2026-10-05: "Are you employed?" — and, for applications made
+            // before, the public-service answers they gave.
+            ...(text(s, "employed")
               ? ([
-                  ["Ministry or agency", text(s, "public_service_ministry")],
-                  [
-                    "Making less than $250,000 a month",
-                    text(s, "public_service_under_250k"),
-                  ],
+                  ["Employed", text(s, "employed")],
+                  ...(text(s, "employed") === "Yes"
+                    ? ([
+                        ["Employer category", text(s, "employer_category")],
+                        ["Employer name", text(s, "employer_name")],
+                        ["Monthly income", text(s, "income_band")],
+                      ] as [string, string | null][])
+                    : []),
                 ] as [string, string | null][])
-              : []),
+              : ([
+                  [
+                    "Employed in public service",
+                    text(s, "public_service_employed"),
+                  ],
+                  ...(text(s, "public_service_employed") === "Yes"
+                    ? ([
+                        [
+                          "Ministry or agency",
+                          text(s, "public_service_ministry"),
+                        ],
+                        [
+                          "Making less than $250,000 a month",
+                          text(s, "public_service_under_250k"),
+                        ],
+                      ] as [string, string | null][])
+                    : []),
+                  [
+                    "Related to a GDB employee",
+                    text(s, "related_to_gdb_employee"),
+                  ],
+                ] as [string, string | null][])),
             [
               "Loan Officer review",
               Number(s.requires_loan_officer_review ?? 0) === 1
-                ? "Required — public servant earning $250,000 or more a month"
+                ? "Required — public-sector employee earning $200K or more a month"
                 : "Not required",
             ],
-            ["Related to a GDB employee", text(s, "related_to_gdb_employee")],
             [
               "Bank account",
               Number(s.no_bank_account ?? 0) === 1

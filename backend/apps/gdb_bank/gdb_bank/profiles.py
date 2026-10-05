@@ -34,7 +34,8 @@ DOCTYPE = "GDB Citizen Profile"
 # an outside source on their behalf (DCRA's business register, the bank
 # switch). Bumping this string is what makes a citizen who accepted an older
 # version get asked again — nothing else drives re-consent.
-CONSENT_VERSION = "2026-09-1"
+# 2026-10-05: one declaration replaces the two earlier statements.
+CONSENT_VERSION = "2026-10-05"
 
 # What the applicant may write. Everything else on the doctype is either
 # derived (name, e-ID) or asserted by the directory, and a citizen writing to

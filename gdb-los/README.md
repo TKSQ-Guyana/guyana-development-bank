@@ -85,6 +85,19 @@ kubectl api-resources | grep k8s.mariadb.com
 PLATFORM_ADMIN_PASSWORD='<first one-time password>' ./03-create-secrets.sh
 ```
 
+**SMS codes (Twilio Verify).** Until these three keys are in `gdb-secrets`, every
+sign-up and sign-in code is the fixed `123456` — do not open the portal to the
+public without them. Add (or change) them at any time, then restart the web pods:
+
+```bash
+kubectl -n gdb-los patch secret gdb-secrets --type merge -p "{\"stringData\": {
+  \"twilio-account-sid\": \"AC...\",
+  \"twilio-auth-token\": \"...\",
+  \"twilio-verify-service-sid\": \"VA...\",
+  \"twilio-messaging-service-sid\": \"MG...\"}}"
+kubectl -n gdb-los rollout restart deploy/gdb-backend-web
+```
+
 ### 4. Keycloak realms
 
 Follow `files/keycloak/README.md` (copy realm JSONs, replace dev secrets with placeholders).

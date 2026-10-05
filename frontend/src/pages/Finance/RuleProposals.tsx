@@ -1,3 +1,4 @@
+import { DateInput } from "../../components/DateInput";
 import { useCallback, useEffect, useState } from 'react';
 import { decideRuleProposal, listRuleProposals, proposeRuleChange } from '../../api';
 import type { LendingRuleProposal, LendingRuleType } from '../../types';
@@ -133,12 +134,7 @@ export function RuleProposals() {
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-slate-600">Effective date</span>
-            <input
-              type="date"
-              value={form.effective_date}
-              onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
+            <DateInput value={form.effective_date} onChange={(v) => setForm({ ...form, effective_date: v })} />
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-slate-600">

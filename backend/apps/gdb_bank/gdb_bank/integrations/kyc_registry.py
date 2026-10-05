@@ -55,7 +55,9 @@ def _from_erpnext(number: str) -> dict | None | bool:
 	all (the file then stands in)."""
 	if not frappe.db.table_exists(DOCTYPE) or not frappe.db.count(DOCTYPE):
 		return False
-	name = frappe.db.get_value(DOCTYPE, {"id_number": number})
+	name = frappe.db.get_value(DOCTYPE, {"id_number": number}) or frappe.db.get_value(
+		DOCTYPE, {"passport_number": number}
+	)
 	return frappe.get_doc(DOCTYPE, name).as_dict() if name else None
 
 

@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { call } from "../../api";
 import { FacilitatedBanks } from "../apply/FacilitatedBanks";
-import { PayoutAccount, type PayoutValue } from "../apply/PayoutAccount";
+import {
+  PayoutAccount,
+  useAccountOnFile,
+  type PayoutValue,
+} from "../apply/PayoutAccount";
 import { ChoiceCard, Notice } from "../apply/fields";
 
 const EMPTY: PayoutValue = {
@@ -24,6 +28,7 @@ export function BankAccountForm() {
   const [value, setValue] = useState<PayoutValue>(EMPTY);
   const [accountType, setAccountType] = useState("");
   const [none, setNone] = useState(false);
+  const accountOnFile = useAccountOnFile();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -88,18 +93,20 @@ export function BankAccountForm() {
           e.preventDefault();
       }}
     >
-      <label className="flex cursor-pointer items-start gap-2.5">
-        <input
-          type="checkbox"
-          checked={none}
-          onChange={(e) => setNone(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-        />
-        <span className="text-sm font-bold text-slate-900">
-          I don't have a bank account
-        </span>
-      </label>
-      {none ? (
+      {accountOnFile === false && (
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={none}
+            onChange={(e) => setNone(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+          />
+          <span className="text-sm font-bold text-slate-900">
+            I don't have a bank account
+          </span>
+        </label>
+      )}
+      {none && !accountOnFile ? (
         <FacilitatedBanks />
       ) : (
         <>

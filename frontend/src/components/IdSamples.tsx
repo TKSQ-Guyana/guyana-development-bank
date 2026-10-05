@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import driversLicence from "../assets/id-samples/drivers-licence.jpg";
 import eId from "../assets/id-samples/e-id.jpg";
@@ -67,9 +67,12 @@ const article = (kind: string) =>
 export function IdSampleLink({
   kind,
   className = "",
+  children,
 }: {
   kind: string;
   className?: string;
+  /** The link's own words instead of "What is a … ?" — no "?" badge then. */
+  children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const sample = ID_SAMPLES[kind];
@@ -81,13 +84,17 @@ export function IdSampleLink({
         onClick={() => setOpen(true)}
         className={`inline-flex items-center gap-1.5 text-xs font-bold text-brand hover:underline ${className}`}
       >
-        <span
-          aria-hidden
-          className="grid h-4 w-4 place-items-center rounded-full bg-brand/10 text-[10px] font-black"
-        >
-          ?
-        </span>
-        What is {article(kind)} {kind}?
+        {children ?? (
+          <>
+            <span
+              aria-hidden
+              className="grid h-4 w-4 place-items-center rounded-full bg-brand/10 text-[10px] font-black"
+            >
+              ?
+            </span>
+            What is {article(kind)} {kind}?
+          </>
+        )}
       </button>
       {open && (
         <IdSampleDialog
@@ -193,5 +200,28 @@ function IdSampleDialog({
       </div>
     </dialog>,
     document.body,
+  );
+}
+
+/** "What is a National ID | Passport | E-ID Number" — one line, each its own
+ *  sample (sign-up, where any of the three may be typed). */
+export function IdSampleLinks({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-gdb-ink/60 ${className}`}
+    >
+      <span
+        aria-hidden
+        className="grid h-4 w-4 place-items-center rounded-full bg-brand/10 text-[10px] font-black text-brand"
+      >
+        ?
+      </span>
+      <span>What is a</span>
+      <IdSampleLink kind="National ID Card">National ID</IdSampleLink>
+      <span aria-hidden>|</span>
+      <IdSampleLink kind="Passport">Passport</IdSampleLink>
+      <span aria-hidden>|</span>
+      <IdSampleLink kind="e-ID">E-ID Number</IdSampleLink>
+    </span>
   );
 }

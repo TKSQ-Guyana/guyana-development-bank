@@ -1,6 +1,13 @@
+import { DateInput } from "../../components/DateInput";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { eidForBoxes, eidFromBoxes } from "../../eid";
-import { EidBoxes } from "../../components/EidBoxes";
+import {
+  EID_FORMAT_HINT,
+  EMPLOYER_CATEGORIES,
+  INCOME_BANDS,
+  subSectorLabel,
+  typedEid,
+  useIndustries,
+} from "../../shared/declarations";
 import { firstRepaymentLine, moratoriumChoice } from "../../shared/moratorium";
 import { useNavigate, useParams } from "react-router-dom";
 import { useOneAtATime } from "../../components/apply/OneAtATime";
@@ -12,7 +19,10 @@ import { REGIONS } from "../../components/apply/cluster";
 import { LocationPicker } from "../../components/LocationPicker";
 import { formatPhone, PhoneInput } from "../../components/PhoneInput";
 import { formatDate } from "../../utils";
-import { PayoutAccount } from "../../components/apply/PayoutAccount";
+import {
+  PayoutAccount,
+  useAccountOnFile,
+} from "../../components/apply/PayoutAccount";
 import {
   ApplicationsIcon,
   BankIcon,
@@ -22,7 +32,8 @@ import {
   UsersIcon,
 } from "../../components/ui/icons";
 import { FieldOfficerRequest } from "./FieldOfficerRequest";
-import { CONSENT_TEXT, FALSE_INFORMATION_WARNING } from "../../shared/consent";
+import { SubmittedScreen } from "../applications/SubmittedScreen";
+import { CONSENT_TEXT } from "../../shared/consent";
 import type {
   BankAccountRecord,
   CitizenProfile,
@@ -40,6 +51,7 @@ import {
   RAIL_STEPS,
   termList,
   toSavePayload,
+  hasSubSectors,
   type QuickAnswers,
   type QuickLoanTerms,
   type QuickStepId,
@@ -94,8 +106,6 @@ const DOC_SLOTS: [
 
 const clock = (d: Date) =>
   d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-const stamp = (d: Date) =>
-  `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}, ${clock(d)}`;
 const regionShort = (r: string) => r.split(" — ")[0];
 
 /** The steps whose answers every draft save carries and the server checks. */
@@ -127,6 +137,14 @@ export function QuickApplyPage() {
 
   const [terms, setTerms] = useState<QuickLoanTerms | null>(null);
   const [answers, setAnswers] = useState<QuickAnswers>(EMPTY_ANSWERS);
+  // GDB's industries, for the business step's Industry and Sub Sector.
+  const industries = useIndustries();
+  // A bank account already on file: "I don't have a bank account" is not asked.
+  const accountOnFile = useAccountOnFile();
+  useEffect(() => {
+    if (accountOnFile)
+      setAnswers((a) => (a.noBankAccount ? { ...a, noBankAccount: false } : a));
+  }, [accountOnFile]);
   const [branchCode, setBranchCode] = useState("");
   const [step, setStep] = useState<QuickStepId>("eligibility");
   const [tab, setTab] = useState<"app" | "docs">("app");
@@ -464,91 +482,14 @@ export function QuickApplyPage() {
 
     if (submitted) {
       return (
-        <div className="flex flex-col gap-5">
-          <section className="relative overflow-hidden rounded-2xl border border-emerald-600/30 bg-gradient-to-br from-[#022c19] via-brand-dark to-brand p-7 text-white shadow-xl shadow-emerald-950/20 sm:p-9">
-            <div className="gdb-arrowhead pointer-events-none absolute inset-0 opacity-70" />
-            <div className="relative">
-              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-amber-400 text-emerald-950 shadow-lg ring-8 ring-amber-400/20">
-                <CheckIcon className="h-8 w-8" />
-              </span>
-              <h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">
-                Application submitted
-              </h1>
-              <p className="mt-2 max-w-xl text-emerald-100">
-                Your application has been submitted for GDB review.
-              </p>
-              <dl className="mt-6 grid gap-4 rounded-2xl bg-black/20 p-4 backdrop-blur-xs sm:grid-cols-3">
-                {[
-                  ["Reference", submitted.name],
-                  ["Quick Loan", `${amount} · ${months}`],
-                  ["Submitted", submittedAt ? stamp(submittedAt) : "—"],
-                ].map(([k, v]) => (
-                  <div key={k} className="border-l-2 border-amber-400/80 pl-3">
-                    <dt className="text-[10px] font-bold uppercase tracking-wider text-amber-300/90">
-                      {k}
-                    </dt>
-                    <dd className="mt-0.5 font-mono text-sm font-bold">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-3 text-xs text-emerald-200">
-                Keep your reference when contacting GDB.
-              </p>
-            </div>
-          </section>
-          <Panel>
-            <SectionTitle>What happens next</SectionTitle>
-            <ol className="relative ml-3 flex flex-col gap-5 border-l-2 border-slate-200 pl-6">
-              {[
-                [
-                  "Submitted",
-                  "Your application and documents are with GDB.",
-                  true,
-                ],
-                [
-                  "In review",
-                  "A member of the GDB team reviews your application. If more information is required, you will receive a request explaining what to provide.",
-                  false,
-                ],
-                [
-                  "Loan agreement and disbursement",
-                  "If approved, you accept and sign your Letter of Offer in the portal, and the loan is paid into your bank account.",
-                  false,
-                ],
-                [
-                  "Active",
-                  "Your loan is running. Repay each installment on time — you can see your schedule and payments in the portal.",
-                  false,
-                ],
-              ].map(([t, d, done]) => (
-                <li key={String(t)} className="relative">
-                  <span
-                    className={`absolute -left-[35px] grid h-6 w-6 place-items-center rounded-full border-2 ${
-                      done
-                        ? "border-brand bg-brand text-white"
-                        : "border-slate-300 bg-white"
-                    }`}
-                  >
-                    {done && <CheckIcon className="h-3.5 w-3.5" />}
-                  </span>
-                  <b className="text-sm font-extrabold text-slate-900">{t}</b>
-                  <p className="text-[13px] text-slate-500">{d}</p>
-                </li>
-              ))}
-            </ol>
-            <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-5">
-              <QButton
-                onClick={() => navigate(`/loans/${submitted.name}`)}
-                next
-              >
-                View submitted application
-              </QButton>
-              <QButton kind="secondary" onClick={() => navigate("/apply")}>
-                My applications
-              </QButton>
-            </div>
-          </Panel>
-        </div>
+        <SubmittedScreen
+          reference={submitted.name}
+          product="Quick Loan"
+          detail={`${amount} · ${months}`}
+          submittedAt={submittedAt}
+          onView={() => navigate(`/loans/${submitted.name}`)}
+          onApplications={() => navigate("/apply")}
+        />
       );
     }
 
@@ -919,15 +860,21 @@ export function QuickApplyPage() {
               "about",
               "About you",
               <>
-                E-ID: {answers.eid.trim() || "—"}
+                E-ID:{" "}
+                {answers.hasEid === "Yes"
+                  ? answers.eid.trim() || "—"
+                  : answers.hasEid === "No"
+                    ? "None"
+                    : "—"}
                 <br />
-                Public service: {answers.publicService || "—"}
-                {answers.publicService === "Yes" && (
+                Employed: {answers.employed || "—"}
+                {answers.employed === "Yes" && (
                   <>
                     {" "}
-                    · {answers.ministry || "—"}
+                    · {answers.employerCategory || "—"} ·{" "}
+                    {answers.employerName || "—"}
                     <br />
-                    Under $250,000 a month: {answers.under250k || "—"}
+                    Monthly income: {answers.incomeBand || "—"}
                     {needsOfficerReview(answers) && (
                       <span className="block font-semibold text-amber-700">
                         A Loan Officer will review your application.
@@ -935,8 +882,6 @@ export function QuickApplyPage() {
                     )}
                   </>
                 )}
-                <br />
-                Related to a GDB employee: {answers.relatedToGdb || "—"}
               </>,
             )}
             {summary(
@@ -945,6 +890,11 @@ export function QuickApplyPage() {
               <>
                 {answers.businessName || "No business name"} ·{" "}
                 {regionShort(answers.region) || "—"}
+                <br />
+                Industry: {answers.sector || "—"}
+                {answers.subSector
+                  ? ` · ${subSectorLabel(answers.subSector)}`
+                  : ""}
                 <br />
                 {answers.tradeActivity || "—"}
                 <br />
@@ -1019,17 +969,6 @@ export function QuickApplyPage() {
                 {reviewErrs.consentGiven}
               </div>
             )}
-            <Check
-              checked={answers.warningAcknowledged}
-              onChange={set("warningAcknowledged")}
-            >
-              {FALSE_INFORMATION_WARNING}
-            </Check>
-            {reviewErrs.warningAcknowledged && (
-              <div className="text-[12.5px] font-semibold text-rose-600">
-                {reviewErrs.warningAcknowledged}
-              </div>
-            )}
             <p className="text-xs text-slate-500">
               You cannot edit the application after you submit it. Submitting is
               not approval — a person at GDB decides.
@@ -1040,11 +979,7 @@ export function QuickApplyPage() {
               Back
             </QButton>
             <QButton
-              disabled={
-                issues.length > 0 ||
-                !answers.consentGiven ||
-                !answers.warningAcknowledged
-              }
+              disabled={issues.length > 0 || !answers.consentGiven}
               next
               onClick={() => void submit()}
             >
@@ -1073,83 +1008,116 @@ export function QuickApplyPage() {
                 askDob={!dobOnFile}
                 onDob={set("dob")}
               />
-              <QField
-                label="E-ID"
-                help="The number on your e-ID card, if you have one: 000-0000-0000."
-              >
-                <EidBoxes
-                  value={eidForBoxes(answers.eid)}
-                  onChange={(v) => set("eid")(eidFromBoxes(v))}
-                  required={false}
+              <QField label="Do you have an E-ID?" required>
+                <Chips
+                  label="Do you have an E-ID?"
+                  options={[...YES_NO]}
+                  value={answers.hasEid}
+                  onChange={(v) => set("hasEid")(v as QuickAnswers["hasEid"])}
                 />
               </QField>
+              {answers.hasEid === "Yes" && (
+                <QField
+                  label="E-ID"
+                  required
+                  help={<span className="normal-case">{EID_FORMAT_HINT}</span>}
+                >
+                  <input
+                    value={answers.eid}
+                    onChange={(e) => set("eid")(typedEid(e.target.value))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="xxx-xxxx-xxxx"
+                    maxLength={13}
+                    className={`${inputClass()} font-mono normal-case tracking-wider sm:max-w-xs`}
+                  />
+                </QField>
+              )}
 
-              <QField label="Are you employed in any public service?" required>
+              <QField label="Are you employed?" required>
                 <Chips
-                  label="Are you employed in any public service?"
+                  label="Are you employed?"
                   options={[...YES_NO]}
-                  value={answers.publicService}
+                  value={answers.employed}
                   onChange={(v) =>
-                    set("publicService")(v as QuickAnswers["publicService"])
+                    set("employed")(v as QuickAnswers["employed"])
                   }
                 />
               </QField>
-              {answers.publicService === "Yes" && (
+              {answers.employed === "Yes" && (
                 <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-                  <QField
-                    label="Which Ministry or agency do you work for?"
-                    required
-                  >
-                    <input
-                      value={answers.ministry}
-                      onChange={(e) => set("ministry")(e.target.value)}
-                      placeholder="For example: Ministry of Health"
-                      className={inputClass()}
-                    />
-                  </QField>
-                  <QField
-                    label="Are you making less than $250,000 a month?"
-                    required
-                  >
+                  <QField label="Employer Category" required>
                     <Chips
-                      label="Are you making less than $250,000 a month?"
-                      options={[...YES_NO]}
-                      value={answers.under250k}
+                      label="Employer Category"
+                      options={[...EMPLOYER_CATEGORIES]}
+                      value={answers.employerCategory}
                       onChange={(v) =>
-                        set("under250k")(v as QuickAnswers["under250k"])
+                        set("employerCategory")(
+                          v as QuickAnswers["employerCategory"],
+                        )
                       }
                     />
                   </QField>
-                  {answers.under250k === "Yes" && (
-                    <QField
-                      label="Please upload your payslip."
-                      tag={<Pill tone="grey">Optional</Pill>}
-                      help="Optional — you can continue without it. A PDF or a clear photo."
-                    >
-                      <DocumentShelf only="Payslip" title="Payslip" />
-                    </QField>
-                  )}
+                  <QField label="Employer Name" required>
+                    <input
+                      value={answers.employerName}
+                      onChange={(e) => set("employerName")(e.target.value)}
+                      placeholder="Who you work for"
+                      className={inputClass()}
+                    />
+                  </QField>
+                  <QField label="Monthly Income" required>
+                    <Chips
+                      label="Monthly Income"
+                      options={INCOME_BANDS.map((b) => b.value)}
+                      value={answers.incomeBand}
+                      onChange={set("incomeBand")}
+                    />
+                  </QField>
+                  <QField
+                    label="Please upload your payslip."
+                    tag={<Pill tone="grey">Optional</Pill>}
+                    help="Optional — you can continue without it. A PDF or a clear photo."
+                  >
+                    <DocumentShelf only="Payslip" title="Payslip" />
+                  </QField>
                 </div>
               )}
-
-              <QField
-                label="Are you related to an employee of Guyana Development Bank?"
-                required
-              >
-                <Chips
-                  label="Are you related to an employee of Guyana Development Bank?"
-                  options={[...YES_NO]}
-                  value={answers.relatedToGdb}
-                  onChange={(v) =>
-                    set("relatedToGdb")(v as QuickAnswers["relatedToGdb"])
-                  }
-                />
-              </QField>
             </>
           )}
 
           {step === "business" && (
             <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <QField label="Industry" required>
+                  <QSelect
+                    value={answers.sector}
+                    onChange={(v) =>
+                      setAnswers((a) => ({ ...a, sector: v, subSector: "" }))
+                    }
+                    options={industries.map((i) => i.sector)}
+                    placeholder="Choose your industry"
+                  />
+                </QField>
+                {/* Only an industry with sub-sectors asks for one. */}
+                {terms && hasSubSectors(terms, answers.sector) && (
+                  <QField label="Sub Sector" required>
+                    <QSelect
+                      value={answers.subSector}
+                      onChange={set("subSector")}
+                      options={(
+                        industries.find((i) => i.sector === answers.sector)
+                          ?.sub_sectors ?? []
+                      ).map((x) => [x.name, x.label] as [string, string])}
+                      placeholder={
+                        answers.sector
+                          ? "Choose your sub-sector"
+                          : "Choose your industry first"
+                      }
+                    />
+                  </QField>
+                )}
+              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <QField label="Business name (optional)">
                   <input
@@ -1202,12 +1170,7 @@ export function QuickApplyPage() {
                 </QField>
               </div>
 
-              <QField
-                label="Where is your business?"
-                required
-                helpFirst
-                help="Search for it, click the map, or drag the pin to the exact spot. Use your current location if you are there now."
-              >
+              <QField label="Business Location" required>
                 <LocationPicker
                   lat={answers.lat}
                   lng={answers.lng}
@@ -1385,8 +1348,8 @@ export function QuickApplyPage() {
               </div>
               <QField
                 label="Moratorium"
-                required
-                help="How long to wait, after the funds are released, before your first instalment."
+                tag={<Pill tone="grey">Optional</Pill>}
+                help="How long to wait, after the funds are released, before your first instalment. Tap again to clear."
               >
                 <div
                   className="grid grid-cols-3 gap-2 sm:max-w-md"
@@ -1402,7 +1365,7 @@ export function QuickApplyPage() {
                         role="radio"
                         aria-checked={on}
                         aria-label={`${m} month${m === 1 ? "" : "s"} moratorium`}
-                        onClick={() => set("moratorium")(String(m))}
+                        onClick={() => set("moratorium")(on ? "" : String(m))}
                         className={`flex h-12 flex-col items-center justify-center rounded-lg border transition-all ${
                           on
                             ? "border-brand-dark bg-brand-dark text-white shadow-sm shadow-emerald-950/20"
@@ -1469,15 +1432,18 @@ export function QuickApplyPage() {
 
           {step === "bank" && (
             <>
-              <Check
-                checked={answers.noBankAccount}
-                onChange={set("noBankAccount")}
-              >
-                <b className="font-bold text-slate-900">
-                  I don't have a bank account
-                </b>
-              </Check>
-              {answers.noBankAccount ? (
+              {/* With an account on file there is nothing to say "no" to. */}
+              {accountOnFile === false && (
+                <Check
+                  checked={answers.noBankAccount}
+                  onChange={set("noBankAccount")}
+                >
+                  <b className="font-bold text-slate-900">
+                    I don't have a bank account
+                  </b>
+                </Check>
+              )}
+              {answers.noBankAccount && !accountOnFile ? (
                 <FacilitatedBanks />
               ) : (
                 <>
@@ -1754,12 +1720,10 @@ function YourDetails({
           </dt>
           {askDob && onDob ? (
             <dd>
-              <input
-                type="date"
+              <DateInput
                 value={dob}
-                onChange={(e) => onDob(e.target.value)}
-                aria-label="Date of birth"
-                className={`${inputClass()} mt-0.5 h-9!`}
+                onChange={(v) => onDob(v)}
+                label="Date of birth"
               />
             </dd>
           ) : (

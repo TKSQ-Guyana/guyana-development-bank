@@ -134,6 +134,34 @@ def discard_application(name: str):
 	return application_service.discard_application(_session_user(), name)
 
 
+@frappe.whitelist(allow_guest=True)
+def industry_options():
+	"""GDB's industries and their sub-sectors, for the applicant's own answer
+	and the home page's appointment form. The same list as sector_options."""
+	from gdb_bank.services import credit_classification
+
+	return credit_classification.sector_options()
+
+
+@frappe.whitelist()
+def appointment_queue(status: str | None = None, search: str | None = None, start=0, page_length=20):
+	"""The appointment requests, newest first. GDB Representative only."""
+	from gdb_bank.services import appointments
+	from gdb_bank.utils.session import _require_representative
+
+	_require_representative()
+	return appointments.queue(status, search, start, page_length)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_appointment(name: str, status: str, note: str | None = None):
+	"""Move an appointment request on, with a note. GDB Representative only."""
+	from gdb_bank.services import appointments
+	from gdb_bank.utils.session import _require_representative
+
+	return appointments.update(_require_representative(), name, status, note)
+
+
 @frappe.whitelist()
 def sector_options():
 	"""The sectors and sub-sectors a case is classified under. Staff only."""

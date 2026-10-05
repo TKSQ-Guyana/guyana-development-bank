@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { eidForBoxes, eidFromBoxes } from "../eid";
-import { EidBoxes } from "../components/EidBoxes";
+import {
+  EID_FORMAT_HINT,
+  EMPLOYER_CATEGORIES,
+  INCOME_BANDS,
+  isEidFormat,
+  officerReview,
+  subSectorLabel,
+  typedEid,
+  useIndustries,
+} from "../shared/declarations";
+import { SubmittedScreen } from "../features/applications/SubmittedScreen";
 import { FocusAlert } from "../shared/FocusAlert";
-import { PayoutAccount } from "../components/apply/PayoutAccount";
+import {
+  PayoutAccount,
+  useAccountOnFile,
+} from "../components/apply/PayoutAccount";
 import { FacilitatedBanks } from "../components/apply/FacilitatedBanks";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { call } from "../api";
@@ -47,7 +59,7 @@ import {
   formatGyd,
   parseUseOfFunds,
 } from "../utils";
-import { CONSENT_TEXT, FALSE_INFORMATION_WARNING } from "../shared/consent";
+import { CONSENT_TEXT } from "../shared/consent";
 import { Footer, QButton } from "../components/portal/ui";
 import { formatPhone } from "../components/PhoneInput";
 import {
@@ -132,13 +144,14 @@ type StepId =
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
   {
     id: "route",
-    title: "Application type",
-    blurb: "Your details, the business and how it is owned.",
+    title: "About you",
+    blurb: "Your details, your E-ID and your employment.",
   },
   {
     id: "business",
     title: "Business details",
-    blurb: "Open one group at a time.",
+    blurb:
+      "Your industry, the business and how it is owned — then one group at a time.",
   },
   {
     id: "operations",
@@ -229,8 +242,6 @@ const PAYSLIP_ROW: DocRow = {
 
 /** An email address as the form accepts it; the server checks it again. */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-/** The 11 digits of an e-ID, however they are typed (dashes, spaces). */
-const isEid = (v: string) => v.replace(/\D/g, "").length === 11;
 
 const OTHER_DOC: DocRow = {
   type: "Other",
@@ -343,7 +354,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // Review's two statements (shared/consent.ts) — the only consent the form
   // asks, ticked before the applicant's own submission.
   const [declConsent, setDeclConsent] = useState(false);
-  const [declWarning, setDeclWarning] = useState(false);
   const [stage, setStage] = useState<"" | "Existing" | "New">("");
   const [structure, setStructure] = useState<Structure>("");
   // Named partners, as declared. Naming somebody is not the same as that
@@ -424,6 +434,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const [busy, setBusy] = useState(false);
   const [restored, setRestored] = useState(false);
   const [submitted, setSubmitted] = useState<LoanApplication | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   const [tab, setTab] = useState<"application" | "documents">("application");
 
   // Ownership shares are a question only where ownership is divided. A sole
@@ -499,7 +510,17 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       : ["jobs_created", "employment_impact"];
   // "Do you have a bank account?" — kept with the answers, sent as
   // no_bank_account; a resumed draft answers it from what it holds.
-  const hasBank = text("has_bank_account") || "Yes";
+  // A bank account already on file: "I don't have a bank account" is not
+  // asked, and an earlier No gives way to it (GDB, 2026-10-05).
+  const accountOnFile = useAccountOnFile();
+  const hasBank = accountOnFile ? "Yes" : text("has_bank_account") || "Yes";
+  // "Do you have an E-ID?" — a draft from before the question, with a number,
+  // answered Yes.
+  const hasEid = text("has_eid") || (text("applicant_eid") ? "Yes" : "");
+  // GDB's industries, for the business step's Industry and Sub Sector.
+  const industries = useIndustries();
+  const subSectorsOf = (sector: string) =>
+    industries.find((i) => i.sector === sector)?.sub_sectors ?? [];
 
   // --- resume -------------------------------------------------------------
   /** Load a draft back from GDB. This is the resume path: the server holds the
@@ -971,14 +992,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         ...sections,
         no_bank_account: noAccount ? 1 : 0,
         // The follow-ups belong to a Yes; the server clears them on a No too.
-        public_service_ministry:
-          text("public_service_employed") === "Yes"
-            ? text("public_service_ministry").trim()
-            : "",
-        public_service_under_250k:
-          text("public_service_employed") === "Yes"
-            ? text("public_service_under_250k")
-            : "",
+        applicant_eid:
+          text("has_eid") === "Yes" ? text("applicant_eid").trim() : "",
+        employer_category:
+          text("employed") === "Yes" ? text("employer_category") : "",
+        employer_name:
+          text("employed") === "Yes" ? text("employer_name").trim() : "",
+        income_band: text("employed") === "Yes" ? text("income_band") : "",
         legal_structure: structure,
         // Only complete e-IDs travel. A half-typed one is not a partner.
         // Kept in step with the ownership rows, which are now where partners
@@ -1065,7 +1085,47 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
    *  function of the answers, so the rail can ask it of ANY step, not only the
    *  one on screen. */
   const blockerFor = (step: StepId): string | null => {
-    if (step === "route") {
+    if (step === "about" || step === "route") {
+      if (!profileDob) return "Enter your date of birth.";
+      if (!profilePhone.trim()) return "Enter your phone number.";
+      // Guyana numbers are seven digits (592 in front when typed with the
+      // country code). The server applies the full check on save.
+      const phoneDigits = profilePhone.replace(/\D/g, "");
+      if (
+        !profilePhone.trim().startsWith("+") &&
+        !(
+          phoneDigits.length === 7 ||
+          (phoneDigits.length === 10 && phoneDigits.startsWith("592"))
+        )
+      ) {
+        return "Enter a valid phone number, e.g. 600 1234.";
+      }
+      if (!profileEmail.trim()) return "Enter your email address.";
+      if (!EMAIL.test(profileEmail.trim()))
+        return "Enter a valid email address, e.g. name@example.com.";
+      if (!profileAddress.trim()) return "Enter your residential address.";
+      if (!profileRegion) return "Select the region you live in.";
+      if (!profileEducation) return "Choose your qualification.";
+      if (!hasEid) return "Tell us whether you have an E-ID.";
+      if (hasEid === "Yes") {
+        if (!text("applicant_eid").trim()) return "Enter your E-ID.";
+        if (!isEidFormat(text("applicant_eid")))
+          return "Enter your E-ID in the format xxx-xxxx-xxxx.";
+      }
+      if (!text("employed")) return "Tell us whether you are employed.";
+      if (text("employed") === "Yes") {
+        if (!text("employer_category"))
+          return "Choose your employer category: Public Sector or Private Sector.";
+        if (!text("employer_name").trim()) return "Enter your employer's name.";
+        if (!text("income_band")) return "Choose your monthly income.";
+      }
+    }
+    if (step === "business") {
+      // Asked first on this step (GDB, 2026-10-05): the industry, then the
+      // business and how it is owned, then the groups below.
+      if (!text("sector")) return "Choose your industry.";
+      if (!text("sub_sector") && subSectorsOf(text("sector")).length)
+        return "Choose your sub-sector.";
       if (!stage) return "Tell us whether this is a new business.";
       if (stage === "New") {
         if (!text("industrial_training"))
@@ -1108,52 +1168,22 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       }
       // Over 100% cannot be true of anything, and the server refuses it too.
       // Under 100% is deliberately allowed — see OwnershipBlock.
+      if (
+        askOwnership &&
+        (structure === "Partnership" || structure === "Incorporated (Inc.)") &&
+        Number(applicantShare) >= 100
+      ) {
+        return "Your share must be less than 100%. The other owners hold the rest.";
+      }
       if (askOwnership && sharesDeclared > 100) {
         return `Ownership shares total ${sharesDeclared}%. They cannot exceed 100%.`;
       }
-    }
-    if (step === "about" || step === "route") {
-      if (!profileDob) return "Enter your date of birth.";
-      if (!profilePhone.trim()) return "Enter your phone number.";
-      // Guyana numbers are seven digits (592 in front when typed with the
-      // country code). The server applies the full check on save.
-      const phoneDigits = profilePhone.replace(/\D/g, "");
-      if (
-        !profilePhone.trim().startsWith("+") &&
-        !(
-          phoneDigits.length === 7 ||
-          (phoneDigits.length === 10 && phoneDigits.startsWith("592"))
-        )
-      ) {
-        return "Enter a valid phone number, e.g. 600 1234.";
-      }
-      if (!profileEmail.trim()) return "Enter your email address.";
-      if (!EMAIL.test(profileEmail.trim()))
-        return "Enter a valid email address, e.g. name@example.com.";
-      if (!profileAddress.trim()) return "Enter your residential address.";
-      if (!profileRegion) return "Select the region you live in.";
-      if (!profileEducation) return "Choose your qualification.";
-      // Optional on an SME Loan; one given must be a whole e-ID number.
-      if (text("applicant_eid").trim() && !isEid(text("applicant_eid")))
-        return "Enter your E-ID as its 11 digits, e.g. 592-2001-0101.";
-      if (!text("public_service_employed"))
-        return "Tell us whether you are employed in any public service.";
-      if (text("public_service_employed") === "Yes") {
-        if (!text("public_service_ministry").trim())
-          return "Enter the Ministry or agency you work for.";
-        if (!text("public_service_under_250k"))
-          return "Tell us whether you are making less than $250,000 a month.";
-      }
-      if (!text("related_to_gdb_employee"))
-        return "Tell us whether you are related to an employee of Guyana Development Bank.";
-    }
-    if (step === "business") {
+
       if (!text("executive_summary").trim())
         return "Enter the executive summary.";
       if (!text("products_services").trim())
         return "Enter the products and services.";
-      if (!text("unique_selling_point").trim())
-        return "Enter the marketing strategy.";
+      if (!text("unique_selling_point").trim()) return "Enter the market plan.";
     }
     if (step === "finances") {
       const has = text("has_existing_debts");
@@ -1174,7 +1204,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         return `The SME Direct Loan is up to ${formatGyd(ceiling)}.`;
       if (!(Number(term) >= termMin && Number(term) <= termMax))
         return `Choose a repayment term of ${termMin} to ${termMax} months.`;
-      if (!moratoriumOptions.includes(moratorium))
+      if (moratorium && !moratoriumOptions.includes(moratorium))
         return "Choose when you want to start repaying.";
       if (!purpose.trim()) return "Enter the purpose of the loan.";
       if (hasBank === "Yes") {
@@ -1382,6 +1412,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         },
       );
       setSubmitted(loan);
+      setSubmittedAt(new Date());
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not submit application",
@@ -1488,7 +1519,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   const structureLabel = STRUCTURE_LABEL[structure] ?? "";
   const OPERATIONS_KEYS = [
     "operating_location",
-    "production_process",
     "equipment_required",
     "suppliers",
     "permits_required",
@@ -1616,7 +1646,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       case "about":
         return [
           ["Full name", show(profile?.verified_full_name || user?.full_name)],
-          ["E-ID", show(text("applicant_eid"))],
+          ["E-ID", hasEid === "No" ? "None" : show(text("applicant_eid"))],
           ["Date of birth", profileDob ? formatDate(profileDob) : "—"],
           ["Phone number", show(profilePhone)],
           ["Email address", show(profileEmail)],
@@ -1631,25 +1661,24 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           ["Zone", show(profileZone)],
           ["Address code", show(profileCode)],
           ["Qualification", show(profileEducation)],
-          ["Skills", show(profileSkills)],
-          ["Employed in public service", show(text("public_service_employed"))],
-          ...(text("public_service_employed") === "Yes"
+          ["Skills/Work Experience", show(profileSkills)],
+          ["Employed", show(text("employed"))],
+          ...(text("employed") === "Yes"
             ? ([
-                ["Ministry or agency", show(text("public_service_ministry"))],
-                [
-                  "Making less than $250,000 a month",
-                  show(text("public_service_under_250k")),
-                ],
+                ["Employer category", show(text("employer_category"))],
+                ["Employer name", show(text("employer_name"))],
+                ["Monthly income", show(text("income_band"))],
               ] as [string, string][])
             : []),
-          ["Related to a GDB employee", show(text("related_to_gdb_employee"))],
         ];
       case "business":
         return [
+          ["Industry", show(text("sector"))],
+          ["Sub sector", show(subSectorLabel(text("sub_sector")))],
           ["Business name", show(businessName)],
           ["Executive summary", show(text("executive_summary"))],
           ["Products and services", show(text("products_services"))],
-          ["Marketing strategy", show(text("unique_selling_point"))],
+          ["Market plan", show(text("unique_selling_point"))],
           ["Customer segments", show(text("customer_segments"))],
           ["Target market", show(text("target_market"))],
           ["Competitors", show(text("competitors"))],
@@ -1665,7 +1694,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       case "operations":
         return [
           ["Operating region", show(val("operating_location"))],
-          ["Production process", show(val("production_process"))],
           ["Equipment and fixed assets", show(val("equipment_required"))],
           ["Key suppliers", show(val("suppliers"))],
           ["Licences and permits", show(val("permits_required"))],
@@ -1768,25 +1796,14 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
 
   if (submitted) {
     return (
-      <div className="mx-auto max-w-lg py-16 text-center">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-          <CheckIcon className="h-7 w-7" />
-        </div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          Application submitted
-        </h1>
-        <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-          Reference {submitted.name}. Now with a loan officer.
-        </p>
-        <button
-          type="button"
-          onClick={() => navigate(`/loans/${submitted.name}`)}
-          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand px-6 py-3 text-sm font-bold text-white shadow-sm shadow-brand/30 transition-colors hover:bg-brand-dark"
-        >
-          View application
-          <ArrowRightIcon className="h-4 w-4" />
-        </button>
-      </div>
+      <SubmittedScreen
+        reference={submitted.name}
+        product="SME Direct Loan"
+        detail={`${formatGyd(Number(amount) || 0)} · ${term} months`}
+        submittedAt={submittedAt}
+        onView={() => navigate(`/loans/${submitted.name}`)}
+        onApplications={() => navigate("/apply")}
+      />
     );
   }
 
@@ -1812,7 +1829,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       {/* A new business is not asked for a registration. */}
       {stage === "Existing" && (
         <Section
-          letter="3"
+          letter="4"
           title="Business registration"
           blurb="GDB checks it with the business registry."
         >
@@ -1905,7 +1922,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   one question the register cannot answer. */}
       {stage && (
         <Section
-          letter={stage === "Existing" ? "2" : "4"}
+          letter={stage === "Existing" ? "3" : "4"}
           title="Legal structure"
           blurb={registryAnswers ? "From the business registry." : undefined}
         >
@@ -2353,7 +2370,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                           placeholder="Select qualification"
                         />
                         <TextAreaField
-                          label="Skills"
+                          label="Skills/Work Experience"
                           hint="Separate several skills with commas."
                           value={profileSkills}
                           onChange={setProfileSkills}
@@ -2364,64 +2381,133 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       </div>
                     </div>
                     <div className="mt-3 space-y-4 border-t border-emerald-100 pt-3">
-                      <div className="sm:max-w-xs">
-                        <span className="mb-1.5 block text-sm font-semibold text-slate-800">
-                          E-ID{" "}
-                          <span className="text-xs font-normal text-slate-500">
-                            (optional)
-                          </span>
-                        </span>
-                        <EidBoxes
-                          required={false}
-                          value={eidForBoxes(text("applicant_eid"))}
-                          onChange={(v) =>
-                            set("applicant_eid")(eidFromBoxes(v))
-                          }
-                          invalid={
-                            !!text("applicant_eid").trim() &&
-                            !isEid(text("applicant_eid"))
-                          }
-                        />
-                        <p className="mt-1 text-xs text-slate-500">
-                          As on your e-ID card: 000-0000-0000.
-                        </p>
-                      </div>
                       <YesNo
-                        label="Are you employed in any public service?"
-                        value={text("public_service_employed")}
-                        onChange={set("public_service_employed")}
+                        label="Do you have an E-ID?"
+                        value={hasEid}
+                        onChange={set("has_eid")}
                       />
-                      {text("public_service_employed") === "Yes" && (
-                        <div className="space-y-4 rounded-lg border border-slate-200 bg-white/70 p-3">
+                      {hasEid === "Yes" && (
+                        <div className="sm:max-w-xs">
                           <TextField
-                            label="Which Ministry or agency do you work for?"
+                            label="E-ID"
                             required
-                            value={text("public_service_ministry")}
-                            onChange={set("public_service_ministry")}
-                            placeholder="For example: Ministry of Health"
+                            inputMode="numeric"
+                            value={text("applicant_eid")}
+                            onChange={(v) => set("applicant_eid")(typedEid(v))}
+                            placeholder="xxx-xxxx-xxxx"
+                            hint={
+                              <span className="normal-case">
+                                {EID_FORMAT_HINT}
+                              </span>
+                            }
                           />
-                          <YesNo
-                            label="Are you making less than $250,000 a month?"
-                            value={text("public_service_under_250k")}
-                            onChange={set("public_service_under_250k")}
-                          />
-                          {text("public_service_under_250k") === "Yes" && (
-                            <ApplicationDocuments
-                              application={draft?.name ?? null}
-                              rows={[PAYSLIP_ROW]}
-                              summary={false}
-                            />
-                          )}
                         </div>
                       )}
                       <YesNo
-                        label="Are you related to an employee of Guyana Development Bank?"
-                        value={text("related_to_gdb_employee")}
-                        onChange={set("related_to_gdb_employee")}
+                        label="Are you employed?"
+                        value={text("employed")}
+                        onChange={set("employed")}
                       />
+                      {text("employed") === "Yes" && (
+                        <div className="space-y-4 rounded-lg border border-slate-200 bg-white/70 p-3">
+                          <fieldset>
+                            <legend className="mb-2 text-[13px] font-bold text-slate-800">
+                              Employer Category
+                              <span className="ml-0.5 text-rose-500">*</span>
+                            </legend>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {EMPLOYER_CATEGORIES.map((c) => (
+                                <ChoiceCard
+                                  key={c}
+                                  title={c}
+                                  selected={text("employer_category") === c}
+                                  onSelect={() => set("employer_category")(c)}
+                                />
+                              ))}
+                            </div>
+                          </fieldset>
+                          <TextField
+                            label="Employer Name"
+                            required
+                            value={text("employer_name")}
+                            onChange={set("employer_name")}
+                            placeholder="Who you work for"
+                          />
+                          <SelectField
+                            label="Monthly Income"
+                            required
+                            value={text("income_band")}
+                            onChange={set("income_band")}
+                            options={INCOME_BANDS.map((b): [string, string] => [
+                              b.value,
+                              b.label,
+                            ])}
+                            placeholder="Choose your monthly income"
+                          />
+                          {officerReview(
+                            text("employed"),
+                            text("employer_category"),
+                            text("income_band"),
+                          ) && (
+                            <Notice tone="info">
+                              A Loan Officer will review your application.
+                            </Notice>
+                          )}
+                          <ApplicationDocuments
+                            application={draft?.name ?? null}
+                            rows={[PAYSLIP_ROW]}
+                            summary={false}
+                          />
+                        </div>
+                      )}
                     </div>
                   </section>
-                  <Section letter="1" title="Is this a new business?">
+                </>
+              )}
+
+              {/* ------------------------------------------------- STEP: BUSINESS */}
+              {/* Grouped, one open at a time: a long page of text boxes is where a
+              phone applicant gives up. Each group says how far it is answered. */}
+              {step === "business" && (
+                <>
+                  <Section letter="1" title="Industry">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <SelectField
+                        label="Industry"
+                        required
+                        value={text("sector")}
+                        onChange={(v) =>
+                          setSections((sec) => ({
+                            ...sec,
+                            sector: v,
+                            sub_sector: "",
+                          }))
+                        }
+                        options={industries.map((i) => i.sector)}
+                        placeholder="Choose your industry"
+                      />
+                      {/* Only an industry with sub-sectors asks for one. */}
+                      {subSectorsOf(text("sector")).length > 0 && (
+                        <SelectField
+                          label="Sub Sector"
+                          required
+                          value={text("sub_sector")}
+                          onChange={set("sub_sector")}
+                          options={(
+                            industries.find((i) => i.sector === text("sector"))
+                              ?.sub_sectors ?? []
+                          ).map((x): [string, string] => [x.name, x.label])}
+                          placeholder={
+                            text("sector")
+                              ? "Choose your sub-sector"
+                              : "Choose your industry first"
+                          }
+                          disabled={!text("sector")}
+                        />
+                      )}
+                    </div>
+                  </Section>
+                  <Section letter="2" title="Is this a new business?">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <ChoiceCard
                         title="Yes"
@@ -2464,7 +2550,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   number (services/application.py), so it is offered the
                   new-venture form instead, by the applicant's own choice. */}
                   {stage === "New" && (
-                    <Section letter="2" title="New business">
+                    <Section letter="3" title="New business">
                       <YesNo
                         label="Are you part of an industrial training program?"
                         value={text("industrial_training")}
@@ -2519,171 +2605,166 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       {structureSection}
                     </>
                   )}
-                </>
-              )}
 
-              {/* ------------------------------------------------- STEP: BUSINESS */}
-              {/* Grouped, one open at a time: a long page of text boxes is where a
-              phone applicant gives up. Each group says how far it is answered. */}
-              {step === "business" && (
-                <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 shadow-xs">
-                  <QuestionGroup
-                    n={1}
-                    title="Your business in brief"
-                    hint="What the business is and what the loan will help it achieve."
-                    answered={filled(BRIEF_KEYS)}
-                    total={BRIEF_KEYS.length}
-                    open={openGroup === 1}
-                    onToggle={() => toggleGroup(1)}
-                  >
-                    <TextAreaField
-                      label="Executive summary"
-                      required
-                      max={1000}
-                      value={text("executive_summary")}
-                      onChange={set("executive_summary")}
-                    />
-                    <TextAreaField
-                      label="Products and services"
-                      required
-                      max={1000}
-                      value={text("products_services")}
-                      onChange={set("products_services")}
-                    />
-                    <TextAreaField
-                      label="Marketing strategy"
-                      hint="How you will reach customers and win them over."
-                      required
-                      max={1000}
-                      value={text("unique_selling_point")}
-                      onChange={set("unique_selling_point")}
-                    />
-                    {stage === "New" && draft && (
-                      <div className="rounded-lg bg-brand-light/40 p-3">
-                        <ApplicationDocuments
-                          application={draft.name}
-                          rows={[
-                            {
-                              type: "Business Plan",
-                              title: "Business plan document",
-                              hint: "Optional",
-                            },
-                          ]}
-                          onChange={setMissing}
+                  <div className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 shadow-xs">
+                    <QuestionGroup
+                      n={1}
+                      title="Your business in brief"
+                      hint="What the business is and what the loan will help it achieve."
+                      answered={filled(BRIEF_KEYS)}
+                      total={BRIEF_KEYS.length}
+                      open={openGroup === 1}
+                      onToggle={() => toggleGroup(1)}
+                    >
+                      <TextAreaField
+                        label="Executive summary"
+                        required
+                        max={1000}
+                        value={text("executive_summary")}
+                        onChange={set("executive_summary")}
+                      />
+                      <TextAreaField
+                        label="Products and services"
+                        required
+                        max={1000}
+                        value={text("products_services")}
+                        onChange={set("products_services")}
+                      />
+                      <TextAreaField
+                        label="Market Plan"
+                        hint="How you will reach customers and win them over."
+                        required
+                        max={1000}
+                        value={text("unique_selling_point")}
+                        onChange={set("unique_selling_point")}
+                      />
+                      {stage === "New" && draft && (
+                        <div className="rounded-lg bg-brand-light/40 p-3">
+                          <ApplicationDocuments
+                            application={draft.name}
+                            rows={[
+                              {
+                                type: "Business Plan",
+                                title: "Business plan document",
+                                hint: "Optional",
+                              },
+                            ]}
+                            onChange={setMissing}
+                          />
+                        </div>
+                      )}
+                    </QuestionGroup>
+
+                    <QuestionGroup
+                      n={2}
+                      title="Market and customers"
+                      hint="Who the business serves and the market it operates in."
+                      answered={filled(MARKET_KEYS)}
+                      total={MARKET_KEYS.length}
+                      open={openGroup === 2}
+                      onToggle={() => toggleGroup(2)}
+                    >
+                      <TextAreaField
+                        label="Customer segments"
+                        max={1000}
+                        value={text("customer_segments")}
+                        onChange={set("customer_segments")}
+                      />
+                      <TextAreaField
+                        label="Target market"
+                        max={1000}
+                        value={text("target_market")}
+                        onChange={set("target_market")}
+                      />
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <TextAreaField
+                          label="Primary market"
+                          hint="Where most of your sales come from."
+                          max={1000}
+                          value={text("primary_market")}
+                          onChange={set("primary_market")}
+                        />
+                        <TextAreaField
+                          label="Secondary market"
+                          hint="Other customers or places you sell to, or plan to."
+                          max={1000}
+                          value={text("secondary_market")}
+                          onChange={set("secondary_market")}
                         />
                       </div>
-                    )}
-                  </QuestionGroup>
-
-                  <QuestionGroup
-                    n={2}
-                    title="Market and customers"
-                    hint="Who the business serves and the market it operates in."
-                    answered={filled(MARKET_KEYS)}
-                    total={MARKET_KEYS.length}
-                    open={openGroup === 2}
-                    onToggle={() => toggleGroup(2)}
-                  >
-                    <TextAreaField
-                      label="Customer segments"
-                      max={1000}
-                      value={text("customer_segments")}
-                      onChange={set("customer_segments")}
-                    />
-                    <TextAreaField
-                      label="Target market"
-                      max={1000}
-                      value={text("target_market")}
-                      onChange={set("target_market")}
-                    />
-                    <div className="grid gap-4 lg:grid-cols-2">
                       <TextAreaField
-                        label="Primary market"
-                        hint="Where most of your sales come from."
+                        label="Competitors"
                         max={1000}
-                        value={text("primary_market")}
-                        onChange={set("primary_market")}
+                        value={text("competitors")}
+                        onChange={set("competitors")}
                       />
-                      <TextAreaField
-                        label="Secondary market"
-                        hint="Other customers or places you sell to, or plan to."
-                        max={1000}
-                        value={text("secondary_market")}
-                        onChange={set("secondary_market")}
-                      />
-                    </div>
-                    <TextAreaField
-                      label="Competitors"
-                      max={1000}
-                      value={text("competitors")}
-                      onChange={set("competitors")}
-                    />
-                  </QuestionGroup>
+                    </QuestionGroup>
 
-                  <QuestionGroup
-                    n={3}
-                    title="Jobs"
-                    hint="Jobs the business will create in its first year."
-                    answered={filled(jobKeys)}
-                    total={jobKeys.length}
-                    open={openGroup === 3}
-                    onToggle={() => toggleGroup(3)}
-                  >
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <TextField
-                        label="Jobs to be created"
-                        type="number"
-                        inputMode="numeric"
-                        value={text("jobs_created")}
-                        onChange={set("jobs_created")}
-                      />
-                      {stage === "Existing" && (
+                    <QuestionGroup
+                      n={3}
+                      title="Economic Impact"
+                      hint="Jobs the business will create in its first year, and what it adds to the economy."
+                      answered={filled(jobKeys)}
+                      total={jobKeys.length}
+                      open={openGroup === 3}
+                      onToggle={() => toggleGroup(3)}
+                    >
+                      <div className="grid gap-4 sm:grid-cols-2">
                         <TextField
-                          label="Current staff"
+                          label="Jobs to be created"
                           type="number"
                           inputMode="numeric"
-                          value={text("staff_count")}
-                          onChange={set("staff_count")}
+                          value={text("jobs_created")}
+                          onChange={set("jobs_created")}
                         />
-                      )}
-                    </div>
-                    <TextAreaField
-                      label="Economic impact"
-                      max={1000}
-                      value={text("employment_impact")}
-                      onChange={set("employment_impact")}
-                    />
-                  </QuestionGroup>
+                        {stage === "Existing" && (
+                          <TextField
+                            label="Current staff"
+                            type="number"
+                            inputMode="numeric"
+                            value={text("staff_count")}
+                            onChange={set("staff_count")}
+                          />
+                        )}
+                      </div>
+                      <TextAreaField
+                        label="Economic impact"
+                        max={1000}
+                        value={text("employment_impact")}
+                        onChange={set("employment_impact")}
+                      />
+                    </QuestionGroup>
 
-                  <QuestionGroup
-                    n={4}
-                    title="Direction and goals"
-                    hint="Vision · Mission · Goals"
-                    answered={filled(DIRECTION_KEYS)}
-                    total={DIRECTION_KEYS.length}
-                    open={openGroup === 4}
-                    onToggle={() => toggleGroup(4)}
-                  >
-                    <TextAreaField
-                      label="Vision"
-                      max={1000}
-                      value={text("vision")}
-                      onChange={set("vision")}
-                    />
-                    <TextAreaField
-                      label="Mission"
-                      max={1000}
-                      value={text("mission")}
-                      onChange={set("mission")}
-                    />
-                    <TextAreaField
-                      label="Goals"
-                      max={1000}
-                      value={text("goals")}
-                      onChange={set("goals")}
-                    />
-                  </QuestionGroup>
-                </div>
+                    <QuestionGroup
+                      n={4}
+                      title="Direction and goals"
+                      hint="Vision · Mission · Goals"
+                      answered={filled(DIRECTION_KEYS)}
+                      total={DIRECTION_KEYS.length}
+                      open={openGroup === 4}
+                      onToggle={() => toggleGroup(4)}
+                    >
+                      <TextAreaField
+                        label="Vision"
+                        max={1000}
+                        value={text("vision")}
+                        onChange={set("vision")}
+                      />
+                      <TextAreaField
+                        label="Mission"
+                        max={1000}
+                        value={text("mission")}
+                        onChange={set("mission")}
+                      />
+                      <TextAreaField
+                        label="Goals"
+                        max={1000}
+                        value={text("goals")}
+                        onChange={set("goals")}
+                      />
+                    </QuestionGroup>
+                  </div>
+                </>
               )}
 
               {/* ----------------------------------------------- STEP: OPERATIONS */}
@@ -2694,11 +2775,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     value={val("operating_location")}
                     onChange={set("operating_location")}
                     options={REGIONS}
-                  />
-                  <TextAreaField
-                    label="Production process"
-                    value={val("production_process")}
-                    onChange={set("production_process")}
                   />
                   <TextAreaField
                     label="Equipment and fixed assets"
@@ -2991,13 +3067,16 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       />
                       <ChipGroup
                         label="Moratorium"
-                        hint="Months after the funds are released before your first instalment."
+                        optional
+                        hint="Optional. Months after the funds are released before your first instalment. Tap again to clear."
                         options={moratoriumOptions.map((m) => [
                           m,
                           moratoriumChoice(m),
                         ])}
                         value={moratorium}
-                        onChange={(v) => set("moratorium_months")(String(v))}
+                        onChange={(v) =>
+                          set("moratorium_months")(v ? String(v) : "")
+                        }
                       />
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm">
@@ -3139,22 +3218,24 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                     title="Bank information"
                     blurb="The disbursement account. Must be held in your name."
                   >
-                    <label className="flex cursor-pointer items-start gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={hasBank === "No"}
-                        onChange={(e) =>
-                          set("has_bank_account")(
-                            e.target.checked ? "No" : "Yes",
-                          )
-                        }
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                      />
-                      <span className="text-sm font-bold text-slate-900">
-                        I don't have a bank account
-                      </span>
-                    </label>
-                    {hasBank === "No" ? (
+                    {accountOnFile === false && (
+                      <label className="flex cursor-pointer items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={hasBank === "No"}
+                          onChange={(e) =>
+                            set("has_bank_account")(
+                              e.target.checked ? "No" : "Yes",
+                            )
+                          }
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                        />
+                        <span className="text-sm font-bold text-slate-900">
+                          I don't have a bank account
+                        </span>
+                      </label>
+                    )}
+                    {hasBank === "No" && !accountOnFile ? (
                       <FacilitatedBanks />
                     ) : (
                       <>
@@ -3264,17 +3345,6 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                           {CONSENT_TEXT}
                         </span>
                       </label>
-                      <label className="flex cursor-pointer items-start gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={declWarning}
-                          onChange={(e) => setDeclWarning(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                        />
-                        <span className="text-sm text-slate-700">
-                          {FALSE_INFORMATION_WARNING}
-                        </span>
-                      </label>
                     </section>
                   )}
 
@@ -3300,9 +3370,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       <button
                         type="button"
                         disabled={
-                          busy ||
-                          blockingCount > 0 ||
-                          (!assist && !(declConsent && declWarning))
+                          busy || blockingCount > 0 || (!assist && !declConsent)
                         }
                         onClick={() =>
                           void (assist ? finishAssisted(true) : onFinalSubmit())
@@ -3320,9 +3388,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   <p className="text-right text-xs text-slate-400">
                     {assist
                       ? "The applicant is told it was submitted for them."
-                      : declConsent && declWarning
+                      : declConsent
                         ? "You cannot edit the application after you submit it."
-                        : "Tick both statements above to submit."}
+                        : "Tick the declaration above to submit."}
                   </p>
                 </div>
               )}
@@ -3492,18 +3560,21 @@ function ChipGroup({
   options,
   value,
   onChange,
+  optional,
 }: {
   label: string;
   hint?: string;
   options: [number, string][];
   value: number;
   onChange: (v: number) => void;
+  /** No answer is an answer: tapping the chosen chip clears it (0). */
+  optional?: boolean;
 }) {
   return (
     <fieldset>
       <legend className="mb-1.5 text-[13px] font-bold text-slate-800">
         {label}
-        <span className="ml-0.5 text-rose-500">*</span>
+        {!optional && <span className="ml-0.5 text-rose-500">*</span>}
       </legend>
       <div
         className="flex flex-wrap gap-2"
@@ -3516,7 +3587,7 @@ function ChipGroup({
             type="button"
             role="radio"
             aria-checked={value === v}
-            onClick={() => onChange(v)}
+            onClick={() => onChange(optional && value === v ? 0 : v)}
             className={`rounded-xl border-2 px-3.5 py-2 text-sm font-bold transition-all ${
               value === v
                 ? "border-brand bg-brand text-white shadow-sm shadow-brand/30"
