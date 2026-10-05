@@ -286,7 +286,11 @@ APPLICATION_SECTIONS = (
 	# A new business's support: an industrial training programme, a mentor, and
 	# the institution behind either. Asked only when "Is this a new business?"
 	# is Yes (NEW_ONLY clears them for an existing one).
-	("gdb_industrial_training", "Part of an Industrial Training Program (New Business)", "Select", "\nYes\nNo"),
+	("gdb_industrial_training", "Participated in an Industrial Program (New Business)", "Select", "\nYes\nNo"),
+	# On a Yes (2026-10-05): the institution (gdb_institution, below), the
+	# course, and when it was or will be completed.
+	("gdb_course_name", "Name of the Course (New Business)", "Data"),
+	("gdb_course_completion_date", "Date Completed or Expected Completion (New Business)", "Date"),
 	("gdb_has_mentor", "Has a Mentor (New Business)", "Select", "\nYes\nNo"),
 	("gdb_mentor_details", "Mentor Details (New Business)", "Data"),
 	# The mentor as three answers (2026-10-04); mentor_details is kept for

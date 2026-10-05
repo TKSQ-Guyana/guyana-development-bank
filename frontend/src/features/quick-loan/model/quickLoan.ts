@@ -258,7 +258,13 @@ export function blockerFor(
         // Seven digits after +592 — the server's rule too (services/application.py).
         if (!isGuyanaPhone(c.phone))
           return `Enter a 7-digit phone number for your ${which} supporting contact.`;
-      }
+      } // Two people, two numbers: the same number twice is one contact.
+      if (
+        a.contacts[0].phone.replace(/\D/g, "").slice(-7) ===
+        a.contacts[1].phone.replace(/\D/g, "").slice(-7)
+      )
+        return "Your two supporting contacts need different phone numbers.";
+
       return null;
     case "loan": {
       const amount = Number(a.amount);

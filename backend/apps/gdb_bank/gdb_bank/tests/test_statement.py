@@ -60,7 +60,7 @@ class TestStatement(IntegrationTestCase):
 		"""G$120,000 over 12 months, fully released, then G$10,000 paid."""
 		with self.set_user(BORROWER):
 			application = api.save_application(
-				loan_amount=120000, purpose="Statement test", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
+				loan_amount=360000, purpose="Statement test", term_months=12, sections={"moratorium_months": 1, "has_existing_debts": "No"}
 			)["name"]
 			complete_sme(BORROWER, application)
 			api.submit_application(name=application)
@@ -95,16 +95,16 @@ class TestStatement(IntegrationTestCase):
 				(t["transaction_doctype"], t["debit"], t["credit"], t["balance"])
 				for t in statement["transactions"]
 			],
-			[("Loan Disbursement", 120000, 0, 120000), ("Loan Repayment", 0, 10000, 110000)],
+			[("Loan Disbursement", 360000, 0, 360000), ("Loan Repayment", 0, 10000, 350000)],
 		)
-		self.assertEqual(statement["closing_balance"], 110000)
+		self.assertEqual(statement["closing_balance"], 350000)
 
 	def test_a_later_period_opens_at_the_balance_carried_forward(self):
 		statement = self.statement(add_days(nowdate(), 1), add_days(nowdate(), 30))
 
 		self.assertEqual(
 			(statement["opening_balance"], statement["transactions"], statement["closing_balance"]),
-			(110000, [], 110000),
+			(350000, [], 350000),
 		)
 
 	def test_a_period_that_ends_before_the_loan_existed_has_nothing_on_it(self):
@@ -146,7 +146,7 @@ class TestStatement(IntegrationTestCase):
 
 		self.assertEqual(
 			[(row["voucher_type"], row["debit"], row["credit"]) for row in posted],
-			[("Loan Disbursement", 120000, 0), ("Loan Repayment", 0, 10000)],
+			[("Loan Disbursement", 360000, 0), ("Loan Repayment", 0, 10000)],
 		)
-		self.assertEqual(closing["balance"], 110000)
-		self.assertEqual(self.statement(add_days(nowdate(), -365), nowdate())["closing_balance"], 110000)
+		self.assertEqual(closing["balance"], 350000)
+		self.assertEqual(self.statement(add_days(nowdate(), -365), nowdate())["closing_balance"], 350000)

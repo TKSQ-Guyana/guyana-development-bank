@@ -141,17 +141,15 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
             ],
             ...(isNew
               ? ([
-                  [
-                    "Industrial training program",
-                    text(s, "industrial_training"),
-                  ],
-                  [
-                    "Mentor",
-                    text(s, "has_mentor") === "Yes"
-                      ? `Yes — ${text(s, "mentor_details") ?? ""}`
-                      : text(s, "has_mentor"),
-                  ],
+                  ["Industrial program", text(s, "industrial_training")],
                   ["Institution", text(s, "institution")],
+                  ["Course", text(s, "course_name")],
+                  [
+                    "Completed / expected",
+                    text(s, "course_completion_date")
+                      ? formatDate(text(s, "course_completion_date")!)
+                      : null,
+                  ],
                 ] as [string, string | null][])
               : []),
             [

@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { gdbLogo } from "../site/assets";
 
 export interface SidebarItem {
@@ -46,6 +46,9 @@ interface SidebarProps {
   groups?: SidebarGroup[];
   /** Sits above the footer — the signed-in identity. */
   account?: ReactNode;
+  /** The phone drawer (below md), opened by MenuButton in the layout. */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -55,7 +58,14 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
       : "font-medium text-slate-700 hover:bg-slate-100 hover:text-brand-dark"
   }`;
 
-function Item({ item }: { item: SidebarItem }) {
+function Item({
+  item,
+  onNavigate,
+}: {
+  item: SidebarItem;
+  /** Called on a click — the phone drawer closes itself. */
+  onNavigate?: () => void;
+}) {
   if (item.disabled) {
     return (
       <div className="flex cursor-default items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-300">
@@ -70,7 +80,12 @@ function Item({ item }: { item: SidebarItem }) {
     );
   }
   return (
-    <NavLink to={item.to} end={item.end} className={linkClass}>
+    <NavLink
+      to={item.to}
+      end={item.end}
+      className={linkClass}
+      onClick={onNavigate}
+    >
       {({ isActive }) => (
         <>
           <span
@@ -106,9 +121,11 @@ export function Sidebar({
   brand,
   groups,
   account,
+  mobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
-  return (
-    <aside className="sticky top-0 hidden h-screen w-[256px] flex-none flex-col border-r border-slate-200 bg-white shadow-[1px_0_12px_rgba(0,0,0,0.02)] md:flex">
+  const body = (onNavigate?: () => void) => (
+    <>
       <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-5 py-5">
         <span className="flex items-center gap-3">
           {/* The national coat of arms first, then the Bank's mark: a
@@ -149,7 +166,7 @@ export function Sidebar({
       <nav className="flex-1 overflow-y-auto px-4 py-4">
         <div className="space-y-1.5">
           {items.map((item) => (
-            <Item key={item.to} item={item} />
+            <Item key={item.to} item={item} onNavigate={onNavigate} />
           ))}
         </div>
         {groups?.map((group) => (
@@ -159,7 +176,7 @@ export function Sidebar({
             </p>
             <div className="space-y-1.5">
               {group.items.map((item) => (
-                <Item key={item.to} item={item} />
+                <Item key={item.to} item={item} onNavigate={onNavigate} />
               ))}
             </div>
           </div>
@@ -170,7 +187,10 @@ export function Sidebar({
         {account}
         {footer && (
           <button
-            onClick={footer.onClick}
+            onClick={() => {
+              onNavigate?.();
+              footer.onClick();
+            }}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-transparent px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
           >
             <span className="flex h-5 w-5 flex-none items-center justify-center">
@@ -180,6 +200,85 @@ export function Sidebar({
           </button>
         )}
       </div>
-    </aside>
+    </>
   );
+
+  return (
+    <>
+      <aside className="sticky top-0 hidden h-screen w-[256px] flex-none flex-col border-r border-slate-200 bg-white shadow-[1px_0_12px_rgba(0,0,0,0.02)] md:flex">
+        {body()}
+      </aside>
+      {/* On a phone the same navigation slides in from the left, opened by
+          the layout's MenuButton. Choosing a page closes it. */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-50 md:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+        >
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={onMobileClose}
+            className="absolute inset-0 bg-slate-900/40"
+          />
+          <aside className="absolute inset-y-0 left-0 flex w-[280px] max-w-[85vw] flex-col bg-white shadow-2xl">
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={onMobileClose}
+              className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden>
+                <path
+                  d="M5 5l10 10M15 5L5 15"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            {body(onMobileClose)}
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The phone's way into the navigation: three bars in the layout's header,
+ *  hidden from md up, where the sidebar is always on screen. */
+export function MenuButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Open menu"
+      className="grid h-10 w-10 flex-none place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-xs hover:bg-slate-50 md:hidden"
+    >
+      <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden>
+        <path
+          d="M3 5h14M3 10h14M3 15h14"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/** Open / close for the phone drawer: closed again on every page change and
+ *  on Escape. */
+export function useMobileNav(pathname: string) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  return { open, show: () => setOpen(true), hide: () => setOpen(false) };
 }

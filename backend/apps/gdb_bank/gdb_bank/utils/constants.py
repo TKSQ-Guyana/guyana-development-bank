@@ -161,6 +161,8 @@ NEW_ONLY = (
 	"gdb_expected_cash_position",
 	"gdb_assumptions",
 	"gdb_industrial_training",
+	"gdb_course_name",
+	"gdb_course_completion_date",
 	"gdb_has_mentor",
 	"gdb_mentor_first_name",
 	"gdb_mentor_last_name",

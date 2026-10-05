@@ -363,6 +363,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // The SME product's ceiling, from the server that enforces it — so the form
   // can say so at the field instead of the save failing on lending's check.
   const [ceiling, setCeiling] = useState<number | null>(null);
+  // ...and the least it may be for (policy.sme_loan_minimum).
+  const [minimum, setMinimum] = useState(300000);
   // The terms and moratoria the server accepts for this product.
   // The SME term: any whole month in this range (up to five years), server-checked.
   const [termMin, setTermMin] = useState(6);
@@ -675,6 +677,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   useEffect(() => {
     call<{
       ceiling: number;
+      minimum?: number;
       min_term?: number;
       max_term?: number;
       moratorium_options?: number[];
@@ -682,6 +685,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     }>("gdb_bank.api.sme_loan_terms")
       .then((t) => {
         setCeiling(t.ceiling || null);
+        if (t.minimum != null) setMinimum(t.minimum);
         if (t.min_term) setTermMin(t.min_term);
         if (t.max_term) setTermMax(t.max_term);
         if (t.moratorium_options?.length)
@@ -1129,15 +1133,13 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       if (!stage) return "Tell us whether this is a new business.";
       if (stage === "New") {
         if (!text("industrial_training"))
-          return "Tell us whether you are part of an industrial training program.";
-        if (!text("has_mentor")) return "Tell us whether you have a mentor.";
-        if (text("has_mentor") === "Yes") {
-          if (!text("mentor_first_name").trim())
-            return "Enter your mentor's first name.";
-          if (!text("mentor_last_name").trim())
-            return "Enter your mentor's last name.";
-          if (!text("mentor_phone").trim())
-            return "Enter your mentor's phone number.";
+          return "Tell us whether you have participated in any industrial program.";
+        if (text("industrial_training") === "Yes") {
+          if (!text("institution").trim()) return "Enter the institution.";
+          if (!text("course_name").trim())
+            return "Enter the name of the course.";
+          if (!text("course_completion_date"))
+            return "Enter the date completed, or the expected completion date.";
         }
       }
       // An existing business names its DCRA registration and the date it was
@@ -1200,8 +1202,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     }
     if (step === "funding") {
       if (!amount || Number(amount) <= 0) return "Enter the loan amount.";
-      if (ceiling && Number(amount) > ceiling)
-        return `The SME Direct Loan is up to ${formatGyd(ceiling)}.`;
+      if (Number(amount) < minimum || (ceiling && Number(amount) > ceiling))
+        return `An SME Direct Loan is for ${formatGyd(minimum)} to ${formatGyd(ceiling ?? 3000000)}.`;
       if (!(Number(term) >= termMin && Number(term) <= termMax))
         return `Choose a repayment term of ${termMin} to ${termMax} months.`;
       if (moratorium && !moratoriumOptions.includes(moratorium))
@@ -1585,16 +1587,21 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
           ...(stage === "New"
             ? ([
                 [
-                  "Part of an industrial training program",
+                  "Participated in an industrial program",
                   show(text("industrial_training")),
                 ],
-                [
-                  "Mentor",
-                  text("has_mentor") === "Yes"
-                    ? `Yes — ${[text("mentor_first_name"), text("mentor_last_name")].filter(Boolean).join(" ") || text("mentor_details")}${text("mentor_phone") ? ` · ${text("mentor_phone")}` : ""}`
-                    : show(text("has_mentor")),
-                ],
-                ["Institution", show(text("institution"))],
+                ...(text("industrial_training") === "Yes"
+                  ? ([
+                      ["Institution", show(text("institution"))],
+                      ["Name of the course", show(text("course_name"))],
+                      [
+                        "Completed / expected completion",
+                        text("course_completion_date")
+                          ? formatDate(text("course_completion_date"))
+                          : "—",
+                      ],
+                    ] as [string, string][])
+                  : []),
               ] as [string, string][])
             : []),
           ["DCRA #", show(dcra)],
@@ -2552,41 +2559,35 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   {stage === "New" && (
                     <Section letter="3" title="New business">
                       <YesNo
-                        label="Are you part of an industrial training program?"
+                        label="Have you participated in any industrial program?"
                         value={text("industrial_training")}
                         onChange={set("industrial_training")}
                       />
-                      <TextField
-                        label="Institution"
-                        value={text("institution")}
-                        onChange={set("institution")}
-                        placeholder="The institution associated with you or your business"
-                      />
-                      <YesNo
-                        label="Do you have a mentor?"
-                        value={text("has_mentor")}
-                        onChange={set("has_mentor")}
-                      />
-                      {text("has_mentor") === "Yes" && (
+                      {text("industrial_training") === "Yes" && (
                         <div className="grid gap-4 sm:grid-cols-2">
                           <TextField
-                            label="Mentor's first name"
+                            label="Institution"
                             required
-                            value={text("mentor_first_name")}
-                            onChange={set("mentor_first_name")}
+                            value={text("institution")}
+                            onChange={set("institution")}
+                            placeholder="e.g. Government Technical Institute"
                           />
                           <TextField
-                            label="Mentor's last name"
+                            label="Name of the course"
                             required
-                            value={text("mentor_last_name")}
-                            onChange={set("mentor_last_name")}
+                            value={text("course_name")}
+                            onChange={set("course_name")}
+                            placeholder="e.g. Welding and fabrication"
                           />
-                          <PhoneField
-                            label="Mentor's phone number"
-                            required
-                            value={text("mentor_phone")}
-                            onChange={set("mentor_phone")}
-                          />
+                          <div className="sm:col-span-2">
+                            <TextField
+                              label="Date completed or expected completion"
+                              required
+                              type="date"
+                              value={text("course_completion_date")}
+                              onChange={set("course_completion_date")}
+                            />
+                          </div>
                         </div>
                       )}
                     </Section>
@@ -3044,13 +3045,15 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                         onChange={setAmount}
                         hint={
                           ceiling ? (
-                            ceiling && Number(amount) > ceiling ? (
+                            Number(amount) > 0 &&
+                            (Number(amount) < minimum ||
+                              Number(amount) > ceiling) ? (
                               <span className="font-semibold text-rose-600">
-                                Up to {formatGyd(ceiling)} — reduce the amount
-                                to continue.
+                                Enter {formatGyd(minimum)} to{" "}
+                                {formatGyd(ceiling)} to continue.
                               </span>
                             ) : (
-                              `Up to ${formatGyd(ceiling)}. GDB decides the approved amount.`
+                              `From ${formatGyd(minimum)} to ${formatGyd(ceiling)}. GDB decides the approved amount.`
                             )
                           ) : undefined
                         }

@@ -1,6 +1,12 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { STAFF_LOGIN } from "../shared/staffRoutes";
-import { Sidebar, type SidebarGroup, type SidebarItem } from "./ui/Sidebar";
+import {
+  MenuButton,
+  Sidebar,
+  useMobileNav,
+  type SidebarGroup,
+  type SidebarItem,
+} from "./ui/Sidebar";
 import {
   LedgerIcon,
   LogoutIcon,
@@ -53,6 +59,7 @@ export function FinanceLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const nav = useMobileNav(pathname);
 
   const onLogout = async () => {
     await logout();
@@ -109,6 +116,8 @@ export function FinanceLayout() {
           icon: <LogoutIcon />,
           onClick: () => void onLogout(),
         }}
+        mobileOpen={nav.open}
+        onMobileClose={nav.hide}
       />
 
       {/* `min-w-0` is load-bearing: a flex child defaults to min-width:auto,
@@ -118,13 +127,16 @@ export function FinanceLayout() {
           scroll container. */}
       <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
         <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-white/70 px-5 py-3 backdrop-blur lg:px-8">
-          <div className="leading-tight">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
-              Finance
-            </p>
-            <h1 className="text-lg font-bold text-slate-900">
-              {moduleTitle(pathname)}
-            </h1>
+          <div className="flex min-w-0 items-center gap-3">
+            <MenuButton onClick={nav.show} />
+            <div className="leading-tight">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">
+                Finance
+              </p>
+              <h1 className="text-lg font-bold text-slate-900">
+                {moduleTitle(pathname)}
+              </h1>
+            </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
             {user?.is_finance && (

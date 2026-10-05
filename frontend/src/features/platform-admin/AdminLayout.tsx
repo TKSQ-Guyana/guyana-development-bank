@@ -2,7 +2,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { STAFF_LOGIN } from "../../shared/staffRoutes";
 import { useAuth } from "../../auth";
 import { coatOfArms } from "../../components/site/assets";
-import { Sidebar } from "../../components/ui/Sidebar";
+import { MenuButton, Sidebar, useMobileNav } from "../../components/ui/Sidebar";
 import type { SidebarItem } from "../../components/ui/Sidebar";
 import {
   DashboardIcon,
@@ -29,6 +29,7 @@ export function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const nav = useMobileNav(pathname);
   const here = NAV_ITEMS.find((item) => pathname.startsWith(item.to));
 
   const onLogout = async () => {
@@ -64,11 +65,17 @@ export function AdminLayout() {
           icon: <LogoutIcon />,
           onClick: () => void onLogout(),
         }}
+        mobileOpen={nav.open}
+        onMobileClose={nav.hide}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-5 lg:px-8">
-            <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm">
+            <MenuButton onClick={nav.show} />
+            <nav
+              aria-label="Breadcrumb"
+              className="flex min-w-0 flex-1 items-center gap-2 text-sm"
+            >
               <span className="rounded-md bg-brand-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-text">
                 Admin console
               </span>

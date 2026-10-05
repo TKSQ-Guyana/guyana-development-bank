@@ -72,6 +72,11 @@ SME_CEILING_KEY = "gdb_sme_loan_ceiling"
 SME_CEILING_ENV = "GDB_SME_LOAN_CEILING"
 DEFAULT_SME_CEILING = 3000000.0
 
+# ...and from G$300,000 (GDB, 2026-10-05): less than that is a Quick Loan.
+SME_MINIMUM_KEY = "gdb_sme_loan_minimum"
+SME_MINIMUM_ENV = "GDB_SME_LOAN_MINIMUM"
+DEFAULT_SME_MINIMUM = 300000.0
+
 # A Quick Loan is repaid over one of a fixed set of terms, not any number of
 # months: comma-separated months in configuration ("6,12,18,24").
 # An SME Direct Loan is repaid over any whole number of months in this range —
@@ -156,6 +161,22 @@ def quick_loan_ceiling() -> float:
 	if amount <= 0:
 		_refused(QUICK_CEILING_KEY, source, value, DEFAULT_QUICK_CEILING)
 		return DEFAULT_QUICK_CEILING
+	return amount
+
+
+def sme_loan_minimum() -> float:
+	"""The least one SME Direct Loan may be for. Read and refused like the
+	ceiling."""
+	value, source = _configured(SME_MINIMUM_KEY, SME_MINIMUM_ENV)
+	if not value:
+		return DEFAULT_SME_MINIMUM
+	try:
+		amount = float(value)
+	except (TypeError, ValueError):
+		amount = -1.0
+	if amount < 0:
+		_refused(SME_MINIMUM_KEY, source, value, DEFAULT_SME_MINIMUM)
+		return DEFAULT_SME_MINIMUM
 	return amount
 
 

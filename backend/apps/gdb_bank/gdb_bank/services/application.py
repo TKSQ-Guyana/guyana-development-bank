@@ -326,6 +326,14 @@ def _validated(
 				)
 			)
 	elif not cluster and not group:
+		# An SME Direct Loan is for G$300,000 to G$3,000,000 (GDB, 2026-10-05).
+		least, most = policy.sme_loan_minimum(), policy.sme_loan_ceiling()
+		if not (least <= loan_amount <= most):
+			frappe.throw(
+				_("An SME Direct Loan is for {0} to {1}. Enter an amount in that range.").format(
+					_gyd(least), _gyd(most)
+				)
+			)
 		# An SME Direct Loan is repaid over one of the programme's terms.
 		low, high = policy.sme_term_bounds()
 		if not (low <= term_months <= high):
@@ -415,17 +423,22 @@ def _validated(
 		# The portal applies the same rule (components/PhoneInput.tsx).
 		for fieldname in _QUICK_PHONES:
 			values[fieldname] = _guyana_local_phone(values.get(fieldname))
+		first, second = (values.get(f) for f in _QUICK_PHONES)
+		if first and first == second:
+			frappe.throw(_("Your two supporting contacts need different phone numbers."))
 		_check_in_guyana(values.get("gdb_trade_latitude"), values.get("gdb_trade_longitude"))
 		for fieldname, message in _QUICK_REQUIRED.items():
 			if not values.get(fieldname):
 				frappe.throw(_(message))
 	else:
 		values.update(_blanked(QUICK_ONLY))
-		if values.get("gdb_has_mentor") != "Yes":
-			values["gdb_mentor_details"] = ""
-			values["gdb_mentor_first_name"] = values["gdb_mentor_last_name"] = values["gdb_mentor_phone"] = ""
-		elif values.get("gdb_mentor_phone"):
-			values["gdb_mentor_phone"] = _guyana_local_phone(values["gdb_mentor_phone"])
+		# The mentor is no longer asked (2026-10-05): nothing about one is kept.
+		values["gdb_has_mentor"] = values["gdb_mentor_details"] = ""
+		values["gdb_mentor_first_name"] = values["gdb_mentor_last_name"] = values["gdb_mentor_phone"] = ""
+		# The programme's follow-ups belong to its Yes.
+		if values.get("gdb_industrial_training") != "Yes":
+			values["gdb_institution"] = values["gdb_course_name"] = ""
+			values["gdb_course_completion_date"] = None
 		# The day a business was established is a day that has happened.
 		established = values.get("gdb_date_established")
 		if established and getdate(established) > getdate(nowdate()):
@@ -442,6 +455,10 @@ def _validated(
 	_check_shares(values)
 	return values
 
+
+
+def _gyd(amount: float) -> str:
+	return f"G${amount:,.0f}"
 
 
 MORATORIUM_MESSAGE = "Choose when you want to start repaying: after {0} months."
@@ -548,16 +565,14 @@ def _require_sme_details(doc) -> None:
 		frappe.throw(_("Give the DCRA registration number of your business."))
 	if (doc.gdb_business_stage or "").title() == "New":
 		if doc.gdb_industrial_training not in ("Yes", "No"):
-			frappe.throw(_("Tell us whether you are part of an industrial training program."))
-		if doc.gdb_has_mentor not in ("Yes", "No"):
-			frappe.throw(_("Tell us whether you have a mentor."))
-		if doc.gdb_has_mentor == "Yes":
+			frappe.throw(_("Tell us whether you have participated in any industrial program."))
+		if doc.gdb_industrial_training == "Yes":
 			for field, message in (
-				("gdb_mentor_first_name", "Give your mentor's first name."),
-				("gdb_mentor_last_name", "Give your mentor's last name."),
-				("gdb_mentor_phone", "Give your mentor's phone number."),
+				("gdb_institution", "Give the institution of the program."),
+				("gdb_course_name", "Give the name of the course."),
+				("gdb_course_completion_date", "Give the date the course was completed, or is expected to be."),
 			):
-				if not (doc.get(field) or "").strip():
+				if not str(doc.get(field) or "").strip():
 					frappe.throw(_(message))
 	profile = frappe.db.get_value(
 		"GDB Citizen Profile", {"user": doc.gdb_owner}, ["email", "verified_email"], as_dict=True

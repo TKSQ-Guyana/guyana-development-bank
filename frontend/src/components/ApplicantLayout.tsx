@@ -1,6 +1,12 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { STAFF_LOGIN } from "../shared/staffRoutes";
-import { Sidebar, type SidebarGroup, type SidebarItem } from "./ui/Sidebar";
+import {
+  MenuButton,
+  Sidebar,
+  useMobileNav,
+  type SidebarGroup,
+  type SidebarItem,
+} from "./ui/Sidebar";
 import {
   ApplicationsIcon,
   CheckIcon,
@@ -79,6 +85,7 @@ export function ApplicantLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const nav = useMobileNav(pathname);
 
   const onLogout = async () => {
     const staff = Boolean(
@@ -200,25 +207,30 @@ export function ApplicantLayout() {
           icon: <LogoutIcon />,
           onClick: () => void onLogout(),
         }}
+        mobileOpen={nav.open}
+        onMobileClose={nav.hide}
       />
 
       <div
         className={`flex min-w-0 flex-1 flex-col ${staff ? "bg-slate-50" : "bg-ql-bg"}`}
       >
-        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-white/60 bg-white/55 px-6 py-2 shadow-[0_4px_24px_-12px_rgba(2,44,25,0.18)] backdrop-blur-xl backdrop-saturate-150 lg:px-8">
-          <div className="leading-tight">
-            <div className="flex items-center gap-2">
-              <span className="rounded border border-emerald-200 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">
-                Ministry of Finance
-              </span>
-              <span className="text-xs text-slate-400">/</span>
-              <span className="text-xs font-medium text-slate-500">
-                {moduleTitle(pathname)}
-              </span>
+        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-white/60 bg-white/55 px-4 py-2 shadow-[0_4px_24px_-12px_rgba(2,44,25,0.18)] backdrop-blur-xl backdrop-saturate-150 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <MenuButton onClick={nav.show} />
+            <div className="min-w-0 leading-tight">
+              <div className="flex items-center gap-2">
+                <span className="rounded border border-emerald-200 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-800">
+                  Ministry of Finance
+                </span>
+                <span className="text-xs text-slate-400">/</span>
+                <span className="text-xs font-medium text-slate-500">
+                  {moduleTitle(pathname)}
+                </span>
+              </div>
+              <h1 className="text-base font-black tracking-tight text-slate-900 sm:text-lg">
+                {staff ? "GDB Staff Portal" : "Citizen Loan Portal"}
+              </h1>
             </div>
-            <h1 className="text-base font-black tracking-tight text-slate-900 sm:text-lg">
-              {staff ? "GDB Staff Portal" : "Citizen Loan Portal"}
-            </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2.5 text-sm">
             {!user?.eid && (user?.national_id || user?.tin) && (

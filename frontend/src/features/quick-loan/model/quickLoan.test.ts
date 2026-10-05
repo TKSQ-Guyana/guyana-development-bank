@@ -171,6 +171,13 @@ describe('what stops each step', () => {
     expect(blockerFor('business', VENDOR, TERMS)).toBeNull();
   });
 
+  test('the two supporting contacts have different numbers', () => {
+    const [first, second] = VENDOR.contacts;
+    expect(
+      blockerFor('business', { ...VENDOR, contacts: [first, { ...second, phone: '600 1111' }] }, TERMS),
+    ).toMatch(/different phone numbers/);
+  });
+
   test('the moratorium is optional, but one chosen must be offered', () => {
     for (const moratorium of ['', '0']) expect(blockerFor('loan', { ...VENDOR, moratorium }, TERMS)).toBeNull();
     expect(blockerFor('loan', { ...VENDOR, moratorium: '4' }, TERMS)).toMatch(/moratorium/i);

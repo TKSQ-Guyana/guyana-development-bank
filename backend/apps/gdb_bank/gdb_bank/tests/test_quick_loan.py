@@ -492,6 +492,10 @@ class TestSubmittingAQuickLoan(QuickLoanCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "sub-sector of Rice"):
 			self.save(sections={**TRADE, "sub_sector": other})
 
+	def test_the_two_supporting_contacts_have_different_numbers(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "different phone numbers"):
+			self.save(sections={**TRADE, "support_1_phone": "600 2222", "support_2_phone": "+592 600 2222"})
+
 	def test_the_moratorium_is_optional(self):
 		name = self.submitted(moratorium_months=0)
 		self.assertEqual(self.in_queue(name)["status"], "Submitted")

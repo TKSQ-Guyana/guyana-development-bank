@@ -42,6 +42,13 @@ class TestSmeTerms(IntegrationTestCase):
 		self.draft = saved["name"]
 		return saved
 
+	def test_the_amount_is_from_300k_to_3m(self):
+		for amount in (300000, 1500000, 3000000):
+			self.assertEqual(self.save(loan_amount=amount)["loan_amount"], amount)
+		for amount in (299999, 50000, 3000001):
+			with self.assertRaisesRegex(frappe.ValidationError, "G\$300,000 to G\$3,000,000"):
+				self.save(loan_amount=amount)
+
 	def test_the_term_is_any_month_from_six_to_five_years(self):
 		self.assertEqual(policy.sme_term_bounds(), (6, 60))
 		for term in (6, 7, 18, 37, 60):
@@ -156,7 +163,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
-			sections={"industrial_training": "No", "has_mentor": "No"},
+			sections={"industrial_training": "No"},
 		)
 		frappe.db.set_value("Loan Application", name, {"gdb_registration_date": None, "gdb_dcra_number": ""})
 		self.assertEqual(self.submits(name)["status"], "Submitted")
@@ -193,7 +200,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
-			sections={"industrial_training": "No", "has_mentor": "No"},
+			sections={"industrial_training": "No"},
 		)
 		frappe.db.set_value(
 			"GDB Applicant Document",
@@ -209,34 +216,36 @@ class TestSmeApplicationRules(TestSmeTerms):
 		)
 		self.assertEqual(saved["dcra_number"], "BN-2026-1")
 
-	def test_a_new_business_answers_the_training_and_mentor_questions(self):
+	def test_a_new_business_answers_the_industrial_program_question(self):
 		name = self.ready(business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1")
-		self.refused("industrial training", name)
-		frappe.db.set_value("Loan Application", name, {"gdb_industrial_training": "Yes", "gdb_has_mentor": "Yes"})
-		self.refused("mentor's first name", name)
-		frappe.db.set_value(
-			"Loan Application",
-			name,
-			{"gdb_mentor_first_name": "Asha", "gdb_mentor_last_name": "Persaud", "gdb_mentor_phone": "+5926001234"},
-		)
+		self.refused("industrial program", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_industrial_training": "Yes"})
+		self.refused("institution", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_institution": "GTI"})
+		self.refused("name of the course", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_course_name": "Welding"})
+		self.refused("completed", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_course_completion_date": "2026-12-15"})
 		self.assertEqual(self.submits(name)["status"], "Submitted")
 
-	def test_mentor_details_go_with_a_no(self):
+	def test_no_mentor_is_kept_and_a_no_drops_the_course(self):
 		saved = self.save(
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
 			sections={
 				"moratorium_months": 1,
-				"has_mentor": "No",
-				"mentor_details": "Ms Persaud",
+				"has_mentor": "Yes",
 				"mentor_first_name": "Asha",
 				"mentor_phone": "6001234",
+				"industrial_training": "No",
+				"institution": "GTI",
+				"course_name": "Welding",
+				"course_completion_date": "2026-12-15",
 			},
 		)
-		self.assertFalse(saved["sections"]["mentor_details"])
-		self.assertFalse(saved["sections"]["mentor_first_name"])
-		self.assertFalse(saved["sections"]["mentor_phone"])
+		for key in ("has_mentor", "mentor_first_name", "mentor_phone", "institution", "course_name", "course_completion_date"):
+			self.assertFalse(saved["sections"][key], key)
 
 	def test_an_existing_business_carries_no_new_business_answers(self):
 		saved = self.save(

@@ -749,6 +749,7 @@ def sme_loan_terms():
 	)
 	return {
 		"ceiling": flt(product.maximum_loan_amount) if product else policy.sme_loan_ceiling(),
+		"minimum": policy.sme_loan_minimum(),
 		"min_term": policy.sme_term_bounds()[0],
 		"max_term": policy.sme_term_bounds()[1],
 		"moratorium_options": policy.moratorium_options(),
@@ -916,6 +917,40 @@ def my_bank_details(acting: str | None = None):
 	return row or None
 
 
+def _plain(text: str) -> str:
+	"""Lower case, single spaces, no punctuation: "Port  Kaituma." -> "port kaituma"."""
+	return " ".join("".join(c if c.isalnum() else " " for c in (text or "").lower()).split())
+
+
+def match_branch(bank: str, wanted: str, prefixes: tuple, rows: list):
+	"""The portal's branch for the register's way of writing it, or None.
+
+	The register writes "GBTI - Port Kaituman"; the portal lists "Port
+	Kaituma" (its record named "GBTI - Port Kaituman"). Tried in order, so the
+	surest match wins: the record's own name; the branch name once the bank in
+	front is taken off; then one name inside the other — the longest such
+	branch, so "Water Street" never loses to "Water"."""
+	full = _plain(wanted)
+	short = full
+	for prefix in (*prefixes, bank):
+		p = _plain(prefix)
+		if p and short.startswith(p + " "):
+			short = short[len(p) :].strip()
+			break
+	for row in rows:
+		if _plain(row.name) == full:
+			return row
+	for row in rows:
+		if _plain(row.branch_name) == short:
+			return row
+	inside = [
+		row
+		for row in rows
+		if _plain(row.branch_name) and (_plain(row.branch_name) in short or short in _plain(row.branch_name))
+	]
+	return max(inside, key=lambda r: len(r.branch_name)) if inside else None
+
+
 @frappe.whitelist()
 def my_kyc_bank_account(acting: str | None = None):
 	"""The bank account the KYC register holds for the signed-in person, in the
@@ -952,18 +987,14 @@ def my_kyc_bank_account(acting: str | None = None):
 	)
 	branch = None
 	if bank and person["bank_branch"]:
-		# The register writes "Republic Bank - Water Street"; the list, "Water Street".
-		wanted = person["bank_branch"]
-		for prefix in (written, register_bank):
-			if wanted.lower().startswith(prefix.lower()):
-				wanted = wanted[len(prefix) :].lstrip(" -–").strip()
-				break
-		for row in frappe.get_all(
-			"GDB Bank Branch", filters={"bank": bank}, fields=["name", "branch_name", "routing_number"]
-		):
-			if row.branch_name.lower() == wanted.lower() or wanted.lower() in row.branch_name.lower():
-				branch = row
-				break
+		branch = match_branch(
+			bank,
+			person["bank_branch"],
+			(written, register_bank),
+			frappe.get_all(
+				"GDB Bank Branch", filters={"bank": bank}, fields=["name", "branch_name", "routing_number"]
+			),
+		)
 	account_type = person["account_type"].title() if person["account_type"].title() in ("Checking", "Savings") else ""
 	number_digits = person["account_number"]
 	_logger().info(f"kyc bank account offered to {user}")

@@ -127,11 +127,16 @@ def _applies(fieldname: str, doc) -> bool:
 		"gdb_date_established": stage == "Existing",
 		# A new business is no longer asked for its registration (2026-10-04).
 		"gdb_registration_date": False,
-		# The mentor is asked by first name, last name and phone now.
+		# The mentor is no longer asked (2026-10-05).
+		"gdb_has_mentor": False,
 		"gdb_mentor_details": False,
-		"gdb_mentor_first_name": doc.gdb_has_mentor == "Yes",
-		"gdb_mentor_last_name": doc.gdb_has_mentor == "Yes",
-		"gdb_mentor_phone": doc.gdb_has_mentor == "Yes",
+		"gdb_mentor_first_name": False,
+		"gdb_mentor_last_name": False,
+		"gdb_mentor_phone": False,
+		# The industrial program's follow-ups belong to its Yes.
+		"gdb_institution": doc.gdb_industrial_training == "Yes",
+		"gdb_course_name": doc.gdb_industrial_training == "Yes",
+		"gdb_course_completion_date": doc.gdb_industrial_training == "Yes",
 		"gdb_applicant_eid": doc.gdb_has_eid != "No",
 		"gdb_employer_category": doc.gdb_employed == "Yes",
 		"gdb_employer_name": doc.gdb_employed == "Yes",

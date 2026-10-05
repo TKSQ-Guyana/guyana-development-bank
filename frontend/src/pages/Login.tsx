@@ -177,7 +177,8 @@ export function Login({
 
       <div className="flex min-h-[calc(100vh-6px)] flex-col lg:flex-row">
         {/* ---------- the invitation ---------- */}
-        <section className="flex w-full flex-none flex-col justify-center bg-[linear-gradient(135deg,#E3F2EA_0%,#EEF6F1_42%,#FCFCFA_100%)] px-7 py-14 sm:px-14 sm:py-18 lg:w-[52%] xl:w-[720px] xl:py-24 xl:pr-24 xl:pl-26">
+        {/* On a phone the form comes first (order), the invitation after it. */}
+        <section className="order-2 flex w-full flex-none flex-col justify-center lg:order-1 bg-[linear-gradient(135deg,#E3F2EA_0%,#EEF6F1_42%,#FCFCFA_100%)] px-7 py-14 sm:px-14 sm:py-18 lg:w-[52%] xl:w-[720px] xl:py-24 xl:pr-24 xl:pl-26">
           <div className="flex items-center gap-4">
             <i className="block h-0.5 w-12 shrink-0 bg-gdb-goldleaf" />
             <span className="font-code text-[13px] font-extrabold tracking-[0.12em] text-gdb-indigo sm:text-[14px]">
@@ -219,7 +220,7 @@ export function Login({
         </section>
 
         {/* ---------- the credentials ---------- */}
-        <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-[22px] px-5 py-14 sm:px-16">
+        <section className="order-1 flex min-w-0 flex-1 flex-col items-center justify-start gap-[22px] px-5 py-8 sm:px-16 sm:py-14 lg:order-2 lg:justify-center">
           {signingUp ? (
             <div className="w-full max-w-[600px]">
               <SignupCard

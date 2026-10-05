@@ -43,8 +43,17 @@ export function useAccountOnFile(): boolean | null {
       call<{ bank_account_no?: string } | null>(
         "gdb_bank.api.my_bank_details",
       ).catch(() => null),
-    ]).then(([found, saved]) => {
-      if (live) setHas((found?.length ?? 0) > 0 || !!saved?.bank_account_no);
+      // The account the cash grant register pays this person into.
+      call<{ account_number?: string } | null>(
+        "gdb_bank.api.my_kyc_bank_account",
+      ).catch(() => null),
+    ]).then(([found, saved, register]) => {
+      if (live)
+        setHas(
+          (found?.length ?? 0) > 0 ||
+            !!saved?.bank_account_no ||
+            !!register?.account_number,
+        );
     });
     return () => {
       live = false;
@@ -74,6 +83,11 @@ export function PayoutAccount({
   const [mine, setMine] = useState<OnFile[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [manual, setManual] = useState(false);
+  // The cash grant register's account, once "Use this account" is chosen: its
+  // fields fill themselves and are read-only (GDB, 2026-10-05).
+  const [fromRecord, setFromRecord] = useState<string | null>(null);
+  // The branch the register named, when the portal matched it — fixed too.
+  const [recordBranch, setRecordBranch] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [check, setCheck] = useState<BankAccountRecord | null>(null);
   const [checking, setChecking] = useState(false);
@@ -234,6 +248,10 @@ export function PayoutAccount({
     );
   }
 
+  const locked =
+    !!fromRecord &&
+    value.accountNo.replace(/\D/g, "") === fromRecord.replace(/\D/g, "");
+
   return (
     <div className="space-y-4">
       <RecordAccountOffer
@@ -242,6 +260,8 @@ export function PayoutAccount({
           setManual(true);
           setCheck(null);
           setNote(null);
+          setFromRecord(a.account_number);
+          setRecordBranch(a.branch ?? "");
           onChange({
             ...value,
             bank: a.bank ?? "",
@@ -255,10 +275,37 @@ export function PayoutAccount({
           if (a.account_type) onAccountType?.(a.account_type);
         }}
       />
+      {locked && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-2.5 text-sm text-emerald-900">
+          <span>
+            From the cash grant register. These details cannot be changed here.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setFromRecord(null);
+              onChange({
+                ...value,
+                bank: "",
+                branch: "",
+                branchCode: "",
+                accountNo: "",
+                confirmNo: "",
+                holder: "",
+                manual: true,
+              });
+            }}
+            className="text-xs font-semibold text-brand underline"
+          >
+            Use a different bank account
+          </button>
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField
           label="Bank"
           required
+          disabled={locked}
           value={value.bank}
           onChange={(bank) => {
             onChange({ ...value, bank, branch: "" });
@@ -278,7 +325,9 @@ export function PayoutAccount({
             b.branch_name,
           ])}
           placeholder={value.bank ? "Choose a branch" : "Choose the bank first"}
-          disabled={!value.bank}
+          // A branch the register named and the portal matched is fixed; one
+          // it could not match is left to choose.
+          disabled={!value.bank || (locked && !!recordBranch)}
           hint={(() => {
             const b = branches.find((x) => x.name === value.branch);
             return b?.routing_number
@@ -292,6 +341,7 @@ export function PayoutAccount({
           <TextField
             label="Account number"
             required
+            disabled={locked}
             inputMode="numeric"
             value={value.accountNo}
             onChange={(accountNo) => {
@@ -304,6 +354,7 @@ export function PayoutAccount({
         <TextField
           label="Confirm account number"
           required
+          disabled={locked}
           inputMode="numeric"
           value={value.confirmNo}
           onChange={(confirmNo) => onChange({ ...value, confirmNo })}
@@ -313,6 +364,7 @@ export function PayoutAccount({
       <TextField
         label="Account holder name"
         required
+        disabled={locked}
         value={value.holder}
         onChange={(holder) => onChange({ ...value, holder })}
         hint="As it appears on your bank records."

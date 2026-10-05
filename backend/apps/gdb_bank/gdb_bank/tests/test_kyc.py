@@ -227,3 +227,29 @@ class TestIdentityNumberCrossCheck(IntegrationTestCase):
 		with self.set_user(CITIZEN):
 			shelf = documents.list_documents()
 		self.assertNotIn("register_check", next(d for d in shelf["documents"] if d.document_type == "Identity"))
+
+
+class TestBranchMatching(IntegrationTestCase):
+	"""The register's way of writing a branch, matched to the portal's list."""
+
+	ROWS = [
+		frappe._dict(name="GBTI - Port Kaituman", branch_name="Port Kaituma", routing_number="1"),
+		frappe._dict(name="GBTI - Water Street", branch_name="Water Street", routing_number="2"),
+		frappe._dict(name="GBTI - Water", branch_name="Water", routing_number="3"),
+	]
+
+	def match(self, wanted):
+		from gdb_bank.api import match_branch
+
+		row = match_branch("GBTI", wanted, ("GBTI",), self.ROWS)
+		return row and row.branch_name
+
+	def test_the_bank_in_front_and_a_spelling_slip_still_match(self):
+		self.assertEqual(self.match("GBTI - Port Kaituman"), "Port Kaituma")
+		self.assertEqual(self.match("Port Kaituma"), "Port Kaituma")
+
+	def test_the_longest_name_wins(self):
+		self.assertEqual(self.match("GBTI - Water Street"), "Water Street")
+
+	def test_another_banks_branch_is_not_matched(self):
+		self.assertIsNone(self.match("Demerara Bank - Main branch"))
