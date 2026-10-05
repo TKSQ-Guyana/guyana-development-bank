@@ -198,7 +198,7 @@ export function ComingSoon() {
 function GovStrip() {
   return (
     <div
-      className={`flex flex-wrap justify-between gap-3 bg-[#0b2654] py-2 text-[13px] text-[#e4eaf5] ${GUTTER}`}
+      className={`flex flex-wrap justify-between gap-3 bg-black py-2 text-[13px] text-[#e4eaf5] ${GUTTER}`}
     >
       <span>
         An official website of the Government of the Co-operative Republic of
@@ -445,7 +445,7 @@ function Estimator() {
     : terms.reduce((a, b) => (Math.abs(b - term) < Math.abs(a - term) ? b : a));
 
   return (
-    <div className="flex flex-col gap-6 rounded-[24px] bg-[#0b2654] p-[clamp(28px,3vw,40px)] text-[#faf8f4]">
+    <div className="flex flex-col gap-6 rounded-[24px] bg-black p-[clamp(28px,3vw,40px)] text-[#faf8f4]">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="m-0 text-[24px] font-extrabold tracking-[-0.01em]">
           How much does your business need?
@@ -501,7 +501,7 @@ function Estimator() {
                 className={`h-11 cursor-pointer rounded-[10px] border-[1.5px] text-[15px] transition-colors ${
                   on
                     ? "border-[#f2c14e] bg-[#f2c14e] font-bold text-[#0b2654]"
-                    : "border-[#284c86] bg-transparent font-semibold text-[#faf8f4] hover:border-[#f2c14e]/60"
+                    : "border-[#3a3a3a] bg-transparent font-semibold text-[#faf8f4] hover:border-[#f2c14e]/60"
                 }`}
               >
                 {t} mo
@@ -510,13 +510,13 @@ function Estimator() {
           })}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[14px] bg-[#284c86]">
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[14px] bg-[#2a2a2a]">
         {[
           ["Loan", quick ? "Quick Loan" : "SME Loan", ""],
           ["Monthly", gyd(amount / shown), ""],
           ["Interest", "G$0", "text-[#f2c14e]"],
         ].map(([label, value, tone]) => (
-          <div key={label} className="flex flex-col gap-1 bg-[#0f3068] p-4">
+          <div key={label} className="flex flex-col gap-1 bg-[#141414] p-4">
             <span className="text-[13px] text-[#c9d6ec]">{label}</span>
             <span className={`text-[18px] font-extrabold ${tone}`}>
               {value}
@@ -547,7 +547,7 @@ function Needs({ items, tone }: { items: string[]; tone: "gold" | "navy" }) {
   const gold = tone === "gold";
   return (
     <div
-      className={`flex flex-col gap-3 border-t pt-5 ${gold ? "border-[#e6dcbf]" : "border-[#284c86]"}`}
+      className={`flex flex-col gap-3 border-t pt-5 ${gold ? "border-[#e6dcbf]" : "border-[#3a3a3a]"}`}
     >
       <span
         className={`text-[13px] font-bold uppercase tracking-[0.08em] ${gold ? "text-[#b8860b]" : "text-[#f2c14e]"}`}
@@ -655,7 +655,7 @@ function Loans() {
             </div>
           </article>
 
-          <article className="flex flex-col gap-6 rounded-[24px] bg-[#123a7a] p-[clamp(28px,3vw,40px)] text-white">
+          <article className="flex flex-col gap-6 rounded-[24px] bg-black p-[clamp(28px,3vw,40px)] text-white">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <span className="rounded-full bg-white px-3 py-1.5 text-[15px] font-bold text-[#123a7a]">
                 SME Loan
@@ -1166,7 +1166,7 @@ function ReadyBand() {
 function Footer() {
   const link = "text-[#c9d6ec] hover:text-white";
   return (
-    <footer className={`bg-[#0b2654] pt-14 pb-8 text-[#c9d6ec] ${GUTTER}`}>
+    <footer className={`bg-[#0b2654] pt-14 text-[#c9d6ec] ${GUTTER}`}>
       <div className={`${WRAP} flex flex-col gap-10`}>
         <div className="grid gap-8 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
           <div className="flex flex-col gap-3">
@@ -1215,7 +1215,10 @@ function Footer() {
             </a>
           </div>
         </div>
-        <div className="flex flex-wrap justify-between gap-4 border-t border-[#284c86] pt-6 text-[13px]">
+      </div>
+      {/* The © line alone sits on black, the full width of the page. */}
+      <div className="mt-10 -mx-[clamp(16px,4vw,48px)] bg-black px-[clamp(16px,4vw,48px)] py-6 text-[13px]">
+        <div className={`${WRAP} flex flex-wrap justify-between gap-4`}>
           <span>© 2026 Guyana Development Bank</span>
           <span className="flex gap-5">
             <span>Privacy</span>

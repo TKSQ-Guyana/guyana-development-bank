@@ -36,11 +36,11 @@ API = "https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json"
 TIMEOUT = 15
 
 APPOINTMENT_RECEIVED = (
-	"Hi {first_name}, we received your SMB loan request for {sector}. "
+	"Hi {first_name}, we received your SMB loan request for {sector} sector. "
 	"Our team will contact you soon. Thank you - GDB Team"
 )
 APPLICATION_RECEIVED = (
-	"Hi {first_name}, we received your SMB loan application for {sector}. "
+	"Hi {first_name}, we received your SMB loan application for {sector} sector. "
 	"Our team will contact you soon. Thank you - GDB Team"
 )
 
