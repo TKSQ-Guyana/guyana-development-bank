@@ -182,7 +182,11 @@ bootstrap=true adds what site creation needs (web pods run start-backend.sh).
     "TWILIO_AUTH_TOKEN" "twilio-auth-token"
     "TWILIO_VERIFY_SERVICE_SID" "twilio-verify-service-sid"
     "TWILIO_MESSAGING_SERVICE_SID" "twilio-messaging-service-sid"
-    "TWILIO_FROM_NUMBER" "twilio-from-number" }}
+    "TWILIO_FROM_NUMBER" "twilio-from-number"
+    "SMS_PROVIDER" "sms-provider"
+    "INFOBIP_BASE_URL" "infobip-base-url"
+    "INFOBIP_API_KEY" "infobip-api-key"
+    "INFOBIP_SENDER" "infobip-sender" }}
 {{- range $env, $key := $optional }}
 - name: {{ $env }}
   valueFrom:

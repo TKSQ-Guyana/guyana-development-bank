@@ -1,4 +1,4 @@
-"""Text messages to applicants, through Twilio Programmable Messaging.
+"""Text messages to applicants, through Infobip (in use) or Twilio (kept, off).
 
 The personalised notes GDB sends — "we received your appointment request",
 "we received your application" — not the one-time codes, which go through
@@ -6,9 +6,17 @@ Twilio Verify (integrations/sms_otp.py).
 
 OFF UNTIL CONFIGURED, and never in the way. Without the account and a sender,
 nothing is sent and nothing fails. A message is queued to the background
-worker after the request commits, so a slow or failing Twilio never holds up,
-or undoes, the action the message is about.
+worker after the request commits, so a slow or failing provider never holds
+up, or undoes, the action the message is about.
 
+  SMS_PROVIDER                    "infobip" (the default) or "twilio"
+
+Infobip (SMS API v3, POST {base}/sms/3/messages):
+  INFOBIP_BASE_URL                the account's own API address, e.g. https://xxxxx.api.infobip.com
+  INFOBIP_API_KEY                 sent as "Authorization: App <key>"
+  INFOBIP_SENDER                  the sender name or number the texts come from
+
+Twilio (Programmable Messaging) — kept for a switch back, not used:
   TWILIO_ACCOUNT_SID              the same account as the codes
   TWILIO_AUTH_TOKEN
   TWILIO_MESSAGING_SERVICE_SID    MG…, Twilio console → Messaging → Services   (preferred)
@@ -17,7 +25,7 @@ or undoes, the action the message is about.
                                   when set, Twilio reports each text's delivery back to
                                   status_callback below (Delivered / Undelivered + error code)
 
-Environment first, site_config.json as the alternative (twilio_* in lower case).
+Environment first, site_config.json as the alternative (infobip_* / twilio_* in lower case).
 """
 
 import base64
@@ -33,6 +41,7 @@ from frappe import _
 from gdb_bank.utils.formatters import _normalised_phone
 
 API = "https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json"
+INFOBIP_PATH = "/sms/3/messages"
 TIMEOUT = 15
 
 APPOINTMENT_RECEIVED = (
@@ -49,7 +58,20 @@ def _setting(key: str) -> str:
 	return str(os.environ.get(key.upper()) or frappe.conf.get(key) or "").strip()
 
 
+def provider() -> str:
+	"""Which service sends the texts: Infobip unless told otherwise."""
+	return "twilio" if _setting("sms_provider").lower() == "twilio" else "infobip"
+
+
+def infobip_settings() -> dict:
+	base = _setting("infobip_base_url").rstrip("/")
+	if base and not base.startswith(("https://", "http://")):
+		base = "https://" + base
+	return {"base": base, "key": _setting("infobip_api_key"), "sender": _setting("infobip_sender")}
+
+
 def settings() -> dict:
+	"""Twilio's settings."""
 	return {
 		"account": _setting("twilio_account_sid"),
 		"token": _setting("twilio_auth_token"),
@@ -69,6 +91,9 @@ def callback_url() -> str | None:
 
 
 def configured() -> bool:
+	if provider() == "infobip":
+		i = infobip_settings()
+		return bool(i["base"] and i["key"] and i["sender"])
 	s = settings()
 	return bool(s["account"] and s["token"] and (s["service"] or s["from"]))
 
@@ -140,6 +165,62 @@ def deliver(to: str, body: str, record=None) -> dict:
 	"""Send now (the background job, and send_test). Never raises; answers
 	{"sent": bool, "sid"?, "error"?} and records it on `record`."""
 	record = tuple(record) if record else None
+	if provider() == "infobip":
+		return _deliver_infobip(to, body, record)
+	return _deliver_twilio(to, body, record)
+
+
+# Infobip's status groups that mean the text will not go out.
+INFOBIP_REFUSED = {"REJECTED", "UNDELIVERABLE", "EXPIRED"}
+
+
+def _deliver_infobip(to: str, body: str, record: tuple | None) -> dict:
+	i = infobip_settings()
+	payload = {
+		"messages": [
+			{
+				"sender": i["sender"],
+				# Infobip takes the number without the "+": 5926354444.
+				"destinations": [{"to": to.lstrip("+")}],
+				"content": {"text": body},
+			}
+		]
+	}
+	try:
+		response = requests.post(
+			i["base"] + INFOBIP_PATH,
+			json=payload,
+			headers={"Authorization": f"App {i['key']}", "Accept": "application/json"},
+			timeout=TIMEOUT,
+		)
+	except requests.RequestException as exc:
+		error = f"Infobip unreachable: {type(exc).__name__}"
+		frappe.logger("gdb_bank").error(f"sms: {error}: {exc}")
+		_record(record, FAILED, error=error)
+		return {"sent": False, "error": error}
+	try:
+		detail = response.json()
+	except ValueError:
+		detail = {}
+	if response.status_code >= 400:
+		problem = (detail.get("requestError") or {}).get("serviceException") or {}
+		error = f"Infobip {response.status_code}: {problem.get('text') or detail.get('errorMessage') or getattr(response, 'reason', '')}"
+		frappe.logger("gdb_bank").error(f"sms: refused ({error})")
+		_record(record, FAILED, error=error)
+		return {"sent": False, "error": error}
+	message = (detail.get("messages") or [{}])[0]
+	status = message.get("status") or {}
+	sid = message.get("messageId")
+	if (status.get("groupName") or "").upper() in INFOBIP_REFUSED:
+		error = f"Infobip {status.get('name')}: {status.get('description')}"
+		frappe.logger("gdb_bank").error(f"sms: refused ({error})")
+		_record(record, FAILED, sid=sid, error=error)
+		return {"sent": False, "sid": sid, "error": error}
+	_record(record, SENT, sid=sid)
+	return {"sent": True, "sid": sid, "status": status.get("name")}
+
+
+def _deliver_twilio(to: str, body: str, record: tuple | None) -> dict:
 	s = settings()
 	data = {"To": to, "Body": body}
 	if callback_url():
@@ -172,17 +253,18 @@ def deliver(to: str, body: str, record=None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def send_test(to: str) -> dict:
-	"""Send one text now, to check the Twilio settings — System Manager or
-	Platform Admin. Answers what Twilio said."""
+	"""Send one text now, to check the SMS settings — System Manager or
+	Platform Admin. Answers what the provider said."""
 	roles = set(frappe.get_roles())
 	if not roles & {"System Manager", "Platform Admin"}:
 		frappe.throw(_("Only an administrator may send a test text."), frappe.PermissionError)
 	if not configured():
-		return {
-			"sent": False,
-			"error": "SMS is not set up: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and "
-			"TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM_NUMBER) are needed.",
-		}
+		needed = (
+			"INFOBIP_BASE_URL, INFOBIP_API_KEY and INFOBIP_SENDER"
+			if provider() == "infobip"
+			else "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM_NUMBER)"
+		)
+		return {"sent": False, "error": f"SMS is not set up: {needed} are needed."}
 	number = guyana_number(to)
 	if not number:
 		return {"sent": False, "error": "Give a Guyana number: +592 and seven digits."}

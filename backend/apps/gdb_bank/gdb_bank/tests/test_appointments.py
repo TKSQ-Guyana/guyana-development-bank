@@ -56,7 +56,7 @@ class TestBookingAnAppointment(AppointmentCase):
 		self.assertEqual(phone, "+5926004321")
 		self.assertEqual(
 			body,
-			"Hi Nadia, we received your SMB loan request for Poultry. "
+			"Hi Nadia, we received your SMB loan request for Poultry sector. "
 			"Our team will contact you soon. Thank you - GDB Team",
 		)
 
@@ -95,14 +95,14 @@ class TestTheRepresentativesQueue(AppointmentCase):
 
 class TestTheText(IntegrationTestCase):
 	def test_nothing_is_sent_until_twilio_is_set_up(self):
-		with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}), patch.object(
+		with patch.dict("os.environ", {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}), patch.object(
 			frappe, "enqueue"
 		) as enqueue:
 			self.assertFalse(sms.send("+5926004321", "Hello"))
 		enqueue.assert_not_called()
 
 	def test_a_configured_text_goes_to_the_worker(self):
-		env = {"TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
+		env = {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
 		with patch.dict("os.environ", env), patch.object(frappe, "enqueue") as enqueue:
 			self.assertTrue(sms.send("600 4321", "Hello"))
 		self.assertEqual(enqueue.call_args[1]["to"], "+5926004321")
@@ -116,7 +116,7 @@ class _Reply:
 		return self._body
 
 
-ON = {"TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
+ON = {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "ACx", "TWILIO_AUTH_TOKEN": "t", "TWILIO_MESSAGING_SERVICE_SID": "MGx"}
 
 
 class TestDelivery(IntegrationTestCase):
@@ -155,7 +155,7 @@ class TestDelivery(IntegrationTestCase):
 		self.assertEqual(self.status().sms_status, "No Guyana number")
 
 	def test_without_twilio_the_request_says_so(self):
-		with patch.dict("os.environ", {"TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}):
+		with patch.dict("os.environ", {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "", "TWILIO_AUTH_TOKEN": ""}):
 			self.assertFalse(sms.send("600 4321", "Hello", record=self.record))
 		self.assertEqual(self.status().sms_status, "SMS not set up")
 
@@ -201,3 +201,48 @@ class TestDeliveryReports(TestDelivery):
 		) as post:
 			sms.deliver("+5926004321", "Hello")
 		self.assertEqual(post.call_args[1]["data"]["StatusCallback"], self.URL)
+
+
+INFOBIP = {
+	"SMS_PROVIDER": "infobip",
+	"INFOBIP_BASE_URL": "https://xyz.api.infobip.com",
+	"INFOBIP_API_KEY": "k",
+	"INFOBIP_SENDER": "GDB",
+}
+
+
+class TestInfobip(TestDelivery):
+	"""Infobip (the provider in use) stubbed at the HTTP call."""
+
+	def test_infobip_is_the_default_and_needs_its_three_settings(self):
+		with patch.dict("os.environ", {**INFOBIP, "SMS_PROVIDER": ""}):
+			self.assertEqual(sms.provider(), "infobip")
+			self.assertTrue(sms.configured())
+		with patch.dict("os.environ", {**INFOBIP, "INFOBIP_API_KEY": ""}):
+			self.assertFalse(sms.configured())
+
+	def test_a_text_is_sent_the_way_infobip_asks(self):
+		reply = {"bulkId": "B1", "messages": [{"messageId": "M1", "destination": "5926004321",
+			"status": {"groupId": 1, "groupName": "PENDING", "name": "PENDING_ACCEPTED"}}]}
+		with patch.dict("os.environ", INFOBIP), patch.object(sms.requests, "post", return_value=_Reply(200, reply)) as post:
+			self.assertTrue(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
+		url, kwargs = post.call_args[0][0], post.call_args[1]
+		self.assertEqual(url, "https://xyz.api.infobip.com/sms/3/messages")
+		self.assertEqual(kwargs["headers"]["Authorization"], "App k")
+		self.assertEqual(kwargs["json"]["messages"][0], {
+			"sender": "GDB", "destinations": [{"to": "5926004321"}], "content": {"text": "Hello"}})
+		self.assertEqual((self.status().sms_status, self.status().sms_sid), ("Sent", "M1"))
+
+	def test_a_rejected_text_is_recorded_with_infobips_reason(self):
+		reply = {"messages": [{"messageId": "M2", "status": {"groupName": "REJECTED",
+			"name": "REJECTED_DESTINATION", "description": "Invalid destination"}}]}
+		with patch.dict("os.environ", INFOBIP), patch.object(sms.requests, "post", return_value=_Reply(200, reply)):
+			self.assertFalse(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
+		self.assertEqual(self.status().sms_status, "Failed")
+		self.assertIn("REJECTED_DESTINATION", self.status().sms_error)
+
+	def test_a_refused_key_is_recorded(self):
+		reply = {"requestError": {"serviceException": {"messageId": "UNAUTHORIZED", "text": "Invalid login details"}}}
+		with patch.dict("os.environ", INFOBIP), patch.object(sms.requests, "post", return_value=_Reply(401, reply)):
+			self.assertFalse(sms.deliver("+5926004321", "Hello", record=self.record)["sent"])
+		self.assertIn("Invalid login details", self.status().sms_error)
