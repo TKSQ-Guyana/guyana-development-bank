@@ -117,6 +117,8 @@ services:
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       # Texts go out through Infobip; SMS_PROVIDER=twilio switches back.
       SMS_PROVIDER: ${SMS_PROVIDER:-infobip}
+      # Appointment requests per address per hour (1000 unless set).
+      GDB_APPOINTMENT_RATE_LIMIT: ${GDB_APPOINTMENT_RATE_LIMIT:-}
       INFOBIP_BASE_URL: ${INFOBIP_BASE_URL:-}
       INFOBIP_API_KEY: ${INFOBIP_API_KEY:-}
       INFOBIP_SENDER: ${INFOBIP_SENDER:-}

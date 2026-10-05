@@ -382,8 +382,17 @@ def start_face_check(national_id: str) -> dict:
 APPOINTMENT_REASONS = ("Book appointment", "No National ID", "Change phone number", "Other")
 
 
+def _appointment_limit() -> int:
+	"""Appointment requests one address may send an hour: 1000, or
+	GDB_APPOINTMENT_RATE_LIMIT."""
+	try:
+		return max(1, int(os.environ.get("GDB_APPOINTMENT_RATE_LIMIT") or 1000))
+	except ValueError:
+		return 1000
+
+
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@rate_limit(limit=5, seconds=3600)
+@rate_limit(limit=_appointment_limit, seconds=3600)
 def request_appointment(
 	first_name: str,
 	last_name: str,
