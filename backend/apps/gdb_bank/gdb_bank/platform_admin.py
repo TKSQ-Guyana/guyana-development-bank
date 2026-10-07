@@ -2,8 +2,8 @@
 
 Endpoints: POST /api/method/gdb_bank.platform_admin.<name>
 
-Accounts and roles, the kill switch, the access trail, system health and the
-integration settings. Every endpoint is behind _require_platform_admin, and
+Accounts and roles, the kill switch, the access trail, system health, the
+integration settings, and citizens imported from the MPS call list. Every endpoint is behind _require_platform_admin, and
 this role is in none of the credit or money authority sets, so the reverse
 holds as well: every underwriting, booking, disbursement and finance endpoint
 refuses a platform administrator.
@@ -16,10 +16,12 @@ trail keeps.
 """
 
 import frappe
+from frappe import _
 
 from gdb_bank.services import (
 	access_audit as audit_service,
 	accounts as accounts_service,
+	citizen_import as import_service,
 	integration_settings as settings_service,
 	system_health as health_service,
 )
@@ -87,6 +89,40 @@ def reset_password(user: str, reason: str):
 	only. It works for one sign-in, at which they must choose their own, so the
 	administrator never knows the password the person actually uses."""
 	return accounts_service.reset_password(_require_platform_admin(), user, reason)
+
+
+# -- citizens from the MPS call list ---------------------------------------------
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_citizen_import():
+	"""Upload the MPS workbook (multipart, field `file`). Reads and sorts every
+	row — new, already in the system, duplicate, error — and creates nothing."""
+	actor = _require_platform_admin()
+	upload = frappe.request.files.get("file") if frappe.request else None
+	if not upload:
+		frappe.throw(_("Choose the MPS workbook (.xlsx) to upload."))
+	content = upload.stream.read(import_service.MAX_BYTES + 1)
+	return import_service.preview(actor, upload.filename, content)
+
+
+@frappe.whitelist(methods=["POST"])
+def run_citizen_import(batch: str, reason: str):
+	"""Create the accounts for a previewed import's new rows, in the background.
+	Asking twice queues it once."""
+	return import_service.run(_require_platform_admin(), batch, reason)
+
+
+@frappe.whitelist()
+def citizen_import(batch: str):
+	_require_platform_admin()
+	return import_service.get(batch)
+
+
+@frappe.whitelist()
+def citizen_imports(start=0, page_length=20):
+	_require_platform_admin()
+	return import_service.history(start, page_length)
 
 
 @frappe.whitelist()

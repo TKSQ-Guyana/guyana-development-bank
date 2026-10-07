@@ -19,6 +19,9 @@ door).
   complete_signup(...)        the code, then: Keycloak account, Frappe user,
                               the identity document, and a signed-in session
   national_id_login(...)      Keycloak password grant, then a code challenge
+  set_initial_password(...)   first sign-in of an account GDB opened from the
+                              MPS call list: temporary password -> own one,
+                              then the same code challenge as a sign-in
   verify_login_otp(...)       the code, then a signed-in session
   request_password_reset(...) forgot password: a code to the account's phone
   reset_password(...)         the code and a new password, set in Keycloak
@@ -670,9 +673,13 @@ def national_id_login(national_id: str, password: str) -> dict:
 
 	citizen = identity.keycloak_settings(identity.CITIZEN)
 	try:
-		token = identity._request_token(citizen, _username(nid), password)
+		token = identity._request_token(citizen, _username(nid), password, password_change_ok=True)
 	except identity._Unreachable:
 		frappe.throw(_("Could not reach the sign-in service. Please try again."))
+	except identity._PasswordChangeRequired:
+		# The temporary password GDB texted to an account opened from the MPS
+		# call list. Keycloak only says so once the password is right.
+		return {"password_change_required": True}
 	if not token:
 		frappe.throw(_("Incorrect National ID or password."), frappe.AuthenticationError)
 
@@ -697,6 +704,67 @@ def _phone_of(user: str) -> str:
 		row = frappe.db.get_value("GDB Citizen Profile", {"user": user}, ["phone", "verified_phone"], as_dict=True)
 		phone = row and (row.phone or row.verified_phone)
 	return phone or ""
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="national_id", limit=8, seconds=60)
+def set_initial_password(national_id: str, password: str, new_password: str, confirm_password: str) -> dict:
+	"""First sign-in of an account GDB opened (services/citizen_import.py):
+	the temporary password from the text, then the person's own.
+
+	The temporary password is checked with Keycloak BEFORE anything changes, and
+	the account must actually be waiting on a new password — this is not a
+	general change-password door. The new one is saved as permanent (which
+	clears Keycloak's pending action), and then, as at every sign-in, a code
+	goes to the phone on the account: no session exists until verify_login_otp."""
+	_require_door()
+	nid = _required_nid(national_id)
+	if not password:
+		frappe.throw(_("Enter the temporary password GDB sent you."))
+	user = _account_for(nid)
+	tin = frappe.db.get_value("User", user, TIN_FIELD) if user else None
+	new_password = _checked_password(new_password, confirm_password, nid, tin)
+	if new_password == password:
+		frappe.throw(_("Choose a password of your own, not the temporary one."))
+
+	citizen = identity.keycloak_settings(identity.CITIZEN)
+	try:
+		token = identity._request_token(citizen, _username(nid), password, password_change_ok=True)
+	except identity._Unreachable:
+		frappe.throw(_("Could not reach the sign-in service. Please try again."))
+	except identity._PasswordChangeRequired:
+		pass
+	else:
+		if token:
+			frappe.throw(_("Your password is already set. Sign in with it."))
+		frappe.throw(_("Incorrect National ID or temporary password."), frappe.AuthenticationError)
+
+	if not user:
+		frappe.throw(
+			_("Your National ID is recognised, but it has no GDB account. Please contact GDB."),
+			frappe.AuthenticationError,
+		)
+	_check_may_enter(user)
+	try:
+		kc_id = keycloak_admin.citizen_user_id(_username(nid))
+		if not kc_id:
+			frappe.throw(_(RESET_NO_ACCOUNT))
+		keycloak_admin.set_citizen_password(kc_id, new_password)
+	except (keycloak_admin.PasswordRejected, keycloak_admin.KeycloakAdminError) as exc:
+		frappe.throw(str(exc))
+
+	from gdb_bank.services import access_audit
+
+	access_audit.record(
+		user,
+		access_audit.PASSWORD_CHOSEN,
+		reason=_("Replaced the temporary password at first sign-in."),
+		subject=user,
+		subject_user=user,
+	)
+	frappe.db.commit()
+	_logger().info(f"first sign-in: password chosen for {nid}")
+	return {"otp_required": True, **_issue(LOGIN, user=user, phone=_phone_of(user))}
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

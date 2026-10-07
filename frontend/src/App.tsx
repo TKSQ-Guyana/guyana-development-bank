@@ -192,9 +192,9 @@ const AccessHistoryPage = page(() =>
     default: m.AccessHistoryPage,
   })),
 );
-const ApplicantsListPage = page(() =>
-  import("./features/platform-admin/ApplicantsListPage").then((m) => ({
-    default: m.ApplicantsListPage,
+const CitizensUploadPage = page(() =>
+  import("./features/platform-admin/CitizensUploadPage").then((m) => ({
+    default: m.CitizensUploadPage,
   })),
 );
 
@@ -575,7 +575,7 @@ export function App() {
             <Route path="/admin/health" element={<HealthPage />} />
             <Route path="/admin/integrations" element={<IntegrationsPage />} />
             <Route path="/admin/history" element={<AccessHistoryPage />} />
-            <Route path="/admin/applicants" element={<ApplicantsListPage />} />
+            <Route path="/admin/citizens-upload" element={<CitizensUploadPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

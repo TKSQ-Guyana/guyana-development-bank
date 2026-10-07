@@ -4,7 +4,7 @@
  *  a reason is required, that a secret is never returned — is enforced by the
  *  server. This client only asks. */
 
-import { call } from '../../api';
+import { call, callWithFile } from '../../api';
 import type {
   AccessHistoryPage,
   AccountDetail,
@@ -12,6 +12,8 @@ import type {
   AccountPage,
   AdminOverview,
   ChangeResult,
+  CitizenImport,
+  CitizenImportSummary,
   CreateStaffResult,
   IntegrationGroup,
   IntegrationTest,
@@ -74,3 +76,16 @@ export const saveIntegrationSettings = (group: string, values: Record<string, st
 
 export const testIntegration = (group: string, values?: Record<string, string>) =>
   call<IntegrationTest>(`${M}.test_integration`, { group, values });
+
+/** Upload the MPS workbook: every row read and sorted, nothing created. */
+export const previewCitizenImport = (file: File) =>
+  callWithFile<CitizenImport>(`${M}.preview_citizen_import`, file);
+
+/** Create the accounts for a previewed import's new rows, in the background. */
+export const runCitizenImport = (batch: string, reason: string) =>
+  call<CitizenImport>(`${M}.run_citizen_import`, { batch, reason });
+
+export const getCitizenImport = (batch: string) => call<CitizenImport>(`${M}.citizen_import`, { batch });
+
+export const citizenImports = (start = 0) =>
+  call<{ rows: CitizenImportSummary[]; has_more: boolean }>(`${M}.citizen_imports`, { start, page_length: 20 });
