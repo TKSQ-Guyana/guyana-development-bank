@@ -9,9 +9,20 @@ export function formatGyd(amount: number): string {
   return `${value < 0 ? '-' : ''}G$${digits}`;
 }
 
+/** A date as people read it: 26 Jan 2000.
+ *
+ *  A date-only value ("2000-01-26": a date of birth, a due date) is that day on
+ *  the calendar, so it is built from its own digits. `new Date("2000-01-26")`
+ *  would read it as midnight UTC, which in Guyana (UTC-4) is 8 PM the day
+ *  BEFORE — every date-only value showed a day early. A value with a time is
+ *  read as local time, as before. */
 export function formatDate(value: string | null): string {
   if (!value) return '—';
-  return new Date(value.replace(' ', 'T')).toLocaleDateString('en-GY', {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  const date = day
+    ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]))
+    : new Date(value.replace(' ', 'T'));
+  return date.toLocaleDateString('en-GY', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

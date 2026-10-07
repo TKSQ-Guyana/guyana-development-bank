@@ -532,3 +532,94 @@ class TestAgeLimits(TinCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "between 18 and 60"):
 			self.request(date_of_birth=str(add_years(today(), -62)))
+
+
+class TestForgotPassword(TinCase):
+	"""A code to the account's own phone, then a new password in Keycloak."""
+
+	RESET_NID = "987650001"
+
+	def setUp(self):
+		super().setUp()
+		# The class rolls back once, at its end: later tests find this user made.
+		email = f"{self.RESET_NID}@{tin_auth.PLACEHOLDER_DOMAIN}"
+		self.user = frappe.get_doc("User", email) if frappe.db.exists("User", email) else frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "Reset",
+				"last_name": "Tester",
+				"mobile_no": "+5926007788",
+				"user_type": "Website User",
+				"send_welcome_email": 0,
+				tin_auth.NID_FIELD: self.RESET_NID,
+			}
+		).insert(ignore_permissions=True)
+		patches = [
+			patch.object(tin_auth.keycloak_admin, "citizen_user_id", return_value="kc-reset"),
+			patch.object(tin_auth.keycloak_admin, "set_citizen_password"),
+			patch("gdb_bank.integrations.sms.send"),
+		]
+		self.kc_id, self.set_password, self.texted = [p.start() for p in patches]
+		for p in patches:
+			self.addCleanup(p.stop)
+
+	def ask(self):
+		return tin_auth.request_password_reset(self.RESET_NID)
+
+	def reset(self, challenge, otp=None, password="Harvest2026", confirm=None):
+		return tin_auth.reset_password(
+			challenge, otp or tin_auth._static_otp(), password, confirm if confirm is not None else password
+		)
+
+	def test_the_code_goes_to_the_phone_on_the_account(self):
+		out = self.ask()
+		self.assertTrue(out["challenge"])
+		self.assertIn("7788", out["phone"])
+		self.assertNotIn("600", out["phone"])
+
+	def test_an_unknown_id_is_told_so(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "could not find a GDB account"):
+			tin_auth.request_password_reset("111222333")
+
+	def test_the_right_code_sets_the_new_password_and_texts_the_person(self):
+		out = self.reset(self.ask()["challenge"])
+		self.assertEqual(out, {"reset": True, "national_id": self.RESET_NID})
+		self.kc_id.assert_called_once_with(self.RESET_NID)
+		self.set_password.assert_called_once_with("kc-reset", "Harvest2026")
+		self.assertEqual(self.texted.call_args[0][0], "+5926007788")
+		self.assertIn("password was changed", self.texted.call_args[0][1])
+
+	def test_a_wrong_code_changes_nothing(self):
+		challenge = self.ask()["challenge"]
+		wrong = "000000" if tin_auth._static_otp() != "000000" else "111111"
+		with self.assertRaisesRegex(frappe.ValidationError, "4 tries left"):
+			self.reset(challenge, otp=wrong)
+		self.set_password.assert_not_called()
+
+	def test_a_weak_password_leaves_the_code_usable(self):
+		challenge = self.ask()["challenge"]
+		with self.assertRaisesRegex(frappe.ValidationError, "letter and one number"):
+			self.reset(challenge, password="onlyletters")
+		with self.assertRaisesRegex(frappe.ValidationError, "do not match"):
+			self.reset(challenge, confirm="Different2026")
+		self.assertTrue(self.reset(challenge)["reset"])
+
+	def test_a_password_keycloak_refuses_leaves_the_code_usable(self):
+		challenge = self.ask()["challenge"]
+		self.set_password.side_effect = [tin_auth.keycloak_admin.PasswordRejected("That password does not meet the Bank's password rules."), None]
+		with self.assertRaisesRegex(frappe.ValidationError, "password rules"):
+			self.reset(challenge)
+		self.assertTrue(self.reset(challenge)["reset"])
+
+	def test_a_code_works_once(self):
+		challenge = self.ask()["challenge"]
+		self.reset(challenge)
+		with self.assertRaisesRegex(frappe.ValidationError, "expired"):
+			self.reset(challenge)
+
+	def test_a_sign_in_code_cannot_reset_a_password(self):
+		login = tin_auth._issue(tin_auth.LOGIN, user=self.user.name, phone="+5926007788")
+		with self.assertRaisesRegex(frappe.ValidationError, "expired"):
+			self.reset(login["challenge"])
+		self.set_password.assert_not_called()

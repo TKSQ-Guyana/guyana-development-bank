@@ -20,6 +20,8 @@ door).
                               the identity document, and a signed-in session
   national_id_login(...)      Keycloak password grant, then a code challenge
   verify_login_otp(...)       the code, then a signed-in session
+  request_password_reset(...) forgot password: a code to the account's phone
+  reset_password(...)         the code and a new password, set in Keycloak
 
 NOTHING IS CREATED BEFORE THE CODE. Sign-up's first call writes nothing but a
 short-lived challenge in the cache; the accounts and the document are made by
@@ -84,6 +86,7 @@ OTP_ATTEMPTS = 5
 DEFAULT_STATIC_OTP = "123456"
 SIGNUP = "signup"
 LOGIN = "login"
+RESET = "reset"
 
 # Frappe keys a User on email. A person who gives none gets this address,
 # under a top-level domain reserved never to resolve (RFC 2606) — so it is
@@ -250,6 +253,20 @@ def _registry_phone(nid, use_registry_phone) -> str | None:
 	return None
 
 
+def _checked_password(password, confirm_password, nid: str, tin: str | None = None) -> str:
+	"""The password rules, for sign-up and for a reset alike."""
+	password = password or ""
+	if not (PASSWORD_MIN <= len(password) <= PASSWORD_MAX):
+		frappe.throw(_("Choose a password of {0} to {1} characters.").format(PASSWORD_MIN, PASSWORD_MAX))
+	if not (re.search(r"[A-Za-z]", password) and re.search(r"\d", password)):
+		frappe.throw(_("Use at least one letter and one number in your password."))
+	if nid.lower() in password.lower() or (tin and tin in password):
+		frappe.throw(_("Your password cannot contain your ID number or TIN."))
+	if password != (confirm_password or ""):
+		frappe.throw(_("The two passwords do not match."))
+	return password
+
+
 def _validated(first_name, last_name, email, phone, national_id, password, confirm_password, document_kind=None, date_of_birth=None, use_registry_phone=None, document_number=None, tin=None) -> dict:
 	"""Every sign-up rule except the attachment, in the order the form asks."""
 	nid = _required_nid(national_id)
@@ -278,15 +295,7 @@ def _validated(first_name, last_name, email, phone, national_id, password, confi
 		frappe.throw(_("This National ID already has an account. Sign in instead."))
 	tin = _optional_tin(tin)
 
-	password = password or ""
-	if not (PASSWORD_MIN <= len(password) <= PASSWORD_MAX):
-		frappe.throw(_("Choose a password of {0} to {1} characters.").format(PASSWORD_MIN, PASSWORD_MAX))
-	if not (re.search(r"[A-Za-z]", password) and re.search(r"\d", password)):
-		frappe.throw(_("Use at least one letter and one number in your password."))
-	if nid.lower() in password.lower() or (tin and tin in password):
-		frappe.throw(_("Your password cannot contain your ID number or TIN."))
-	if password != (confirm_password or ""):
-		frappe.throw(_("The two passwords do not match."))
+	password = _checked_password(password, confirm_password, nid, tin)
 
 	# No identity document is asked at sign-up any more (GDB, 2026-10-04): the
 	# National ID and the KYC register identify the person. One sent anyway is
@@ -696,6 +705,72 @@ def verify_login_otp(challenge: str, otp: str) -> dict:
 	"""The code from national_id_login, then a signed-in session."""
 	held = _redeem(challenge, otp, LOGIN)
 	return _sign_in(held["user"], provisioned=False)
+
+
+# --------------------------------------------------------------------------
+# forgot password
+# --------------------------------------------------------------------------
+
+RESET_NO_ACCOUNT = "We could not find a GDB account for this ID number. Check it, or create an account."
+RESET_NO_PHONE = "Your account has no phone number to send a code to. Contact GDB for help."
+PASSWORD_CHANGED_TEXT = (
+	"Your GDB portal password was changed. If you did not do this, contact GDB right away."
+)
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="national_id", limit=5, seconds=60 * 10)
+def request_password_reset(national_id: str) -> dict:
+	"""Forgot password, step one: a code to the phone on the account. Only the
+	account's own phone — never one typed here."""
+	_require_door()
+	nid = _required_nid(national_id)
+	user = _account_for(nid)
+	if not user:
+		frappe.throw(_(RESET_NO_ACCOUNT))
+	identity._check_enabled(user)
+	phone = _phone_of(user)
+	if not phone:
+		frappe.throw(_(RESET_NO_PHONE))
+	_logger().info(f"reset: code issued for {nid}")
+	return _issue(RESET, user=user, national_id=nid, phone=phone)
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="challenge", limit=10, seconds=60)
+def reset_password(challenge: str, otp: str, password: str, confirm_password: str) -> dict:
+	"""Forgot password, step two: the code and the new password. The password
+	goes to Keycloak; every open session of the account is ended; a text says
+	it changed. The person then signs in with the new password."""
+	_require_door()
+	key = _key((challenge or "").strip())
+	pending = frappe.cache.get_value(key)
+	if not pending or pending.get("purpose") != RESET:
+		frappe.throw(_("This code has expired. Request a new one."))
+	tin = frappe.db.get_value("User", pending["user"], TIN_FIELD)
+	# The password is checked before the code is spent, so a refused one
+	# leaves the code usable.
+	password = _checked_password(password, confirm_password, pending["national_id"], tin)
+	held = _redeem(challenge, otp, RESET)
+	try:
+		kc_id = keycloak_admin.citizen_user_id(_username(held["national_id"]))
+		if not kc_id:
+			frappe.throw(_(RESET_NO_ACCOUNT))
+		keycloak_admin.set_citizen_password(kc_id, password)
+	except (keycloak_admin.PasswordRejected, keycloak_admin.KeycloakAdminError) as exc:
+		# Not the code's fault: put the challenge back for another try.
+		frappe.cache.set_value(key, held, expires_in_sec=OTP_TTL)
+		frappe.throw(str(exc))
+
+	from frappe.sessions import clear_sessions
+
+	clear_sessions(user=held["user"], keep_current=False, force=True)
+	from gdb_bank.integrations import sms
+
+	sms.send(held.get("phone"), PASSWORD_CHANGED_TEXT)
+	frappe.db.commit()
+	_logger().info(f"reset: password changed for {held['national_id']}")
+	return {"reset": True, "national_id": held["national_id"]}
 
 
 def _check_may_enter(user: str) -> None:

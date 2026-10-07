@@ -257,6 +257,24 @@ export const nationalIdLogin = (nationalId: string, password: string) =>
 export const verifyLoginOtp = (challenge: string, otp: string) =>
   call<unknown>("gdb_bank.tin_auth.verify_login_otp", { challenge, otp });
 
+/** Forgot password, step one: a code to the phone on the account. */
+export const requestPasswordReset = (nationalId: string) =>
+  call<OtpChallenge>("gdb_bank.tin_auth.request_password_reset", {
+    national_id: nationalId,
+  });
+
+/** Forgot password, step two: the code and the new password. Signs nobody in. */
+export const resetPassword = (
+  challenge: string,
+  otp: string,
+  password: string,
+  confirmPassword: string,
+) =>
+  call<{ reset: boolean; national_id: string }>(
+    "gdb_bank.tin_auth.reset_password",
+    { challenge, otp, password, confirm_password: confirmPassword },
+  );
+
 /** GDB staff: work email + password, against the staff realm. Opens only an
  *  account the platform administrator created. A one-time password opens no
  *  session: it answers `password_change_required`, and staffSetPassword

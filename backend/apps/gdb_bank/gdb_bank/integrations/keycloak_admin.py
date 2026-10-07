@@ -315,6 +315,36 @@ def create_citizen_account(username: str, email: str, first: str, last: str, pas
 	return user_id
 
 
+def citizen_user_id(username: str) -> str | None:
+	"""The Keycloak id of the citizen account with exactly this username."""
+	cfg = _require_citizen()
+	res = _call(cfg, "GET", "/users", params={"username": username, "exact": "true"})
+	if res.status_code != 200:
+		_logger().error(f"keycloak citizen admin user search HTTP {res.status_code}")
+		raise KeycloakAdminError(_("Your account could not be found just now. Please try again."))
+	for row in res.json() or []:
+		if (row.get("username") or "") == username:
+			return row.get("id")
+	return None
+
+
+def set_citizen_password(user_id: str, password: str) -> None:
+	"""A citizen's new permanent password (tin_auth's forgot-password)."""
+	cfg = _require_citizen()
+	res = _call(
+		cfg,
+		"PUT",
+		f"/users/{user_id}/reset-password",
+		json={"type": "password", "value": password, "temporary": False},
+	)
+	if res.status_code == 400:
+		_logger().info("keycloak citizen reset-password refused by policy")
+		raise PasswordRejected(_("That password does not meet the Bank's password rules."))
+	if res.status_code != 204:
+		_logger().error(f"keycloak citizen reset-password HTTP {res.status_code}")
+		raise KeycloakAdminError(_("Your password could not be changed. Please try again."))
+
+
 def delete_citizen_account(user_id: str) -> None:
 	"""Undo create_citizen_account when the portal half fails."""
 	cfg = _require_citizen()

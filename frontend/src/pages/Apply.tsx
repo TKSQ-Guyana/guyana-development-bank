@@ -469,9 +469,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     (looking ||
       myBusinesses === null ||
       ((myBusinesses?.length ?? 0) > 0 && !dcraRecord));
-  // An existing business is asked for its number directly — there is no "No":
-  // one without a registration applies as a new venture.
-  const dcraAnswer = stage === "Existing" ? "yes" : hasDcra;
+  // Every business is asked for its number directly — there is no "No": a new
+  // business names its registration too (GDB, 2026-10-07).
+  const dcraAnswer = stage ? "yes" : hasDcra;
   // Rows that actually name somebody. A blank line in a form is not a co-owner.
   const namedOwners = owners.filter(
     (o) => isCompleteEid(o.eid) || o.name.trim(),
@@ -899,7 +899,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // existing-business route would show "DCRA has no business registered" even
   // though the list simply has not been re-fetched yet.
   useEffect(() => {
-    if (stage === "Existing" && myBusinesses === null) void loadMyBusinesses();
+    if (stage && myBusinesses === null) void loadMyBusinesses();
   }, [stage, myBusinesses]);
 
   /** Resolves a manually typed DCRA number the same way `dcra_lookup` already
@@ -1142,9 +1142,9 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
             return "Enter the date completed, or the expected completion date.";
         }
       }
-      // An existing business names its DCRA registration and the date it was
-      // established; a new one is asked neither (services/application.py).
-      if (stage === "Existing") {
+      // Every business names its DCRA registration and the date it was
+      // established — a new one too, since 2026-10-07 (services/application.py).
+      if (stage) {
         if (!dcra.trim()) return "Enter the DCRA number.";
         if (!text("date_established"))
           return "Give the date your business was established.";
@@ -1605,17 +1605,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
               ] as [string, string][])
             : []),
           ["DCRA #", show(dcra)],
-          ...(stage === "New"
-            ? ([
-                [
-                  "Date of registration",
-                  text("registration_date")
-                    ? formatDate(text("registration_date"))
-                    : "—",
-                ],
-              ] as [string, string][])
-            : []),
-          ...(stage === "Existing"
+          ...(stage
             ? ([
                 [
                   "Date business established",
@@ -1833,10 +1823,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
   // the order the business stage asks for (see the route step below).
   const registrationSection = (
     <>
-      {/* A new business is not asked for a registration. */}
-      {stage === "Existing" && (
+      {/* Asked of every business, new or existing (GDB, 2026-10-07). */}
+      {stage && (
         <Section
-          letter="4"
+          letter={stage === "Existing" ? "4" : "3"}
           title="Business registration"
           blurb="GDB checks it with the business registry."
         >

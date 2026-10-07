@@ -7,6 +7,7 @@ import { nationalIdLogin, verifyLoginOtp, type OtpChallenge } from "../api";
 import { useAuth } from "../auth";
 import { OtpInput } from "../components/OtpInput";
 import { DemoCode, SignupCard } from "./Signup";
+import { ForgotPassword } from "./ForgotPassword";
 import { RequiredMark } from "../components/ui/RequiredMark";
 import { FlagRibbon, goldActionClass } from "../components/site/atoms";
 import { ArrowRight } from "../components/site/atoms";
@@ -66,6 +67,10 @@ export function Login({
   const [tinOtp, setTinOtp] = useState("");
   const [tinError, setTinError] = useState<string | null>(null);
   const [tinBusy, setTinBusy] = useState(false);
+  // Forgot password, in place of the National ID form; `tinNotice` says the
+  // new password was saved.
+  const [resetting, setResetting] = useState(false);
+  const [tinNotice, setTinNotice] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -193,16 +198,12 @@ export function Login({
 
           <p className="mt-9 max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/80 sm:text-[18px]">
             The proposed terms remove the usual barriers:{" "}
-            <strong className="font-extrabold text-black">
-              no collateral
-            </strong>
+            <strong className="font-extrabold text-black">no collateral</strong>
             , so property or family wealth is not a condition, and{" "}
-            <strong className="font-extrabold text-black">
-              zero interest
-            </strong>
+            <strong className="font-extrabold text-black">zero interest</strong>
             , so you repay what you borrowed and nothing more. Up to{" "}
-            <strong className="font-extrabold text-black">G$3M</strong> a
-            loan, with no co-financing above the cap.
+            <strong className="font-extrabold text-black">G$3M</strong> a loan,
+            with no co-financing above the cap.
           </p>
 
           <p className="mt-[22px] max-w-[520px] text-[17px] leading-[1.74] text-gdb-ink/70 sm:text-[18px]">
@@ -255,9 +256,25 @@ export function Login({
                 )}
 
                 {/* TIN credential set — then the one-time code */}
+                {method === "tin" && resetting && (
+                  <ForgotPassword
+                    initialId={tin}
+                    onCancel={() => setResetting(false)}
+                    onDone={(id) => {
+                      setResetting(false);
+                      setTin(id);
+                      setTinPassword("");
+                      setTinError(null);
+                      setTinNotice(
+                        "Your password was changed. Sign in with your new password.",
+                      );
+                    }}
+                  />
+                )}
+
                 <form
                   id="pane-tin"
-                  hidden={method !== "tin"}
+                  hidden={method !== "tin" || resetting}
                   onSubmit={(e) =>
                     void (tinChallenge ? onTinVerify(e) : onTinSubmit(e))
                   }
@@ -327,6 +344,14 @@ export function Login({
                             {tinError}
                           </FocusAlert>
                         )}
+                        {tinNotice && !tinError && (
+                          <p
+                            role="status"
+                            className="mb-4 rounded-xl bg-green-50 px-4 py-3 text-[14px] leading-[1.5] font-medium text-green-800"
+                          >
+                            {tinNotice}
+                          </p>
+                        )}
                         <label className="block">
                           <span className={fieldLabel}>
                             National ID/Passport/E-ID Number
@@ -369,6 +394,20 @@ export function Login({
                           className={textInput}
                         />
                       </label>
+                      <div className="mt-2 text-right">
+                        <button
+                          type="button"
+                          disabled={tinBusy}
+                          onClick={() => {
+                            setTinError(null);
+                            setTinNotice(null);
+                            setResetting(true);
+                          }}
+                          className="cursor-pointer border-0 bg-transparent text-[14px] font-extrabold text-black hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
                       <button
                         type="submit"
                         disabled={tinBusy || !tinReady}

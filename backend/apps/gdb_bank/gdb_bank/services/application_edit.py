@@ -124,7 +124,8 @@ def _applies(fieldname: str, doc) -> bool:
 		"gdb_legal_structure_other": structure == "Other",
 		"gdb_co_applicants": structure == "Partnership",
 		"gdb_applicant_share": structure in ("Partnership", "Incorporated (Inc.)"),
-		"gdb_date_established": stage == "Existing",
+		# Asked of a new business too (2026-10-07), as its registration is.
+		"gdb_date_established": stage in ("Existing", "New"),
 		# A new business is no longer asked for its registration (2026-10-04).
 		"gdb_registration_date": False,
 		# The mentor is no longer asked (2026-10-05).

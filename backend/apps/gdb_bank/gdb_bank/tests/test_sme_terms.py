@@ -158,15 +158,23 @@ class TestSmeApplicationRules(TestSmeTerms):
 		frappe.db.set_value("Loan Application", name, {"gdb_date_established": "2020-01-01", "gdb_dcra_number": ""})
 		self.refused("DCRA", name)
 
-	def test_a_new_business_needs_no_registration(self):
+	def test_a_new_business_needs_its_dcra_number_and_date_established(self):
+		# Since 2026-10-07 a single SME's new business names its registration too.
 		name = self.ready(
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
 			sections={"industrial_training": "No"},
 		)
-		frappe.db.set_value("Loan Application", name, {"gdb_registration_date": None, "gdb_dcra_number": ""})
+		self.refused("date your business was established", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_date_established": "2026-06-01", "gdb_dcra_number": ""})
+		self.refused("DCRA", name)
+		frappe.db.set_value("Loan Application", name, {"gdb_dcra_number": "BN-2026-1"})
 		self.assertEqual(self.submits(name)["status"], "Submitted")
+
+	def test_a_new_business_cannot_be_saved_without_its_dcra_number(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "DCRA"):
+			self.save(business_stage="New", business_name="Oven Co", sections={"moratorium_months": 1})
 
 	def test_the_date_established_cannot_be_in_the_future(self):
 		with self.assertRaisesRegex(frappe.ValidationError, "cannot be in the future"):
@@ -200,7 +208,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 			business_stage="New",
 			business_name="Oven Co",
 			dcra_number="BN-2026-1",
-			sections={"industrial_training": "No"},
+			sections={"industrial_training": "No", "date_established": "2026-06-01"},
 		)
 		frappe.db.set_value(
 			"GDB Applicant Document",
@@ -217,7 +225,10 @@ class TestSmeApplicationRules(TestSmeTerms):
 		self.assertEqual(saved["dcra_number"], "BN-2026-1")
 
 	def test_a_new_business_answers_the_industrial_program_question(self):
-		name = self.ready(business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1")
+		name = self.ready(
+			business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1",
+			sections={"date_established": "2026-06-01"},
+		)
 		self.refused("industrial program", name)
 		frappe.db.set_value("Loan Application", name, {"gdb_industrial_training": "Yes"})
 		self.refused("institution", name)

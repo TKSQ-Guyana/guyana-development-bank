@@ -372,6 +372,10 @@ def _validated(
 		business_name = (business_name or "").strip()
 		if business_stage == "Existing" and not dcra_number:
 			frappe.throw(_("Give the DCRA registration number of your existing business."))
+		# A single SME's new business names its registration too (GDB,
+		# 2026-10-07). A group's start-up is not asked (below).
+		if business_stage == "New" and not cluster and not dcra_number:
+			frappe.throw(_("Give the DCRA registration number of your business."))
 		if business_stage == "New" and cluster:
 			# A group's start-up has no registration yet, so never carry one over.
 			# A single SME names its DCRA number whether new or existing (it is
@@ -548,6 +552,13 @@ def _require_declarations(doc) -> None:
 		frappe.throw(_("Choose your sub-sector."))
 
 
+def _needs_registration(doc) -> bool:
+	"""Whether this SME case must name its DCRA registration: an existing
+	business always; a new one unless it is a group's."""
+	stage = (doc.gdb_business_stage or "").title()
+	return stage == "Existing" or (stage == "New" and not doc.gdb_cluster)
+
+
 def _require_sme_details(doc) -> None:
 	"""What a single SME application must carry before it goes to GDB."""
 	from gdb_bank.utils.eid import EID_SHAPE, normalize_eid
@@ -558,10 +569,11 @@ def _require_sme_details(doc) -> None:
 	if eid and not EID_SHAPE.match(eid):
 		frappe.throw(_("Enter your E-ID in the format xxx-xxxx-xxxx."))
 	doc.gdb_applicant_eid = eid
-	# A new business is not asked for a registration (GDB, 2026-10-04): only an
-	# existing one names its DCRA number, and the date it was established
-	# (submit_application).
-	if (doc.gdb_business_stage or "").title() == "Existing" and not (doc.gdb_dcra_number or "").strip():
+	# Every single SME names its DCRA registration and the date the business was
+	# established (submit_application) — a new business as well as an existing
+	# one (GDB, 2026-10-07; until then a new business was not asked). A group's
+	# start-up has no registration to give.
+	if _needs_registration(doc) and not (doc.gdb_dcra_number or "").strip():
 		frappe.throw(_("Give the DCRA registration number of your business."))
 	if (doc.gdb_business_stage or "").title() == "New":
 		if doc.gdb_industrial_training not in ("Yes", "No"):
@@ -729,7 +741,7 @@ def submit_application(
 				frappe.throw(_("Give the lender, amount and status of each existing debt."))
 			if any(not row.status for row in doc.gdb_existing_debt_lines):
 				frappe.throw(_("Choose the status of each existing debt."))
-		if (doc.gdb_business_stage or "").title() == "Existing" and not doc.gdb_date_established:
+		if _needs_registration(doc) and not doc.gdb_date_established:
 			frappe.throw(_("Give the date your business was established."))
 		_require_sme_details(doc)
 		_require_declarations(doc)
