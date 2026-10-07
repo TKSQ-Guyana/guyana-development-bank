@@ -100,6 +100,32 @@
 .mgr .regtable table td { padding: 11px 14px; }
 .mgr .regtable td.flag { color: var(--venture); }
 
+/* ---- Industry by region (region × sector heatmap) --------------------------- */
+.mgr .heatcard { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px 22px; display: grid; gap: 14px; min-width: 0; }
+.mgr .heatcard .rh { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.mgr .heatcard h3 { margin: 0; font-family: var(--body); font-weight: 600; font-size: 1.05rem; letter-spacing: -.005em; }
+.mgr .heatcard .tag { font-size: .72rem; color: var(--muted); }
+.mgr .heatcard .rs { margin: -8px 0 0; color: var(--muted); font-size: .82rem; }
+.mgr .heatbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.mgr .seg2 { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 55%, var(--surface)); }
+.mgr .seg2 button { font: 600 .82rem var(--body); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer; }
+.mgr .seg2 button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.mgr .seg2 button:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+.mgr .heatkey { display: inline-flex; align-items: center; gap: 10px; font-size: .78rem; color: var(--muted); }
+.mgr .heatkey i { width: 140px; height: 8px; border-radius: 4px; background: linear-gradient(to right, color-mix(in srgb, var(--ink) 12%, var(--surface)), color-mix(in srgb, var(--ink) 70%, var(--surface))); }
+.mgr .heatscroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.mgr table.heat { border-collapse: separate; border-spacing: 4px; min-width: max-content; }
+.mgr table.heat th { background: transparent; color: var(--muted); font-size: .66rem; letter-spacing: .08em; padding: 10px 6px 4px; border: 0; white-space: nowrap; }
+.mgr table.heat th.c { text-align: center; }
+.mgr table.heat td { border: 0; padding: 0; vertical-align: middle; }
+.mgr table.heat td.rg { padding: 4px 16px 4px 6px; font-size: .88rem; white-space: nowrap; }
+.mgr table.heat td.rg span { display: block; font-size: .76rem; color: var(--muted); }
+.mgr table.heat td.c { min-width: 72px; }
+.mgr .heat .cell { display: flex; align-items: center; justify-content: center; height: 44px; padding: 0 10px; border-radius: 4px; font-family: var(--mono); font-size: .82rem; font-weight: 600; color: var(--fg); white-space: nowrap; transition: background .6s ease; }
+.mgr .heat .cell.dark { color: var(--surface); }
+.mgr .heat .cell.lead { background: var(--red); color: #fff; }
+.mgr .heat .cell.nil { color: var(--muted); font-weight: 400; }
+
 /* ---- live: added for the portal page -------------------------------------- */
 .mgr .live { display: inline-flex; align-items: center; gap: 7px; margin-top: 4px; }
 .mgr .live .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: mgr-pulse 2s infinite; }

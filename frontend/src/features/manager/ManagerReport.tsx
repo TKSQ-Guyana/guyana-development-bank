@@ -30,6 +30,8 @@ interface Report {
   stage: Dist;
   region: Dist;
   sector: Dist;
+  /** Region × sector: one row per region, one [apps, amount] per sector. */
+  industry?: { sectors: string[]; rows: [string, [number, number][]][] };
   age: Dist;
   registration: {
     with: RegSide;
@@ -365,6 +367,8 @@ function Sheet({ r, error }: { r: Report; error: string | null }) {
 
       <Registration r={r} />
 
+      {r.industry && <IndustryByRegion data={r.industry} />}
+
       <div className="grid2">
         <section>
           <h2>By region</h2>
@@ -582,6 +586,126 @@ function DistTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Industry by region — region × sector heatmap
+// ---------------------------------------------------------------------------
+
+/** One row per region, one cell per sector. Shading is the cell's share of
+ *  that region's total, against the region's largest sector — so rows compare
+ *  as industry mixes, not as sizes. The largest sector in each region is red. */
+function IndustryByRegion({
+  data,
+}: {
+  data: NonNullable<Report["industry"]>;
+}) {
+  const [by, setBy] = useState<0 | 1>(0);
+  const { sectors, rows } = data;
+  const show = (v: number) => (by ? gd(v) : fmt(v));
+
+  return (
+    <section className="heatcard" aria-labelledby="h-heat">
+      <div className="rh">
+        <h3 id="h-heat">Industry by region</h3>
+        <span className="tag">
+          {by ? "G$ requested" : "applications"} per sector in each region
+        </span>
+      </div>
+      <p className="rs">
+        Each row is one region. Shading shows how much of that region&apos;s{" "}
+        {by ? "requested amount" : "applications"} fall in each sector, so you
+        can compare the industry mix across regions. The largest sector in each
+        region is shown in red.
+      </p>
+      <div className="heatbar">
+        <div className="seg2" role="group" aria-label="Measure">
+          <button
+            type="button"
+            aria-pressed={by === 0}
+            onClick={() => setBy(0)}
+          >
+            Applications
+          </button>
+          <button
+            type="button"
+            aria-pressed={by === 1}
+            onClick={() => setBy(1)}
+          >
+            G$ requested
+          </button>
+        </div>
+        <div className="heatkey" aria-hidden="true">
+          Lower share <i /> Higher share
+        </div>
+      </div>
+      <div className="heatscroll">
+        <table className="heat">
+          <thead>
+            <tr>
+              <th>Region</th>
+              {sectors.map((s) => (
+                <th key={s} className="c">
+                  {s}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([region, cells]) => {
+              const [name, sub] = region.split(" — ");
+              const vals = cells.map((c) => c[by]);
+              const top = Math.max(...vals);
+              const sum = vals.reduce((s, v) => s + v, 0);
+              return (
+                <tr key={region}>
+                  <td className="rg">
+                    {name}
+                    {sub && <span>{sub}</span>}
+                  </td>
+                  {vals.map((v, i) => {
+                    if (!v)
+                      return (
+                        <td key={sectors[i]} className="c">
+                          <span className="cell nil">–</span>
+                        </td>
+                      );
+                    const lead = v === top;
+                    const t = top ? v / top : 0;
+                    const share = sum ? Math.round((v / sum) * 100) : 0;
+                    return (
+                      <td key={sectors[i]} className="c">
+                        <span
+                          className={`cell${lead ? " lead" : t > 0.5 ? " dark" : ""}`}
+                          style={
+                            lead
+                              ? undefined
+                              : {
+                                  background: `color-mix(in srgb, var(--ink) ${Math.round(12 + 58 * t)}%, var(--surface))`,
+                                }
+                          }
+                          title={`${name} · ${sectors[i]}: ${show(v)} (${share}% of the region)`}
+                        >
+                          {show(v)}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {!rows.length && (
+              <tr>
+                <td colSpan={sectors.length + 1} className="note">
+                  No applications yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

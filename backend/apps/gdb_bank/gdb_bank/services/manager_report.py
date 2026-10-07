@@ -195,6 +195,8 @@ def _build() -> dict:
 	stage = defaultdict(lambda: [0, 0.0])
 	region = defaultdict(lambda: [0, 0.0])
 	sector = defaultdict(lambda: [0, 0.0])
+	# region -> sector -> [apps, amount]: the "Industry by region" grid.
+	industry = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
 	age = defaultdict(lambda: [0, 0.0])
 	reg = {
 		True: {"n": 0, "amt": 0.0, "existing": 0, "new": 0, "other": 0},
@@ -233,9 +235,13 @@ def _build() -> dict:
 		region[label][0] += 1
 		region[label][1] += amount
 
+		region_label = label
 		label = (r.gdb_sector or "").strip() or "Not stated"
 		sector[label][0] += 1
 		sector[label][1] += amount
+		cell = industry[region_label][label]
+		cell[0] += 1
+		cell[1] += amount
 
 		label = _band(_age(r.date_of_birth or r.verified_birth_date, today))
 		age[label][0] += 1
@@ -251,6 +257,15 @@ def _build() -> dict:
 
 	region_order = [f"Region {no} — {name}" for no, name in REGIONS] + ["Not stated"]
 	band_order = [_band(low) for low, _high in AGE_BANDS] + ["Under 18", "Not stated"]
+	# Sectors as columns, most applications first; regions as rows, busiest
+	# first. "Not stated" goes last on both, as in the single-way tables.
+	sector_order = [
+		k for k, _v in sorted(sector.items(), key=lambda x: (x[0] == "Not stated", -x[1][0], x[0]))
+	]
+	industry_regions = sorted(
+		(k for k in region_order if region[k][0]),
+		key=lambda k: (k == "Not stated", -region[k][0], region_order.index(k)),
+	)
 	fraud, duplicate_ids = _fraud(rows, quick_products)
 	shared_banks = _shared_bank_accounts()
 	fraud = shared_banks + fraud
@@ -272,6 +287,11 @@ def _build() -> dict:
 		"sector": sorted(
 			([k, *v] for k, v in sector.items()), key=lambda x: (x[0] == "Not stated", -x[1], x[0])
 		),
+		"industry": {
+			"sectors": sector_order,
+			# [region, [[apps, amount] per sector, in "sectors" order]]
+			"rows": [[k, [list(industry[k][s]) for s in sector_order]] for k in industry_regions],
+		},
 		"age": [[k, *age[k]] for k in band_order if age[k][0]],
 		"registration": {
 			"with": reg[True],
