@@ -159,3 +159,70 @@ export interface AdminOverview {
   staff_never_signed_in: number;
   recent: AccessChange[];
 }
+
+/** What became of one spreadsheet row (GDB Citizen Import Row.result). */
+export type ImportRowResult = 'New' | 'Existing' | 'Duplicate' | 'Error' | 'Created' | 'Failed';
+
+export type ImportStatus = 'Previewed' | 'Queued' | 'Running' | 'Completed' | 'Failed';
+
+/** gdb_bank.platform_admin.preview_citizen_import / run_citizen_import /
+ *  citizen_import — one MPS call-list workbook and what became of it. */
+export interface CitizenImport {
+  name: string;
+  status: ImportStatus;
+  file_name: string;
+  uploaded_by: string;
+  uploaded_on: string;
+  run_by: string | null;
+  reason: string | null;
+  started_on: string | null;
+  finished_on: string | null;
+  counts: {
+    total: number;
+    new: number;
+    existing: number;
+    duplicate: number;
+    error: number;
+    created: number;
+    failed: number;
+    sms_sent: number;
+  };
+  sheets: ({ sheet: string; total: number } & Partial<Record<Lowercase<ImportRowResult>, number>>)[];
+  notes: string[];
+  failure: string | null;
+  /** /private/files/… — the workbook of errors, skipped and created rows. */
+  error_report: string | null;
+  /** An earlier COMPLETED import of this exact file, when there is one. */
+  already_imported_as: string | null;
+  sms_configured: boolean;
+  keycloak_configured: boolean;
+  /** Rows that did not (or will not) become an account; the first 500. */
+  issues: {
+    sheet: string;
+    row_number: number;
+    result: ImportRowResult;
+    message: string | null;
+    full_name: string | null;
+    id_number: string | null;
+    id_type: string | null;
+  }[];
+  issues_truncated: boolean;
+}
+
+export interface CitizenImportSummary {
+  name: string;
+  status: ImportStatus;
+  source_file_name: string;
+  uploaded_by: string;
+  uploaded_on: string;
+  run_by: string | null;
+  finished_on: string | null;
+  total_rows: number;
+  new_rows: number;
+  existing_rows: number;
+  duplicate_rows: number;
+  error_rows: number;
+  created_count: number;
+  failed_count: number;
+  error_report: string | null;
+}

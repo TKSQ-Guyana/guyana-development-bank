@@ -780,6 +780,18 @@ USER_CUSTOM_FIELDS = {
 			"description": "The ID number on the KYC register — the Keycloak username of an online sign-up.",
 			"insert_after": "gdb_eid",
 		},
+		# What kind of document gdb_national_id is the number of. Set on accounts
+		# opened from the MPS call list (services/citizen_import.py), where the
+		# number may be a passport's or an e-ID's.
+		{
+			"fieldname": "gdb_id_type",
+			"label": "ID Type",
+			"fieldtype": "Select",
+			"options": "\nNational ID\nPassport\ne-ID",
+			"read_only": 1,
+			"no_copy": 1,
+			"insert_after": "gdb_national_id",
+		},
 		# Their GRA Taxpayer Identification Number, when they gave one. Optional.
 		{
 			"fieldname": "gdb_tin",

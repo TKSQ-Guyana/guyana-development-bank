@@ -102,10 +102,23 @@ def _role_set(rows) -> set:
 	return {r.role for r in rows or []} - _AUTOMATIC_ROLES
 
 
+# The one account an administrator may open that is not staff: a citizen from
+# the MPS call list (services/citizen_import.py) — a NEW Website User holding
+# Citizen and nothing else. Granting Citizen to an existing account, or
+# alongside any other role, is still refused.
+CITIZEN_ROLE = "Citizen"
+
+
+def is_new_citizen(doc) -> bool:
+	return doc.is_new() and doc.user_type == "Website User" and _role_set(doc.roles) == {CITIZEN_ROLE}
+
+
 def validate_user_change(doc, method=None):
 	"""User.validate — the backstop behind services/accounts.py."""
 	actor = frappe.session.user
 	if not binds(actor):
+		return
+	if is_new_citizen(doc) and not doc.get("new_password"):
 		return
 
 	before = None if doc.is_new() else doc.get_doc_before_save()

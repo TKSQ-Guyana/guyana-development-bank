@@ -21,7 +21,7 @@ const NAV_ITEMS: SidebarItem[] = [
   { to: "/admin/health", label: "System health", icon: <PulseIcon /> },
   { to: "/admin/integrations", label: "Integrations", icon: <SlidersIcon /> },
   { to: "/admin/history", label: "Access history", icon: <HistoryIcon /> },
-  { to: "/admin/applicants", label: "Applicants List", icon: <ProfileIcon /> },
+  { to: "/admin/citizens-upload", label: "Citizens Upload", icon: <ProfileIcon /> },
 ];
 
 /** Chrome for the platform administrator's own section. No link back to the

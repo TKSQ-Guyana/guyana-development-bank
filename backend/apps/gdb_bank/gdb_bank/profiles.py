@@ -70,7 +70,7 @@ VERIFIED_FIELDS = (
 CONSENT_FIELDS = ("consent_version", "consent_accepted_on")
 
 PROFILE_FIELDS = (
-	("name", "user", "eid", "full_name", "updated_on")
+	("name", "user", "eid", "full_name", "updated_on", "declared_source")
 	+ DECLARED_FIELDS
 	+ VERIFIED_FIELDS
 	+ CONSENT_FIELDS
