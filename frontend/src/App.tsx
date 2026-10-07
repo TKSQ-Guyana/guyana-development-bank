@@ -192,6 +192,11 @@ const AccessHistoryPage = page(() =>
     default: m.AccessHistoryPage,
   })),
 );
+const ApplicantsListPage = page(() =>
+  import("./features/platform-admin/ApplicantsListPage").then((m) => ({
+    default: m.ApplicantsListPage,
+  })),
+);
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -570,6 +575,7 @@ export function App() {
             <Route path="/admin/health" element={<HealthPage />} />
             <Route path="/admin/integrations" element={<IntegrationsPage />} />
             <Route path="/admin/history" element={<AccessHistoryPage />} />
+            <Route path="/admin/applicants" element={<ApplicantsListPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
