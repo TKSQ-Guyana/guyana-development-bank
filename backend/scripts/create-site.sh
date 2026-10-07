@@ -56,7 +56,16 @@ bench --site "$SITE" migrate
 # frappe CSRF token is not available to it, so disable CSRF for this API-only
 # deployment (cookies are SameSite; nginx keeps /api same-origin).
 bench --site "$SITE" set-config ignore_csrf 1
-bench --site "$SITE" set-config mute_emails 1
+# Outgoing email (gdb_bank.integrations.mail) goes out only when an SMTP login
+# is configured; without one, Frappe's own mails (welcome, password reset) are
+# muted so nothing tries a server that is not there. Decided on every boot, so
+# adding GDB_SMTP_USER / GDB_SMTP_PASSWORD to .env and recreating the backend
+# is all it takes.
+if [ -n "${GDB_SMTP_USER:-}" ] && [ -n "${GDB_SMTP_PASSWORD:-}" ]; then
+  bench --site "$SITE" set-config -p mute_emails 0
+else
+  bench --site "$SITE" set-config -p mute_emails 1
+fi
 # Complete the ERPNext first-boot wizard headlessly so the desk (:8080) is
 # usable right away, then seed lending masters (Loan Product etc). Idempotent.
 bench --site "$SITE" execute gdb_bank.install.complete_setup_wizard

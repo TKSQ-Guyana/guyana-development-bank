@@ -4,6 +4,11 @@
 {{- fail "backend.staticOtp is set: a fixed OTP lets anyone sign up with any phone number. Wire SMS, or set backend.allowStaticOtp=true knowingly (never in production)." -}}
 {{- end -}}
 {{- $kc := default (printf "http://%s-keycloak:8080" $n) $b.keycloak.url -}}
+{{- $portalHost := .Values.ingress.portal.host -}}
+{{- $portalUrl := $b.portalUrl | default (and $portalHost (printf "https://%s" $portalHost)) -}}
+{{- if not $portalUrl -}}
+{{- fail "Set ingress.portal.host (or backend.portalUrl): links in GDB's emails would otherwise point at localhost." -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -31,6 +36,8 @@ data:
   KEYCLOAK_CITIZEN_ADMIN_CLIENT_ID: {{ $b.keycloak.citizenAdminClientId | quote }}
   GDB_PLATFORM_ADMIN_EMAIL: {{ $b.platformAdmin.email | quote }}
   GDB_PLATFORM_ADMIN_NAME: {{ $b.platformAdmin.name | quote }}
+  # Links in the emails GDB sends (gdb_bank.integrations.mail).
+  GDB_PORTAL_URL: {{ trimSuffix "/" $portalUrl | quote }}
   DCRA_BASE_URL: {{ $b.integrations.dcraBaseUrl | quote }}
   BANK_REGISTRY_BASE_URL: {{ $b.integrations.bankRegistryBaseUrl | quote }}
   {{- if $b.staticOtp }}

@@ -519,7 +519,28 @@ def review_document(name: str, status: str, note: str | None = None):
 	)
 	frappe.db.commit()
 	_logger().info(f"document {name} -> {status} by {staff}")
+	_tell_reviewed(name, status, staff)
 	return frappe.db.get_value(DOCTYPE, name, DOCUMENT_FIELDS, as_dict=True)
+
+
+def _tell_reviewed(name: str, status: str, staff: str) -> None:
+	"""The document is the person's own — a personal one follows them across
+	cases — so the notice goes to them, not to a whole group."""
+	from gdb_bank.services import case_notice
+
+	row = frappe.db.get_value(
+		DOCTYPE, name, ["applicant", "application", "document_type", "id_document_kind"], as_dict=True
+	)
+	if not row:
+		return
+	kind = row.id_document_kind if row.document_type == "Identity" and row.id_document_kind else row.document_type
+	case_notice.tell_person(
+		row.applicant,
+		"document_accepted" if status == "Accepted" else "document_rejected",
+		case_notice.CITIZEN_LINK.format(row.application) if row.application else "/",
+		staff,
+		document=kind or "document",
+	)
 
 
 # --------------------------------------------------------------------------
@@ -585,6 +606,9 @@ def request_information(application: str, item: str, document_type: str | None =
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"information request {doc.name} raised on {application} by {staff}")
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(application, "information_requested", staff)
 	return frappe.db.get_value(REQUEST_DOCTYPE, doc.name, REQUEST_FIELDS, as_dict=True)
 
 
@@ -592,13 +616,18 @@ def request_information(application: str, item: str, document_type: str | None =
 def withdraw_request(name: str):
 	"""Take back an ask. Kept as a withdrawn row, never deleted."""
 	staff = _require_underwriter()
-	if not frappe.db.exists(REQUEST_DOCTYPE, name):
+	row = frappe.db.get_value(REQUEST_DOCTYPE, name, ["application", "status"], as_dict=True)
+	if not row:
 		frappe.throw(_("Information request {0} not found.").format(name))
 	frappe.db.set_value(
 		REQUEST_DOCTYPE, name, {"status": "Withdrawn", "responded_on": now_datetime()}
 	)
 	frappe.db.commit()
 	_logger().info(f"information request {name} withdrawn by {staff}")
+	if row.status != "Withdrawn":
+		from gdb_bank.services import case_notice
+
+		case_notice.tell(row.application, "request_withdrawn", staff)
 	return frappe.db.get_value(REQUEST_DOCTYPE, name, REQUEST_FIELDS, as_dict=True)
 
 

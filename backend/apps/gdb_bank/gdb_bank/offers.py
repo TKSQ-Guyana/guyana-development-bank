@@ -25,7 +25,6 @@ from gdb_bank.services import cluster as cluster_service
 from gdb_bank.services.application import _readable_application
 from gdb_bank.utils.constants import LOAN_FIELDS, STATUS_TO_PORTAL
 from gdb_bank.utils.session import _as_system, _logger, _require_underwriter, _session_user
-from gdb_bank.services.notification import notify
 
 OFFER_FIELDS = [
 	"name",
@@ -413,12 +412,14 @@ def issue_offer(
 		offer.agreement_text = _agreement_text(offer)
 		offer.save()
 		offer.submit()
-		# Everyone who must sign: each member on a group's offer, else the applicant.
-		for party in [line["member"] for line in lines if line["member"]] or [row.gdb_owner]:
-			notify(party, _("Your Letter of Offer is ready to sign"), f"/loans/{application}", from_user=staff)
 		frappe.db.commit()
 
 	_logger().info(f"offer {offer.name} issued on {application} by {staff} for {amount}")
+	# Everyone on the case: the applicant, or each member of a group and its
+	# facilitator (services/case_notice).
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(application, "offer_ready", staff)
 	return _offer_dict(frappe.db.get_value("GDB Loan Offer", offer.name, OFFER_FIELDS, as_dict=True))
 
 

@@ -260,6 +260,16 @@ underwriter review queue. The official name everywhere is
   sign-in answers `password_change_required` → `tin_auth.set_initial_password`
   → the usual code. `role_policy.is_new_citizen` is the one non-staff account
   a Platform Admin may open.
+- **Every staff update to a case is told to the applicant**
+  (`services/case_notice.py`, decided 2026-10-07): decision, information
+  request/withdrawal, document review, condition added/updated, Letter of
+  Offer, site visit booked/cancelled (not reference checks), loan booked,
+  disbursed, repayment received. Recipients: the applicant, or for a group
+  every Active member plus the facilitator. Portal inbox always; then ONE of
+  email (real address + mail configured) or SMS (`notification.notify(sms=…)`).
+  Wording lives only in `case_notice.EVENTS` and never carries staff remarks —
+  "Sign in at gdb.gov.gy for details." Told after the action commits; a
+  failure is logged, never raised.
 - **A cluster loan is a different product, never a side effect of membership.**
   A citizen naming a `cluster` on `save_application` / `apply_loan` is
   refused (`_cluster_for`); only the facilitator path files against a group.
