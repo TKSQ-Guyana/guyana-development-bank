@@ -103,6 +103,11 @@ const GroupWizard = page(() =>
     default: m.GroupWizard,
   })),
 );
+const ManagerReport = page(() =>
+  import("./features/manager/ManagerReport").then((m) => ({
+    default: m.ManagerReport,
+  })),
+);
 const AppointmentDesk = page(() =>
   import("./features/representative/AppointmentDesk").then((m) => ({
     default: m.AppointmentDesk,
@@ -310,6 +315,13 @@ function RequireRepresentative({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** The GDB Team Report, live. Mirrored server-side in _require_manager. */
+function RequireManager({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user?.is_manager) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 /** The Field Officer's desk: assist requests, assisted applications and
  *  field tasks. Mirrored server-side in _require_field_officer, and per record
  *  (region, assignment, the applicant's consent) in services/field_operations. */
@@ -433,6 +445,15 @@ export function App() {
             {/* The Field Officer's screens. The assisted application is the
                 applicant's own form (pages/Apply) under the applicant's
                 consent, so it lives here rather than behind CitizenOnly. */}
+            {/* The GDB Manager's team report, in the staff layout. */}
+            <Route
+              path="/manager"
+              element={
+                <RequireManager>
+                  <ManagerReport />
+                </RequireManager>
+              }
+            />
             <Route
               path="/appointments"
               element={

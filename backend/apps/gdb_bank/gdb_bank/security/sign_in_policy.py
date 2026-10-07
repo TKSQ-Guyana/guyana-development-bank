@@ -29,6 +29,7 @@ from gdb_bank.utils.constants import (
 	FACILITATOR_ROLES,
 	FIELD_OFFICER_ROLES,
 	PLATFORM_ADMIN_ROLES,
+	MANAGER_ROLES,
 	REPRESENTATIVE_ROLES,
 	STAFF_ROLES,
 )
@@ -50,7 +51,14 @@ def is_staff_account(user: str) -> bool:
 		return True
 	return bool(
 		set(frappe.get_roles(user))
-		& (STAFF_ROLES | PLATFORM_ADMIN_ROLES | FACILITATOR_ROLES | FIELD_OFFICER_ROLES | REPRESENTATIVE_ROLES)
+		& (
+			STAFF_ROLES
+			| PLATFORM_ADMIN_ROLES
+			| FACILITATOR_ROLES
+			| FIELD_OFFICER_ROLES
+			| REPRESENTATIVE_ROLES
+			| MANAGER_ROLES
+		)
 	)
 
 

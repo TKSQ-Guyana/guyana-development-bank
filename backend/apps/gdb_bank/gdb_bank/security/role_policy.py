@@ -35,12 +35,13 @@ GRANTABLE_ROLES = (
 	"Facilitator",
 	"Field Officer",
 	"GDB Representative",
+	"GDB Manager",
 )
 
 # Held alone or not at all. A facilitator prepares a group's case and a field
 # officer helps an applicant prepare theirs and reports what they saw on a
 # visit; an account that could also decide or pay it would be its own checker.
-EXCLUSIVE_ROLES = ("Facilitator", "Field Officer", "GDB Representative")
+EXCLUSIVE_ROLES = ("Facilitator", "Field Officer", "GDB Representative", "GDB Manager")
 
 # An account holding any of these is out of an administrator's reach: the
 # superuser, and other administrators — minting or removing an administrator is

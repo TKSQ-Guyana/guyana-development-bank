@@ -9,6 +9,8 @@ wrappers that hand in the session user. Who shares a group's case is the
 cluster service's rule.
 """
 
+import re
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime, nowdate
@@ -49,6 +51,18 @@ from gdb_bank.services.cluster import (
 from gdb_bank.services import eligibility
 from gdb_bank.services.evidence import missing_evidence
 from gdb_bank.services.user import _get_or_create_customer
+
+
+# A DCRA registration number: exactly 6 letters or digits (GDB, 2026-10-07),
+# e.g. "AB1234". Typed lower case, it is kept in capitals; spaces are dropped.
+DCRA_LENGTH = 6
+DCRA_SHAPE = re.compile(rf"^[A-Z0-9]{{{DCRA_LENGTH}}}$")
+DCRA_MESSAGE = "Enter the DCRA number as 6 letters or numbers, e.g. AB1234."
+
+
+def clean_dcra(value: str | None) -> str:
+	"""A typed DCRA number in the form it is kept: capitals, no spaces."""
+	return "".join((value or "").split()).upper()
 
 
 def _blanked(fieldnames) -> dict:
@@ -368,7 +382,9 @@ def _validated(
 		business_stage = (business_stage or "").strip().title()
 		if business_stage and business_stage not in ("Existing", "New"):
 			frappe.throw(_("Business stage must be Existing or New."))
-		dcra_number = (dcra_number or "").strip().upper()
+		dcra_number = clean_dcra(dcra_number)
+		if dcra_number and not DCRA_SHAPE.match(dcra_number):
+			frappe.throw(_(DCRA_MESSAGE))
 		business_name = (business_name or "").strip()
 		if business_stage == "Existing" and not dcra_number:
 			frappe.throw(_("Give the DCRA registration number of your existing business."))

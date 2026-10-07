@@ -24,6 +24,7 @@ from gdb_bank.utils.constants import (
 	STAFF_ROLES,
 	UNDERWRITER_ROLES,
 	REPRESENTATIVE_ROLES,
+	MANAGER_ROLES,
 )
 
 
@@ -132,6 +133,19 @@ def _require_facilitator() -> str:
 
 def _is_representative(user: str | None = None) -> bool:
 	return bool(set(frappe.get_roles(user or frappe.session.user)) & REPRESENTATIVE_ROLES)
+
+
+def _is_manager(user: str | None = None) -> bool:
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & MANAGER_ROLES)
+
+
+def _require_manager() -> str:
+	"""The GDB Team Report — nothing else."""
+	user = _session_user()
+	if not _is_manager(user):
+		_logger().warning(f"denied team report to {user}")
+		frappe.throw(_("Only a GDB Manager may read this report."), frappe.PermissionError)
+	return user
 
 
 def _require_representative() -> str:

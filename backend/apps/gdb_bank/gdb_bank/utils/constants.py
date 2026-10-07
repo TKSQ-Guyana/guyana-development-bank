@@ -65,6 +65,13 @@ FIELD_OFFICER_ROLES = {FIELD_OFFICER_ROLE, "System Manager"}
 REPRESENTATIVE_ROLE = "GDB Representative"
 REPRESENTATIVE_ROLES = {REPRESENTATIVE_ROLE, "System Manager"}
 
+# Reads the GDB Team Report (services/manager_report): the applications'
+# figures and the potential-fraud review list, which names applicants and
+# their application numbers. Reads only — no case is opened, decided or paid.
+# NOT in STAFF_ROLES nor in any authority set; role_policy holds it alone.
+MANAGER_ROLE = "GDB Manager"
+MANAGER_ROLES = {MANAGER_ROLE, "System Manager"}
+
 # lending status <-> portal status (lending has no draft/review distinction:
 # a fresh application is a submitted doc with status Open)
 STATUS_TO_PORTAL = {"Open": "Submitted", "Approved": "Approved", "Rejected": "Rejected"}

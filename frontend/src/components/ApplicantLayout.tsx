@@ -66,6 +66,7 @@ const MODULE_TITLES: [string, string][] = [
   ["/loans/", "Application"],
   ["/review", "Review queue"],
   ["/disbursements", "Disbursements"],
+  ["/manager", "GDB Team Report"],
   ["/", "Dashboard"],
 ];
 
@@ -93,7 +94,8 @@ export function ApplicantLayout() {
       user?.is_finance ||
       user?.is_disbursement ||
       user?.is_field_officer ||
-      user?.is_representative,
+      user?.is_representative ||
+      user?.is_manager,
     );
     await logout();
     navigate(staff ? STAFF_LOGIN : "/login");
@@ -147,6 +149,13 @@ export function ApplicantLayout() {
       to: "/field",
       label: "Field desk",
       icon: <MapPinIcon />,
+    });
+  }
+  if (user?.is_manager) {
+    staffItems.push({
+      to: "/manager",
+      label: "Team report",
+      icon: <PortfolioIcon />,
     });
   }
   if (user?.is_platform_admin) {
@@ -283,6 +292,11 @@ export function ApplicantLayout() {
                 GDB Representative
               </span>
             )}
+            {user?.is_manager && (
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-800">
+                GDB Manager
+              </span>
+            )}
           </div>
         </header>
 
@@ -291,7 +305,8 @@ export function ApplicantLayout() {
             the readable 1280px column. */}
         <main
           className={`mx-auto w-full min-w-0 flex-1 px-6 py-8 lg:px-8 ${
-            pathname.startsWith("/apply/") && pathname !== "/apply/new"
+            (pathname.startsWith("/apply/") && pathname !== "/apply/new") ||
+            pathname === "/manager"
               ? ""
               : "max-w-7xl"
           }`}

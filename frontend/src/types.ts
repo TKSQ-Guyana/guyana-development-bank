@@ -604,6 +604,8 @@ export interface Whoami {
   is_field_officer: boolean;
   /** The appointment requests from the public site — nothing else. */
   is_representative?: boolean;
+  /** The GDB Team Report — nothing else. */
+  is_manager?: boolean;
 }
 
 /** One row off ERPNext's Bank Transaction — money the bank has confirmed

@@ -16,7 +16,7 @@ import type { Whoami } from './types';
  *  decides what a page draws. Two answers with the same key are the same
  *  session as far as the screen is concerned. */
 const identity = (u: Whoami | null) =>
-  u ? [u.user, u.is_underwriter, u.is_finance, u.is_disbursement, u.is_platform_admin, u.is_facilitator, u.is_field_officer, u.is_representative].join('|') : '';
+  u ? [u.user, u.is_underwriter, u.is_finance, u.is_disbursement, u.is_platform_admin, u.is_facilitator, u.is_field_officer, u.is_representative, u.is_manager].join('|') : '';
 
 /** A staff sign-in either opens a session, or — for the one-time password an
  *  administrator issued — asks for the person's own password first. */

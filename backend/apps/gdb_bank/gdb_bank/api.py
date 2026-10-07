@@ -153,6 +153,16 @@ def appointment_queue(status: str | None = None, search: str | None = None, star
 	return appointments.queue(status, search, start, page_length)
 
 
+@frappe.whitelist()
+def manager_report():
+	"""The GDB Team Report, live. A GDB Manager only."""
+	from gdb_bank.services import manager_report as report
+	from gdb_bank.utils.session import _require_manager
+
+	_require_manager()
+	return report.report()
+
+
 @frappe.whitelist(methods=["POST"])
 def update_appointment(name: str, status: str, note: str | None = None):
 	"""Move an appointment request on, with a note. GDB Representative only."""

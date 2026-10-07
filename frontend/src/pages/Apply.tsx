@@ -100,6 +100,13 @@ type Structure =
  *  better than DCRA can, and two answers to one question is how a company
  *  reaches the Bank filed as a sole trader.
  */
+/** A DCRA registration number: exactly 6 letters or digits (GDB, 2026-10-07).
+ *  Mirrors services/application.DCRA_SHAPE — the server decides. */
+const DCRA_LENGTH = 6;
+const DCRA_SHAPE = /^[A-Z0-9]{6}$/;
+/** Capitals, letters and digits only: "ab-12 34" -> "AB1234". */
+const cleanDcra = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
 const DCRA_STRUCTURE: Record<string, Structure> = {
   "Business Name": "Sole Trader",
   Company: "Incorporated (Inc.)",
@@ -841,7 +848,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
     opts?: { keepStructure?: boolean },
   ) => {
     setDcraRecord(b);
-    setDcra(b.registration_number);
+    setDcra(cleanDcra(b.registration_number));
     setBusinessName(b.business_name ?? "");
     setDcraNote(null);
     // The register's answer to "how is this owned", taken rather than asked.
@@ -951,8 +958,10 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
 
   /** A typed DCRA number. An edit away from the last confirmed number
    *  invalidates that confirmation at once — nothing may show a stale hit. */
+  // A DCRA number is exactly DCRA_LENGTH letters or digits (GDB, 2026-10-07):
+  // typed in capitals, anything else dropped, nothing past the fifth kept.
   const onDcraChange = (v: string) => {
-    const next = v.toUpperCase();
+    const next = cleanDcra(v).slice(0, DCRA_LENGTH);
     setDcra(next);
     if (next !== lastCheckedDcra.current) {
       setDcraRecord(null);
@@ -1146,6 +1155,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
       // established — a new one too, since 2026-10-07 (services/application.py).
       if (stage) {
         if (!dcra.trim()) return "Enter the DCRA number.";
+        if (!DCRA_SHAPE.test(dcra))
+          return "Enter the DCRA number as 6 letters or numbers, e.g. AB1234.";
         if (!text("date_established"))
           return "Give the date your business was established.";
         if (text("date_established") > TODAY)
@@ -1865,7 +1876,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                   required
                   value={dcra}
                   onChange={onDcraChange}
-                  placeholder="Enter DCRA number"
+                  placeholder="e.g. AB1234"
+                  hint="6 letters or numbers."
                 />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">

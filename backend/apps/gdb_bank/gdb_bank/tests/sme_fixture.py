@@ -15,7 +15,7 @@ from gdb_bank.services.evidence import CERTIFICATE_OF_REGISTRATION
 
 SME_ANSWERS = {
 	"gdb_applicant_eid": "592-2001-0101",
-	"gdb_dcra_number": "BN-2024-000001",
+	"gdb_dcra_number": "BN2401",
 	"gdb_registration_date": "2024-01-15",
 	"gdb_has_eid": "Yes",
 	"gdb_employed": "No",

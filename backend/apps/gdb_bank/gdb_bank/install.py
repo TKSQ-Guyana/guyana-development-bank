@@ -37,6 +37,9 @@ ROLES = (
 	# Works the appointment requests from the public site (services/appointments).
 	# Staff door, in no authority set.
 	("GDB Representative", 1),
+	# Reads the GDB Team Report (services/manager_report). Staff door,
+	# in no authority set.
+	("GDB Manager", 1),
 )
 
 # The banks a citizen may nominate for a payout — (name, enabled). Seeded,

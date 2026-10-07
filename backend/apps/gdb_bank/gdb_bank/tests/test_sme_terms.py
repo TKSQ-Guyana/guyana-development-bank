@@ -154,7 +154,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 		self.assertEqual(self.submits(name)["status"], "Submitted")
 
 	def test_an_existing_business_needs_its_dcra_number(self):
-		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN2601")
 		frappe.db.set_value("Loan Application", name, {"gdb_date_established": "2020-01-01", "gdb_dcra_number": ""})
 		self.refused("DCRA", name)
 
@@ -163,13 +163,13 @@ class TestSmeApplicationRules(TestSmeTerms):
 		name = self.ready(
 			business_stage="New",
 			business_name="Oven Co",
-			dcra_number="BN-2026-1",
+			dcra_number="BN2601",
 			sections={"industrial_training": "No"},
 		)
 		self.refused("date your business was established", name)
 		frappe.db.set_value("Loan Application", name, {"gdb_date_established": "2026-06-01", "gdb_dcra_number": ""})
 		self.refused("DCRA", name)
-		frappe.db.set_value("Loan Application", name, {"gdb_dcra_number": "BN-2026-1"})
+		frappe.db.set_value("Loan Application", name, {"gdb_dcra_number": "BN2601"})
 		self.assertEqual(self.submits(name)["status"], "Submitted")
 
 	def test_a_new_business_cannot_be_saved_without_its_dcra_number(self):
@@ -181,19 +181,19 @@ class TestSmeApplicationRules(TestSmeTerms):
 			self.save(
 				business_stage="Existing",
 				business_name="Oven Co",
-				dcra_number="BN-2026-1",
+				dcra_number="BN2601",
 				sections={"moratorium_months": 1, "date_established": frappe.utils.add_days(frappe.utils.today(), 1)},
 			)
 
 	def test_an_existing_business_needs_no_registration_date(self):
-		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN2601")
 		frappe.db.set_value(
 			"Loan Application", name, {"gdb_registration_date": None, "gdb_date_established": "2020-01-01"}
 		)
 		self.assertEqual(self.submits(name)["status"], "Submitted")
 
 	def test_an_existing_business_submits_without_its_certificate(self):
-		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN-2026-1")
+		name = self.ready(business_stage="Existing", business_name="Oven Co", dcra_number="BN2601")
 		frappe.db.set_value("Loan Application", name, "gdb_date_established", "2020-01-01")
 		frappe.db.set_value(
 			"GDB Applicant Document",
@@ -207,7 +207,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 		name = self.ready(
 			business_stage="New",
 			business_name="Oven Co",
-			dcra_number="BN-2026-1",
+			dcra_number="BN2601",
 			sections={"industrial_training": "No", "date_established": "2026-06-01"},
 		)
 		frappe.db.set_value(
@@ -220,13 +220,26 @@ class TestSmeApplicationRules(TestSmeTerms):
 
 	def test_a_new_business_keeps_its_dcra_number(self):
 		saved = self.save(
-			business_stage="New", business_name="Oven Co", dcra_number="bn-2026-1", sections={"moratorium_months": 1}
+			business_stage="New", business_name="Oven Co", dcra_number="bn 2601", sections={"moratorium_months": 1}
 		)
-		self.assertEqual(saved["dcra_number"], "BN-2026-1")
+		self.assertEqual(saved["dcra_number"], "BN2601")
+
+	def test_a_dcra_number_is_six_letters_or_numbers(self):
+		def save(number):
+			return self.save(
+				business_stage="Existing", business_name="Oven Co", dcra_number=number,
+				sections={"moratorium_months": 1},
+			)
+
+		for wrong in ("BN261", "BN26111", "BN-261", "BN 2 6 1 1 1 1", "AB123!"):
+			with self.assertRaisesRegex(frappe.ValidationError, "6 letters or numbers"):
+				save(wrong)
+		self.assertEqual(save("123456")["dcra_number"], "123456")
+		self.assertEqual(save("ab1234")["dcra_number"], "AB1234")
 
 	def test_a_new_business_answers_the_industrial_program_question(self):
 		name = self.ready(
-			business_stage="New", business_name="Oven Co", dcra_number="BN-2026-1",
+			business_stage="New", business_name="Oven Co", dcra_number="BN2601",
 			sections={"date_established": "2026-06-01"},
 		)
 		self.refused("industrial program", name)
@@ -243,7 +256,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 		saved = self.save(
 			business_stage="New",
 			business_name="Oven Co",
-			dcra_number="BN-2026-1",
+			dcra_number="BN2601",
 			sections={
 				"moratorium_months": 1,
 				"has_mentor": "Yes",
@@ -262,7 +275,7 @@ class TestSmeApplicationRules(TestSmeTerms):
 		saved = self.save(
 			business_stage="Existing",
 			business_name="Oven Co",
-			dcra_number="BN-2020-1",
+			dcra_number="BN2001",
 			sections={"moratorium_months": 1, "industrial_training": "Yes", "institution": "UG"},
 		)
 		self.assertFalse(saved["sections"]["industrial_training"])
@@ -295,6 +308,6 @@ class TestSmeApplicationRules(TestSmeTerms):
 
 		for stage, expected in (("Existing", []), ("New", [])):
 			name = self.save(
-				business_stage=stage, business_name="Oven Co", dcra_number="BN-2026-1", sections={"moratorium_months": 1}
+				business_stage=stage, business_name="Oven Co", dcra_number="BN2601", sections={"moratorium_months": 1}
 			)["name"]
 			self.assertEqual(missing_evidence(name), expected)
