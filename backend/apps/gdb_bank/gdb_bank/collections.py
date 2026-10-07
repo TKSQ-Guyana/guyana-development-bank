@@ -249,6 +249,11 @@ def apply_receipt(bank_transaction: str, loan: str, amount=None):
 		f"receipt {bank_transaction} applied to {loan} as {repayment.name} "
 		f"({plan['repayment_type']}, {amount}) by {staff}"
 	)
+	application = frappe.db.get_value("Loan", loan, "loan_application")
+	if application:
+		from gdb_bank.services import case_notice
+
+		case_notice.tell(application, "repayment_received", staff, amount=case_notice.money(amount))
 	bt.reload()
 	return {
 		"repayment": repayment.name,

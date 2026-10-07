@@ -345,6 +345,9 @@ def review_loan(user: str, name: str, action: str, remarks: str | None = None) -
 	doc.db_set("gdb_reviewed_on", now_datetime())
 	frappe.db.commit()
 	_logger().info(f"loan {name}: {action} by {user} -> {new_status}")
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(name, "approved" if action == "approve" else "rejected", user)
 	return _case(name)
 
 

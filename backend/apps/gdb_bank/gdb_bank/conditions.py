@@ -153,6 +153,9 @@ def add_condition(application: str, description: str, is_required=1):
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"condition {doc.name} added to {application} by {staff}")
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(application, "condition_added", staff)
 	return frappe.db.get_value("GDB Loan Condition", doc.name, CONDITION_FIELDS, as_dict=True)
 
 
@@ -170,6 +173,7 @@ def verify_condition(name: str, status: str, note: str | None = None):
 		frappe.throw(_("Status must be Outstanding, Met or Waived."))
 
 	doc = frappe.get_doc("GDB Loan Condition", name)
+	changed = doc.status != status
 	# Settled is settled: a met condition is not then waived, nor a waived one
 	# met. Reopen it first (back to Outstanding) to change the answer.
 	if doc.status in SETTLED and status in SETTLED:
@@ -189,4 +193,8 @@ def verify_condition(name: str, status: str, note: str | None = None):
 		frappe.db.commit()
 
 	_logger().info(f"condition {name} -> {status} by {staff}")
+	if changed:
+		from gdb_bank.services import case_notice
+
+		case_notice.tell(doc.application, "condition_updated", staff, status=status.lower())
 	return frappe.db.get_value("GDB Loan Condition", name, CONDITION_FIELDS, as_dict=True)
