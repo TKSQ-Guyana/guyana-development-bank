@@ -140,3 +140,24 @@ class TestFraudLeads(IntegrationTestCase):
 		])
 		self.assertEqual(out[0]["risk"], "med")
 		self.assertIn("Jan 1989 vs Dec 1988", out[0]["key"])
+
+
+class TestVillages(IntegrationTestCase):
+	def test_the_village_is_read_from_the_map_place(self):
+		cases = {
+			"Acme Photo, Robb Street, Bourda, Georgetown, Demerara-Mahaica, Guyana": "Acme Photo",
+			"12, Public Road, Bel Air Park, Georgetown, Demerara-Mahaica, 10101, Guyana": "Bel Air Park",
+			"Bartica - West, Cuyuni-Mazaruni, Guyana": "Bartica - West",
+			"anna regina, Pomeroon-Supenaam, Guyana": "Anna Regina",
+			"Region 4, Guyana": "Not specified",
+			"": "Not specified",
+			None: "Not specified",
+		}
+		for place, village in cases.items():
+			self.assertEqual(report.village_of(place), village, place)
+
+	def test_the_villages_add_up_to_the_applications(self):
+		out = report._build()
+		self.assertEqual(sum(v[4] for v in out["villages"]), out["total"]["n"])
+		for village, _region, _sector, kind, *_ in out["villages"]:
+			self.assertEqual(village == report.SME_VILLAGE, kind == 1)
