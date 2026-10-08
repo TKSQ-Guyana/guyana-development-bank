@@ -470,12 +470,13 @@ export function Review() {
             },
             {
               key: "age",
-              header: "Age",
+              header: "Date submitted",
               nowrap: true,
               className: "text-slate-600",
+              // The day it reached GDB; how long it has sat in this stage on hover.
               cell: (loan) => (
-                <span title={formatDate(stageSince(loan))}>
-                  {formatAge(stageSince(loan))}
+                <span title={formatAge(stageSince(loan))}>
+                  {formatDate(loan.submitted_on ?? loan.creation)}
                 </span>
               ),
             },

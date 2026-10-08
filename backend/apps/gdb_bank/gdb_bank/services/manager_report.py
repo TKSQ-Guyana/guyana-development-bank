@@ -11,6 +11,9 @@ Figures, as the report defines them:
   age           from the date of birth on the applicant's profile, as of today
   registration  a DCRA number that is really one — "N/A", "NIL", "NONE",
                 "0000000" and the like count as not registered
+  village       a Quick Loan's from where the business was pinned on the map
+                (its place description); an SME application records only a
+                region, so it is "SME · region only"
 
 The fraud list is leads for a loan officer, not findings:
   shared address   the same lot number and street in the same village/town,
@@ -116,6 +119,30 @@ def _structure(value: str | None) -> str:
 	return value if value in STRUCTURES else ("Other" if value else "Not stated")
 
 
+SME_VILLAGE = "SME · region only"
+NO_VILLAGE = "Not specified"
+_ROAD = re.compile(
+	r"\b(street|st|road|rd|avenue|ave|drive|dr|lane|ln|highway|hwy|dam|railway|embankment|boulevard|blvd|way)\b\.?$",
+	re.IGNORECASE,
+)
+_REGION_WORDS = re.compile(
+	"|".join(re.escape(name) for _no, name in REGIONS) + r"|^region\b|^guyana$|^\d[\d\s-]*$",
+	re.IGNORECASE,
+)
+
+
+def village_of(place: str | None) -> str:
+	"""The village a Quick Loan's map pin names: its place description
+	("Acme Photo, Robb Street, Bourda, Georgetown, Demerara-Mahaica, Guyana")
+	less the country, the region, postcodes, house numbers and roads — the
+	first part left. "Not specified" when nothing is."""
+	for part in (p.strip() for p in (place or "").split(",")):
+		if not part or _REGION_WORDS.search(part) or _ROAD.search(part):
+			continue
+		return " ".join(w[:1].upper() + w[1:] for w in part.split())
+	return NO_VILLAGE
+
+
 def _words(text: str | None) -> str:
 	"""An address as compared: lower case, '&' as 'and', no punctuation, the
 	usual street words shortened, no 'lot'."""
@@ -177,7 +204,7 @@ def _build() -> dict:
 		"""select a.name, a.creation, a.loan_product, a.loan_amount, a.status, a.applicant,
 			a.applicant_name, a.applicant_phone_number, a.gdb_owner, a.gdb_business_stage,
 			a.gdb_dcra_number, a.gdb_legal_structure, a.gdb_sector, a.gdb_no_bank_account,
-			a.gdb_trade_region, a.gdb_operating_location,
+			a.gdb_trade_region, a.gdb_operating_location, a.gdb_trade_address,
 			p.region, p.address, p.village_or_town, p.phone, p.verified_phone,
 			p.date_of_birth, p.verified_birth_date, p.national_id, u.gdb_national_id
 		from `tabLoan Application` a
@@ -201,6 +228,7 @@ def _build() -> dict:
 		False: {"n": 0, "amt": 0.0, "existing": 0, "new": 0, "other": 0},
 	}
 	structures = defaultdict(lambda: {"with": 0, "without": 0})
+	villages = defaultdict(lambda: [0, 0.0])
 	no_bank = 0
 	approved = 0
 
@@ -236,6 +264,12 @@ def _build() -> dict:
 		label = (r.gdb_sector or "").strip() or "Not stated"
 		sector[label][0] += 1
 		sector[label][1] += amount
+
+		where = f"Region {no} — {dict(REGIONS)[no]}" if no else "Unknown"
+		village = village_of(r.gdb_trade_address) if is_quick else SME_VILLAGE
+		cell = villages[(village, where, (r.gdb_sector or "").strip() or "Unknown", 1 - is_quick)]
+		cell[0] += 1
+		cell[1] += amount
 
 		label = _band(_age(r.date_of_birth or r.verified_birth_date, today))
 		age[label][0] += 1
@@ -282,6 +316,9 @@ def _build() -> dict:
 				if k != "Not stated" or (structures[k]["with"] + structures[k]["without"])
 			],
 		},
+		# Every village x region x industry x loan type (0 Quick, 1 SME), with
+		# its applications and amount requested.
+		"villages": [[*key, n, amt] for key, (n, amt) in villages.items()],
 		"no_bank_account": no_bank,
 		"approved": approved,
 		"duplicate_ids": duplicate_ids,

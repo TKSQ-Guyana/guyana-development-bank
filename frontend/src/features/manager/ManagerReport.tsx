@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { call } from "../../api";
 import logo from "../../assets/manager/gdb-logo.png";
@@ -42,6 +42,8 @@ interface Report {
   bank_checked: boolean;
   fraud: Lead[];
   fraud_total: number;
+  /** village, region, industry, loan type (0 Quick, 1 SME), applications, amount */
+  villages: [string, string, string, 0 | 1, number, number][];
 }
 interface RegSide {
   n: number;
@@ -375,6 +377,8 @@ function Sheet({ r, error }: { r: Report; error: string | null }) {
           <DistTable rows={r.sector} label="Sector" total={r.total.n} />
         </section>
       </div>
+
+      <Villages rows={r.villages} />
       <div className="grid2">
         <section>
           <h2>By applicant age</h2>
@@ -695,6 +699,325 @@ function Registration({ r }: { r: Report }) {
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Villages by industry and loan type (from village.html, added 2026-10-08)
+// ---------------------------------------------------------------------------
+
+const SME_VILLAGE = "SME · region only";
+const NO_VILLAGE = "Not specified";
+const fmtG = (n: number) => "G$" + Math.round(n).toLocaleString("en-US");
+const regShort = (s: string) => s.replace(/^Region (\d+) — /, "R$1 · ");
+const regionNo = (s: string) => Number(/^Region (\d+)/.exec(s)?.[1] ?? 99);
+
+type VRow = {
+  v: string;
+  reg: string;
+  sec: string;
+  t: 0 | 1;
+  n: number;
+  a: number;
+};
+type VTotal = {
+  v: string;
+  reg: string;
+  n: number;
+  a: number;
+  q: number;
+  sm: number;
+  top: string;
+  nsec: number;
+};
+
+function Villages({ rows }: { rows: Report["villages"] }) {
+  // The filters live here, so a refresh keeps what the manager chose.
+  const [mode, setMode] = useState<"rows" | "vil">("rows");
+  const [q, setQ] = useState("");
+  const [region, setRegion] = useState("");
+  const [sector, setSector] = useState("");
+  const [type, setType] = useState("");
+  const [sort, setSort] = useState<"amt" | "n" | "name">("amt");
+  const [limit, setLimit] = useState(25);
+  // Any change of view or filter starts the list from the top again.
+  function pick<T>(set: (v: T) => void, v: T) {
+    set(v);
+    setLimit(25);
+  }
+
+  const regions = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r[1]))].sort(
+        (a, b) => regionNo(a) - regionNo(b) || a.localeCompare(b),
+      ),
+    [rows],
+  );
+  const sectors = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r[2]))].sort((a, b) => a.localeCompare(b)),
+    [rows],
+  );
+
+  const needle = q.trim().toLowerCase();
+  const filtered = rows.filter(
+    (x) =>
+      (!region || x[1] === region) &&
+      (!sector || x[2] === sector) &&
+      (type === "" || String(x[3]) === type) &&
+      (!needle || x[0].toLowerCase().includes(needle)),
+  );
+  const last = (v: string) =>
+    v === SME_VILLAGE ? 2 : v === NO_VILLAGE ? 1 : 0;
+
+  let list: (VRow | VTotal)[];
+  if (mode === "rows") {
+    list = filtered.map((x) => ({
+      v: x[0],
+      reg: x[1],
+      sec: x[2],
+      t: x[3],
+      n: x[4],
+      a: x[5],
+    }));
+  } else {
+    const g: Record<string, VTotal & { secs: Record<string, number> }> = {};
+    for (const x of filtered) {
+      const k = x[0] + "|" + x[1];
+      const e = (g[k] ||= {
+        v: x[0],
+        reg: x[1],
+        n: 0,
+        a: 0,
+        q: 0,
+        sm: 0,
+        top: "",
+        nsec: 0,
+        secs: {},
+      });
+      e.n += x[4];
+      e.a += x[5];
+      if (x[3]) e.sm += x[4];
+      else e.q += x[4];
+      e.secs[x[2]] = (e.secs[x[2]] || 0) + x[4];
+    }
+    list = Object.values(g).map((e) => {
+      const top = Object.entries(e.secs).sort((a, b) => b[1] - a[1]);
+      return { ...e, top: top[0][0], nsec: top.length };
+    });
+  }
+  list.sort(
+    (a, b) =>
+      last(a.v) - last(b.v) ||
+      (sort === "n"
+        ? b.n - a.n || b.a - a.a
+        : sort === "name"
+          ? a.v.localeCompare(b.v)
+          : b.a - a.a || b.n - a.n),
+  );
+  const tn = list.reduce((s, x) => s + x.n, 0);
+  const ta = list.reduce((s, x) => s + x.a, 0);
+  const named = new Set(
+    filtered.filter((x) => x[3] === 0 && x[0] !== NO_VILLAGE).map((x) => x[0]),
+  ).size;
+  const namedList = list.filter((x) => !last(x.v));
+  const maxA = Math.max(
+    1,
+    ...(namedList.length ? namedList : list).map((x) => x.a),
+  );
+  const shown = list.slice(0, limit);
+  const amount = (a: number) => (
+    <span>
+      <Count value={a} render={fmtG} />
+      <i
+        className="abar"
+        style={{ width: `${Math.min(100, Math.max(3, (a / maxA) * 100))}%` }}
+      />
+    </span>
+  );
+
+  return (
+    <section className="villages" aria-labelledby="h-vil">
+      <div className="vhead">
+        <h2 id="h-vil">Villages by industry and loan type</h2>
+        <span className="hint">aggregate loan amount requested</span>
+      </div>
+      <p className="note psub">
+        Every village, industry and loan type combination, with the number of
+        applications and the total amount requested. Quick Loan villages come
+        from the applicant&apos;s trade address. SME applications only record a
+        region, so they appear as “SME · region only”.
+      </p>
+      <div className="vtools">
+        <div className="seg" role="group" aria-label="View">
+          <button
+            type="button"
+            aria-pressed={mode === "rows"}
+            onClick={() => pick(setMode, "rows" as const)}
+          >
+            All combinations
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "vil"}
+            onClick={() => pick(setMode, "vil" as const)}
+          >
+            Village totals
+          </button>
+        </div>
+        <label className="vf vsearch">
+          <span>Village</span>
+          <input
+            type="search"
+            placeholder="Search villages"
+            autoComplete="off"
+            value={q}
+            onChange={(e) => pick(setQ, e.target.value)}
+          />
+        </label>
+        <label className="vf">
+          <span>Region</span>
+          <select
+            value={region}
+            onChange={(e) => pick(setRegion, e.target.value)}
+          >
+            <option value="">All regions</option>
+            {regions.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="vf">
+          <span>Industry</span>
+          <select
+            value={sector}
+            onChange={(e) => pick(setSector, e.target.value)}
+          >
+            <option value="">All industries</option>
+            {sectors.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="vf">
+          <span>Loan type</span>
+          <select value={type} onChange={(e) => pick(setType, e.target.value)}>
+            <option value="">All</option>
+            <option value="0">Quick Loan</option>
+            <option value="1">SME Loan</option>
+          </select>
+        </label>
+        <label className="vf">
+          <span>Sort by</span>
+          <select
+            value={sort}
+            onChange={(e) =>
+              pick(setSort, e.target.value as "amt" | "n" | "name")
+            }
+          >
+            <option value="amt">Amount requested</option>
+            <option value="n">Applications</option>
+            <option value="name">Village A–Z</option>
+          </select>
+        </label>
+      </div>
+      <div className="vsum" aria-live="polite">
+        <span>
+          <b>{N(list.length)}</b>{" "}
+          {mode === "rows" ? "combinations" : "villages"}
+        </span>
+        <span>
+          <b>{N(tn)}</b> applications
+        </span>
+        <span>
+          <b>
+            <Count value={ta} render={fmtG} />
+          </b>{" "}
+          requested
+        </span>
+        <span>
+          <b>{N(named)}</b> named villages
+        </span>
+      </div>
+      <div className="tbl">
+        <table className={`vtable${mode === "vil" ? " vmode" : ""}`}>
+          {mode === "rows" ? (
+            <thead>
+              <tr>
+                <th>Village</th>
+                <th>Region</th>
+                <th>Industry</th>
+                <th>Loan type</th>
+                <th className="n">Applications</th>
+                <th className="n">Amount requested</th>
+              </tr>
+            </thead>
+          ) : (
+            <thead>
+              <tr>
+                <th>Village</th>
+                <th>Region</th>
+                <th>Largest industry</th>
+                <th className="n">Quick</th>
+                <th className="n">SME</th>
+                <th className="n">Amount requested</th>
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {mode === "rows"
+              ? (shown as VRow[]).map((x) => (
+                  <tr key={`${x.v}|${x.reg}|${x.sec}|${x.t}`}>
+                    <td className="vn">{x.v}</td>
+                    <td className="muted">{regShort(x.reg)}</td>
+                    <td>{x.sec}</td>
+                    <td>
+                      <span className={x.t ? "tt-s" : "tt-q"}>
+                        {x.t ? "SME Loan" : "Quick Loan"}
+                      </span>
+                    </td>
+                    <td className="n">{N(x.n)}</td>
+                    <td className="n amt">{amount(x.a)}</td>
+                  </tr>
+                ))
+              : (shown as VTotal[]).map((x) => (
+                  <tr key={`${x.v}|${x.reg}`}>
+                    <td className="vn">
+                      {x.v}
+                      <small>
+                        {x.nsec} {x.nsec === 1 ? "industry" : "industries"}
+                      </small>
+                    </td>
+                    <td className="muted">{regShort(x.reg)}</td>
+                    <td>{x.top}</td>
+                    <td className="n">{N(x.q)}</td>
+                    <td className="n">{N(x.sm)}</td>
+                    <td className="n amt">{amount(x.a)}</td>
+                  </tr>
+                ))}
+            {!list.length && (
+              <tr>
+                <td colSpan={6} className="note">
+                  No villages match these filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {list.length > limit && (
+        <div className="vmore">
+          <button type="button" onClick={() => setLimit((l) => l + 50)}>
+            Show {fmt(Math.min(50, list.length - limit))} more (
+            {fmt(list.length - limit)} remaining)
+          </button>
+        </div>
+      )}
     </section>
   );
 }

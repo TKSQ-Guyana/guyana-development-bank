@@ -100,6 +100,38 @@
 .mgr .regtable table td { padding: 11px 14px; }
 .mgr .regtable td.flag { color: var(--venture); }
 
+/* ---- Villages by industry and loan type (village.html) ---------------------- */
+.mgr .villages { display: grid; gap: 0; }
+.mgr .vhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mgr .vhead .hint { font-size: 11px; color: var(--muted); }
+.mgr .psub { margin: 0 0 12px; }
+.mgr .vtools { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; margin-bottom: 12px; }
+.mgr .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; padding: 2px; background: var(--surface); }
+.mgr .seg button { font: inherit; font-size: 12px; font-weight: 600; border: none; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+.mgr .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.mgr .seg button:focus-visible { outline: 2px solid var(--red); outline-offset: 1px; }
+.mgr .vf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mgr .vf span { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.mgr .vf input, .mgr .vf select { font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); min-width: 0; }
+.mgr .vf input:focus, .mgr .vf select:focus { outline: 2px solid var(--red); outline-offset: 1px; border-color: transparent; }
+.mgr .vf select { max-width: 230px; }
+.mgr .vsearch input { width: 200px; }
+.mgr .vsum { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.mgr .vsum b { color: var(--fg); font-family: var(--mono); font-weight: 600; }
+.mgr .vtable td.vn { font-weight: 600; }
+.mgr .vtable td.vn small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.mgr .vtable td.muted { color: var(--muted); }
+.mgr .vtable .tt-q { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.mgr .vtable .tt-s { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: var(--bg); white-space: nowrap; }
+.mgr .vtable .abar { display: block; height: 4px; border-radius: 2px; background: var(--ink); margin-top: 5px; margin-left: auto; max-width: 120px; transition: width .9s cubic-bezier(.2, .7, .2, 1); }
+.mgr .vmore { display: flex; justify-content: center; margin-top: 12px; }
+.mgr .vmore button { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.mgr .vmore button:hover { border-color: var(--ink); }
+@media (max-width: 760px) {
+  .mgr .vf { flex: 1 1 140px; }
+  .mgr .vf select, .mgr .vsearch input { width: 100%; max-width: none; }
+}
+
 /* ---- live: added for the portal page -------------------------------------- */
 .mgr .live { display: inline-flex; align-items: center; gap: 7px; margin-top: 4px; }
 .mgr .live .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: mgr-pulse 2s infinite; }
