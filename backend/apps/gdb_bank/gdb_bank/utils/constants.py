@@ -6,7 +6,7 @@ seed masters), so this module is safe to import from anywhere — utils, service
 and api.py all read the same single source of truth for these values.
 """
 
-from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME, QUICK_LOAN_PRODUCT_NAME
+from gdb_bank.install import APPLICATION_SECTIONS, LOAN_PRODUCT_NAME, PERSONAL_LOANS, QUICK_LOAN_PRODUCT_NAME
 
 UNDERWRITER_ROLES = {"Loan Underwriter", "System Manager"}
 
@@ -224,6 +224,10 @@ SHARED_SECTIONS = (
 	"gdb_sub_sector",
 )
 SME_ONLY = tuple(f[0] for f in APPLICATION_SECTIONS if f[0] not in QUICK_ONLY + SHARED_SECTIONS)
+
+# The mortgage and auto loan questions and their Yes-only details are defined
+# beside the fields themselves (install.PERSONAL_LOANS), imported above and
+# read from here by services/application.py and services/application_edit.py.
 
 # Portal product key -> the lending Loan Product it is filed on.
 STANDARD_PRODUCT = "standard"

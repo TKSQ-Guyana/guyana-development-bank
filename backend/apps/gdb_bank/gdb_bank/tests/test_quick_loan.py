@@ -373,6 +373,12 @@ class TestSavingAQuickLoan(QuickLoanCase):
 		self.assertEqual(draft["sections"]["sector"], "Rice")
 		self.assertFalse(draft["sections"]["annual_revenue"])
 
+	def test_a_quick_loan_carries_no_mortgage_or_auto_loan(self):
+		draft = self.save(sections={**TRADE, "has_mortgage": "Yes", "mortgage_bank": "Republic Bank", "has_auto_loan": "Yes"})
+		self.assertFalse(draft["sections"]["has_mortgage"])
+		self.assertFalse(draft["sections"]["mortgage_bank"])
+		self.assertFalse(draft["sections"]["has_auto_loan"])
+
 	def test_an_sme_application_carries_no_quick_loan_answers(self):
 		with self.set_user(TRADER):
 			draft = api.save_application(

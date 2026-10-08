@@ -32,6 +32,7 @@ from gdb_bank.services import evidence
 from gdb_bank.utils.constants import (
 	EXISTING_ONLY,
 	NEW_ONLY,
+	PERSONAL_LOANS,
 	QUICK_ONLY,
 	QUICK_PRODUCT,
 	SME_ONLY,
@@ -143,6 +144,9 @@ def _applies(fieldname: str, doc) -> bool:
 		"gdb_employer_name": doc.gdb_employed == "Yes",
 		"gdb_income_band": doc.gdb_employed == "Yes",
 	}
+	# A mortgage's and an auto loan's details belong to their Yes.
+	for question, details in PERSONAL_LOANS.items():
+		follows.update({f: doc.get(question) == "Yes" for f in details})
 	return follows.get(fieldname, True)
 
 
