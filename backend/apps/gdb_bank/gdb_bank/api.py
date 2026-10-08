@@ -623,6 +623,9 @@ def book_loan(application: str):
 		frappe.db.commit()
 
 	_logger().info(f"loan {loan.name} booked from {application} by {user}")
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(application, "loan_booked", user)
 	return loan_account(application)
 
 
@@ -739,6 +742,9 @@ def disburse_loan(application: str, amount=None):
 		frappe.db.commit()
 
 	_logger().info(f"disbursement {doc.name}: {amount} on {loan.name} by {user}")
+	from gdb_bank.services import case_notice
+
+	case_notice.tell(application, "disbursed", user, amount=case_notice.money(amount))
 	return loan_account(application)
 
 

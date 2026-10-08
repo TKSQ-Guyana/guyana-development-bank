@@ -652,6 +652,12 @@ def request_task(
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
 	_logger().info(f"field task {doc.name} ({kind}) raised on {application} by {underwriter}")
+	if kind == SITE_VISIT:
+		# A visit needs the applicant there; a reference check is GDB's own
+		# enquiry and is not announced.
+		from gdb_bank.services import case_notice
+
+		case_notice.tell(application, "site_visit_booked", underwriter, kind=kind.lower())
 	return _task_dict(_task(doc.name))
 
 
@@ -667,6 +673,10 @@ def cancel_task(underwriter: str, name: str, reason) -> dict:
 	notify(doc.assigned_to, _("{0} on {1} was cancelled").format(doc.kind, doc.application), f"/field/tasks/{name}", underwriter)
 	frappe.db.commit()
 	_logger().info(f"field task {name} cancelled by {underwriter}")
+	if doc.kind == SITE_VISIT:
+		from gdb_bank.services import case_notice
+
+		case_notice.tell(doc.application, "site_visit_cancelled", underwriter, kind=doc.kind.lower())
 	return _task_dict(_task(name))
 
 

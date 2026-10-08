@@ -104,6 +104,11 @@ backend:
     dcraBaseUrl: ""
     bankRegistryBaseUrl: ""
 
+  # The citizen portal's public address, for links in the emails GDB sends
+  # ("Open the GDB portal"). Empty = https://<ingress.portal.host>, which is
+  # right whenever the portal is served from its ingress host.
+  portalUrl: ""
+
   # Fixed sign-up OTP. The chart REFUSES to render one unless allowStaticOtp=true.
   staticOtp: ""
   allowStaticOtp: false

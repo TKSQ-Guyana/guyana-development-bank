@@ -3,7 +3,12 @@ import { FocusAlert } from "../shared/FocusAlert";
 import { gdbLogo } from "../components/site/assets";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { nationalIdLogin, verifyLoginOtp, type OtpChallenge } from "../api";
+import {
+  nationalIdLogin,
+  setInitialPassword,
+  verifyLoginOtp,
+  type OtpChallenge,
+} from "../api";
 import { useAuth } from "../auth";
 import { OtpInput } from "../components/OtpInput";
 import { DemoCode, SignupCard } from "./Signup";
@@ -71,6 +76,12 @@ export function Login({
   // new password was saved.
   const [resetting, setResetting] = useState(false);
   const [tinNotice, setTinNotice] = useState<string | null>(null);
+  // First sign-in of an account GDB opened from the MPS call list: the
+  // temporary password from the text stays in `tinPassword` until the
+  // person's own one is saved.
+  const [tinChoosing, setTinChoosing] = useState(false);
+  const [tinNewPassword, setTinNewPassword] = useState("");
+  const [tinConfirmPassword, setTinConfirmPassword] = useState("");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -96,10 +107,47 @@ export function Login({
     setTinError(null);
     setTinBusy(true);
     try {
-      setTinChallenge(await nationalIdLogin(tin, tinPassword));
+      const result = await nationalIdLogin(tin, tinPassword);
+      if ("password_change_required" in result) {
+        setTinChoosing(true);
+        return;
+      }
+      setTinChallenge(result);
       setTinOtp("");
     } catch (err) {
       setTinError(err instanceof Error ? err.message : "Sign-in failed");
+    } finally {
+      setTinBusy(false);
+    }
+  };
+
+  const onTinChoose = async (e: FormEvent) => {
+    e.preventDefault();
+    setTinError(null);
+    if (tinNewPassword !== tinConfirmPassword) {
+      setTinError("The two passwords do not match.");
+      return;
+    }
+    setTinBusy(true);
+    try {
+      const challenge = await setInitialPassword(
+        tin,
+        tinPassword,
+        tinNewPassword,
+        tinConfirmPassword,
+      );
+      // The temporary password is spent; "Send a new code" signs in with the
+      // new one.
+      setTinPassword(tinNewPassword);
+      setTinNewPassword("");
+      setTinConfirmPassword("");
+      setTinChoosing(false);
+      setTinChallenge(challenge);
+      setTinOtp("");
+    } catch (err) {
+      setTinError(
+        err instanceof Error ? err.message : "Your password could not be saved",
+      );
     } finally {
       setTinBusy(false);
     }
@@ -276,10 +324,91 @@ export function Login({
                   id="pane-tin"
                   hidden={method !== "tin" || resetting}
                   onSubmit={(e) =>
-                    void (tinChallenge ? onTinVerify(e) : onTinSubmit(e))
+                    void (tinChallenge
+                      ? onTinVerify(e)
+                      : tinChoosing
+                        ? onTinChoose(e)
+                        : onTinSubmit(e))
                   }
                 >
-                  {tinChallenge ? (
+                  {tinChoosing && !tinChallenge ? (
+                    <div className="mt-[26px]">
+                      {tinError && (
+                        <FocusAlert className={errorBox}>{tinError}</FocusAlert>
+                      )}
+                      <p className="text-[15px] leading-[1.55] text-gdb-ink/75">
+                        <strong className="font-extrabold text-gdb-ink">
+                          Choose your own password.
+                        </strong>{" "}
+                        The temporary password GDB texted you works once.
+                        Choose one only you know — at least 8 characters, with a
+                        letter and a number.
+                      </p>
+                      {/* Lets a password manager file the new password under this ID. */}
+                      <input
+                        type="text"
+                        autoComplete="username"
+                        value={tin}
+                        readOnly
+                        hidden
+                      />
+                      <label className="mt-4 block">
+                        <span className={fieldLabel}>
+                          New password
+                          <RequiredMark />
+                        </span>
+                        <input
+                          type="password"
+                          autoComplete="new-password"
+                          value={tinNewPassword}
+                          onChange={(e) => setTinNewPassword(e.target.value)}
+                          disabled={tinBusy}
+                          className={textInput}
+                          autoFocus
+                        />
+                      </label>
+                      <label className="mt-4 block">
+                        <span className={fieldLabel}>
+                          Confirm new password
+                          <RequiredMark />
+                        </span>
+                        <input
+                          type="password"
+                          autoComplete="new-password"
+                          value={tinConfirmPassword}
+                          onChange={(e) => setTinConfirmPassword(e.target.value)}
+                          disabled={tinBusy}
+                          className={textInput}
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={
+                          tinBusy || tinNewPassword.length < 8 || !tinConfirmPassword
+                        }
+                        className={`mt-[22px] w-full ${goldActionClass("sm")} py-[17px] text-[17px]`}
+                      >
+                        {tinBusy ? "Saving…" : "Save and continue"}
+                        <ArrowRight size={19} />
+                      </button>
+                      <div className="mt-3 text-[14px] font-extrabold">
+                        <button
+                          type="button"
+                          disabled={tinBusy}
+                          onClick={() => {
+                            setTinChoosing(false);
+                            setTinPassword("");
+                            setTinNewPassword("");
+                            setTinConfirmPassword("");
+                            setTinError(null);
+                          }}
+                          className="cursor-pointer border-0 bg-transparent text-gdb-ink/60 hover:text-gdb-ink"
+                        >
+                          ← Back
+                        </button>
+                      </div>
+                    </div>
+                  ) : tinChallenge ? (
                     <div className="mt-[26px]">
                       {tinError && (
                         <FocusAlert className={errorBox}>{tinError}</FocusAlert>

@@ -119,6 +119,36 @@ export async function call<T>(
   return (d?.message ?? (data as T)) as T;
 }
 
+/** A gdb_bank method that takes a file: multipart, the file under `file`.
+ *  Content-Type is left to the browser, which writes the boundary. */
+export async function callWithFile<T>(method: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const res = await fetch(`/api/method/${method}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    body: form,
+  });
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* non-JSON body */
+  }
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      window.dispatchEvent(new Event(SESSION_CHECK));
+    }
+    const fallback =
+      res.status === 413
+        ? "That file is too large to upload."
+        : `Upload failed (${res.status})`;
+    throw new ApiError(extractErrorMessage(data, fallback), res.status);
+  }
+  return (data as { message?: T })?.message as T;
+}
+
 export const logout = () => call<unknown>("logout");
 
 /** Keycloak authenticates everybody, through two doors. Either way the backend
@@ -248,9 +278,28 @@ export const completeSignup = (
 /** National ID sign-in, step one: National ID + password. Right ones answer a
  *  code challenge; no session exists yet. */
 export const nationalIdLogin = (nationalId: string, password: string) =>
-  call<OtpChallenge & { otp_required: true }>(
+  call<(OtpChallenge & { otp_required: true }) | { password_change_required: true }>(
     "gdb_bank.tin_auth.national_id_login",
     { national_id: nationalId, password },
+  );
+
+/** First sign-in of an account GDB opened from the MPS call list: the
+ *  temporary password from the text, then the person's own. Answers the same
+ *  code challenge as a sign-in; no session exists until verifyLoginOtp. */
+export const setInitialPassword = (
+  nationalId: string,
+  temporaryPassword: string,
+  newPassword: string,
+  confirmPassword: string,
+) =>
+  call<OtpChallenge & { otp_required: true }>(
+    "gdb_bank.tin_auth.set_initial_password",
+    {
+      national_id: nationalId,
+      password: temporaryPassword,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    },
   );
 
 /** National ID sign-in, step two: the code, then the session. */

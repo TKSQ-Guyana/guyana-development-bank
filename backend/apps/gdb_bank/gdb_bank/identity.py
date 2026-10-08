@@ -405,7 +405,9 @@ class _PasswordChangeRequired(Exception):
 	only accept as the key to choosing a new one."""
 
 
-def _request_token(settings: dict, username: str, password: str) -> str | None:
+def _request_token(
+	settings: dict, username: str, password: str, *, password_change_ok: bool = False
+) -> str | None:
 	"""The OAuth2 resource-owner password grant against ONE realm.
 
 	`username` is the e-ID in the citizen realm and the work email in the staff
@@ -414,7 +416,11 @@ def _request_token(settings: dict, username: str, password: str) -> str | None:
 	client must not hide behind a wrong-password message.
 
 	Needs "Direct access grants" enabled on the Keycloak client, which is off
-	by default for new clients."""
+	by default for new clients.
+
+	`password_change_ok` — the caller has a door for a temporary password (the
+	National ID door, for accounts opened from the MPS call list) and wants
+	_PasswordChangeRequired rather than a refusal. The staff realm always does."""
 	data = {
 		"grant_type": "password",
 		"client_id": settings["client_id"],
@@ -451,9 +457,10 @@ def _request_token(settings: dict, username: str, password: str) -> str | None:
 		# (verify email, set a new password). "Incorrect password" would send
 		# the person hunting for a typo that isn't there.
 		if "not fully set up" in description.lower():
-			if settings["population"] == STAFF:
-				# A one-time password from the administrator (services/accounts.py):
-				# the caller decides what that means for its door.
+			if settings["population"] == STAFF or password_change_ok:
+				# A one-time password from the administrator (services/accounts.py,
+				# services/citizen_import.py): the caller decides what that means
+				# for its door.
 				raise _PasswordChangeRequired
 			frappe.throw(
 				_("This e-ID account needs to be completed before you can sign in. Please contact the Bank."),

@@ -46,6 +46,10 @@ class KeycloakAdminError(Exception):
 	"""A configured admin client could not do what was asked."""
 
 
+class AccountExists(KeycloakAdminError):
+	"""The username or email is already a Keycloak account (HTTP 409)."""
+
+
 def config() -> dict | None:
 	base = (settings.get("keycloak_staff_url") or settings.get("keycloak_url")).rstrip("/")
 	realm = settings.get("keycloak_staff_realm")
@@ -281,9 +285,15 @@ def citizen_username_taken(username: str) -> bool:
 	return any((row.get("username") or "") == username for row in res.json() or [])
 
 
-def create_citizen_account(username: str, email: str, first: str, last: str, password: str) -> str:
-	"""Create the citizen's Keycloak account with its permanent password, ready
-	for the password grant. Answers the Keycloak user id."""
+def create_citizen_account(
+	username: str, email: str, first: str, last: str, password: str, *, temporary: bool = False
+) -> str:
+	"""Create the citizen's Keycloak account, ready for the password grant.
+	Answers the Keycloak user id.
+
+	`temporary` — an account opened FOR the person (services/citizen_import.py):
+	the password works once, at the sign-in where they choose their own
+	(tin_auth.set_initial_password)."""
 	cfg = _require_citizen()
 	res = _call(
 		cfg,
@@ -297,12 +307,12 @@ def create_citizen_account(username: str, email: str, first: str, last: str, pas
 			"enabled": True,
 			# Proved by the sign-up code, not by a link Keycloak would send.
 			"emailVerified": True,
-			"requiredActions": [],
-			"credentials": [{"type": "password", "value": password, "temporary": False}],
+			"requiredActions": ["UPDATE_PASSWORD"] if temporary else [],
+			"credentials": [{"type": "password", "value": password, "temporary": temporary}],
 		},
 	)
 	if res.status_code == 409:
-		raise KeycloakAdminError(_("This TIN or email already has an account. Sign in instead."))
+		raise AccountExists(_("This TIN or email already has an account. Sign in instead."))
 	if res.status_code == 400:
 		_logger().info("keycloak citizen create refused (400) — password policy or profile")
 		raise PasswordRejected(_("That password does not meet the Bank's password rules."))

@@ -245,6 +245,31 @@ underwriter review queue. The official name everywhere is
   request that only the applicant sends (`confirm_document` refuses
   `acting`). The officer may fill a profile blank, never overwrite a declared
   answer (`profiles.save_profile`). SPA: `/field/*`.
+- **Citizens from the MPS call list** (`services/citizen_import.py`, decided
+  2026-10-07). The Platform Admin uploads MPS's daily workbook on
+  `/admin/citizens-upload`: `preview_citizen_import` reads every sheet
+  (columns by header name), cleans and sorts each row (New / Existing /
+  Duplicate / Error) and creates NOTHING; `run_citizen_import(batch, reason)`
+  queues the long job that opens a National-ID-door account per New row
+  (Keycloak username = ID, placeholder email, TEMPORARY password; Website User
+  + `Citizen`; profile marked `declared_source`) and texts the password via
+  Infobip, sent from the job, never queued or stored. ID rule: letter-first =
+  Passport, 9 digits = National ID, 11 = e-ID (`User.gdb_id_type`). Kept in
+  `GDB Citizen Import` + `GDB Citizen Import Row` (undeletable), with the
+  workbook and an errors/skipped/created report attached. The citizen's first
+  sign-in answers `password_change_required` → `tin_auth.set_initial_password`
+  → the usual code. `role_policy.is_new_citizen` is the one non-staff account
+  a Platform Admin may open.
+- **Every staff update to a case is told to the applicant**
+  (`services/case_notice.py`, decided 2026-10-07): decision, information
+  request/withdrawal, document review, condition added/updated, Letter of
+  Offer, site visit booked/cancelled (not reference checks), loan booked,
+  disbursed, repayment received. Recipients: the applicant, or for a group
+  every Active member plus the facilitator. Portal inbox always; then ONE of
+  email (real address + mail configured) or SMS (`notification.notify(sms=…)`).
+  Wording lives only in `case_notice.EVENTS` and never carries staff remarks —
+  "Sign in at gdb.gov.gy for details." Told after the action commits; a
+  failure is logged, never raised.
 - **A cluster loan is a different product, never a side effect of membership.**
   A citizen naming a `cluster` on `save_application` / `apply_loan` is
   refused (`_cluster_for`); only the facilitator path files against a group.
