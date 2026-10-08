@@ -18,6 +18,7 @@ import type { LoanApplication } from "../../types";
 import { formatDate, formatGyd } from "../../utils";
 import { YourPartCard } from "../personal-financials/YourPartCard";
 import { CompleteApplication } from "./CompleteApplication";
+import { personalLoanRows } from "./model/personalLoans";
 
 /** The applicant's own case — or a group member's view of the head's — laid
  *  out by stage: what to act on now comes first, and once the application is
@@ -405,6 +406,14 @@ function ApplicationDetails({ loan }: { loan: LoanApplication }) {
             />
           )}
           {loan.phone && <Row label="Phone" value={formatPhone(loan.phone)} />}
+          {/* The applicant's own mortgage and auto loan; a group case has none. */}
+          {!loan.cluster &&
+            personalLoanRows(
+              (k) => String(loan.sections?.[k] ?? ""),
+              { money: formatGyd, date: formatDate },
+            ).map(([label, value]) => (
+              <Row key={label} label={label} value={value} />
+            ))}
           <Row label="Started on" value={formatDate(loan.creation)} />
         </dl>
         <div className="pt-3">

@@ -5,6 +5,7 @@ import { Card } from "../../components/ui/Card";
 import { DataTable } from "../../components/ui/DataTable";
 import type { LoanApplication } from "../../types";
 import { formatDate, formatGyd } from "../../utils";
+import { personalLoanRows } from "../applications/model/personalLoans";
 
 /** The staff Application tab: what the applicant wrote, as cards. Every value
  *  is the applicant's own declaration from `sections` — nothing is derived or
@@ -213,6 +214,11 @@ export function ApplicationTab({ loan }: { loan: LoanApplication }) {
                     text(s, "related_to_gdb_employee"),
                   ],
                 ] as [string, string | null][])),
+            // 2026-10-08: the applicant's own mortgage and auto loan.
+            ...personalLoanRows((k) => text(s, k) ?? "", {
+              money: formatGyd,
+              date: formatDate,
+            }),
             [
               "Loan Officer review",
               Number(s.requires_loan_officer_review ?? 0) === 1

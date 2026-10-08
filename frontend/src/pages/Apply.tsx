@@ -10,6 +10,11 @@ import {
   useIndustries,
 } from "../shared/declarations";
 import { SubmittedScreen } from "../features/applications/SubmittedScreen";
+import {
+  PERSONAL_LOANS,
+  personalLoanProblem,
+  personalLoanSections,
+} from "../features/applications/model/personalLoans";
 import { FocusAlert } from "../shared/FocusAlert";
 import {
   PayoutAccount,
@@ -1012,6 +1017,7 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         employer_name:
           text("employed") === "Yes" ? text("employer_name").trim() : "",
         income_band: text("employed") === "Yes" ? text("income_band") : "",
+        ...personalLoanSections(text),
         legal_structure: structure,
         // Only complete e-IDs travel. A half-typed one is not a partner.
         // Kept in step with the ownership rows, which are now where partners
@@ -1132,6 +1138,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
         if (!text("employer_name").trim()) return "Enter your employer's name.";
         if (!text("income_band")) return "Choose your monthly income.";
       }
+      const loanProblem = personalLoanProblem(text);
+      if (loanProblem) return loanProblem;
     }
     if (step === "business") {
       // Asked first on this step (GDB, 2026-10-05): the industry, then the
@@ -1678,6 +1686,19 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                 ["Monthly income", show(text("income_band"))],
               ] as [string, string][])
             : []),
+          ...PERSONAL_LOANS.flatMap((loan): [string, string][] => [
+            [loan.title, show(text(loan.question))],
+            ...(text(loan.question) === "Yes"
+              ? loan.details.map((d): [string, string] => [
+                  d.label,
+                  d.kind === "money"
+                    ? money(d.key)
+                    : d.kind === "date" && text(d.key)
+                      ? formatDate(text(d.key))
+                      : show(text(d.key)),
+                ])
+              : []),
+          ]),
         ];
       case "business":
         return [
@@ -2472,6 +2493,54 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                           />
                         </div>
                       )}
+                      {PERSONAL_LOANS.map((loan) => (
+                        <div key={loan.question} className="space-y-4">
+                          <YesNo
+                            label={loan.label}
+                            value={text(loan.question)}
+                            onChange={set(loan.question)}
+                          />
+                          {text(loan.question) === "Yes" && (
+                            <div className="grid gap-4 rounded-lg border border-slate-200 bg-white/70 p-3 sm:grid-cols-2">
+                              {loan.details.map((d) =>
+                                d.kind === "money" ? (
+                                  <MoneyField
+                                    key={d.key}
+                                    label={d.label}
+                                    required
+                                    value={val(d.key)}
+                                    onChange={set(d.key)}
+                                  />
+                                ) : (
+                                  <TextField
+                                    key={d.key}
+                                    label={d.label}
+                                    required
+                                    type={d.kind === "date" ? "date" : undefined}
+                                    max={d.kind === "date" ? TODAY : undefined}
+                                    inputMode={
+                                      d.kind === "months" ? "numeric" : undefined
+                                    }
+                                    // The server returns an unanswered term as 0.
+                                    value={
+                                      d.kind === "months" && text(d.key) === "0"
+                                        ? ""
+                                        : text(d.key)
+                                    }
+                                    onChange={(v) =>
+                                      set(d.key)(
+                                        d.kind === "months"
+                                          ? v.replace(/\D/g, "")
+                                          : v,
+                                      )
+                                    }
+                                  />
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </section>
                 </>

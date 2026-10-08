@@ -22,6 +22,7 @@ from gdb_bank.utils.constants import (
 	LOAN_ACCOUNT_FIELDS,
 	LOAN_FIELDS,
 	NEW_ONLY,
+	PERSONAL_LOANS,
 	PORTAL_PRODUCTS,
 	QUICK_ONLY,
 	QUICK_PRODUCT,
@@ -459,6 +460,10 @@ def _validated(
 		if values.get("gdb_industrial_training") != "Yes":
 			values["gdb_institution"] = values["gdb_course_name"] = ""
 			values["gdb_course_completion_date"] = None
+		# A mortgage's and an auto loan's details belong to their Yes.
+		for question, details in PERSONAL_LOANS.items():
+			if values.get(question) != "Yes":
+				values.update(_blanked(details))
 		# The day a business was established is a day that has happened.
 		established = values.get("gdb_date_established")
 		if established and getdate(established) > getdate(nowdate()):
@@ -530,6 +535,20 @@ def _check_industry(values: dict) -> None:
 		frappe.throw(_("Choose your industry from the list."))
 	if sub and frappe.db.get_value("GDB Sub Sector", sub, "sector") != sector:
 		frappe.throw(_("Choose a sub-sector of {0}.").format(sector or _("your industry")))
+
+
+def _require_personal_loans(doc) -> None:
+	"""The SME applicant's mortgage and auto loan: each question answered, and a
+	Yes with all of its details. Asked at submission, like the declarations."""
+	for question, loan, lender in (
+		("gdb_has_mortgage", "a mortgage", "bank name"),
+		("gdb_has_auto_loan", "an auto loan", "institution name"),
+	):
+		answer = doc.get(question)
+		if answer not in ("Yes", "No"):
+			frappe.throw(_("Tell us whether you have {0}.").format(loan))
+		if answer == "Yes" and not all(doc.get(f) for f in PERSONAL_LOANS[question]):
+			frappe.throw(_("Give the {0}, loan amount, start date and term of {1}.").format(lender, loan))
 
 
 def _require_declarations(doc) -> None:
@@ -761,6 +780,7 @@ def submit_application(
 			frappe.throw(_("Give the date your business was established."))
 		_require_sme_details(doc)
 		_require_declarations(doc)
+		_require_personal_loans(doc)
 	if _portal_product(doc.loan_product) == QUICK_PRODUCT:
 		_require_declarations(doc)
 		if not cint(accept_terms):

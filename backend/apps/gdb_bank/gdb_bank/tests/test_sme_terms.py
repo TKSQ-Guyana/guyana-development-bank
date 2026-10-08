@@ -126,6 +126,110 @@ class TestDebtsAndBalanceSheet(TestSmeTerms):
 			self.save(sections={"existing_debts": [{"lender": "Bank", "amount": 1, "status": "Forgotten"}]})
 
 
+MORTGAGE = {
+	"has_mortgage": "Yes",
+	"mortgage_bank": "Republic Bank",
+	"mortgage_amount": 12000000,
+	"mortgage_start_date": "2021-03-01",
+	"mortgage_term_months": 240,
+}
+AUTO_LOAN = {
+	"has_auto_loan": "Yes",
+	"auto_loan_institution": "Demerara Bank",
+	"auto_loan_amount": 3500000,
+	"auto_loan_start_date": "2024-07-15",
+	"auto_loan_term_months": 60,
+}
+
+
+class TestMortgageAndAutoLoan(TestSmeTerms):
+	"""Personal information: whether the applicant has a mortgage or an auto loan, and its details."""
+
+	def ready(self, **sections) -> str:
+		name = self.save(sections={"moratorium_months": 1, "has_existing_debts": "No", **sections})["name"]
+		complete_sme(CITIZEN, name)
+		return name
+
+	def refused(self, message: str, name: str) -> None:
+		with self.set_user(CITIZEN), self.assertRaisesRegex(frappe.ValidationError, message):
+			api.submit_application(name=name)
+
+	def test_the_mortgage_and_auto_loan_are_kept_as_declared(self):
+		saved = self.save(sections={"moratorium_months": 1, **MORTGAGE, **AUTO_LOAN})
+		with self.set_user(CITIZEN):
+			sections = api.loan_detail(name=saved["name"])["sections"]
+		self.assertEqual(sections["has_mortgage"], "Yes")
+		self.assertEqual(sections["mortgage_bank"], "Republic Bank")
+		self.assertEqual(sections["mortgage_amount"], 12000000)
+		self.assertEqual(str(sections["mortgage_start_date"]), "2021-03-01")
+		self.assertEqual(sections["mortgage_term_months"], 240)
+		self.assertEqual(sections["has_auto_loan"], "Yes")
+		self.assertEqual(sections["auto_loan_institution"], "Demerara Bank")
+		self.assertEqual(sections["auto_loan_amount"], 3500000)
+		self.assertEqual(str(sections["auto_loan_start_date"]), "2024-07-15")
+		self.assertEqual(sections["auto_loan_term_months"], 60)
+
+	def test_a_no_clears_the_loans_details(self):
+		self.save(sections={"moratorium_months": 1, **MORTGAGE, **AUTO_LOAN})
+		saved = self.save(
+			sections={**MORTGAGE, **AUTO_LOAN, "has_mortgage": "No", "has_auto_loan": "No"}
+		)
+		for key in (
+			"mortgage_bank",
+			"mortgage_amount",
+			"mortgage_start_date",
+			"mortgage_term_months",
+			"auto_loan_institution",
+			"auto_loan_amount",
+			"auto_loan_start_date",
+			"auto_loan_term_months",
+		):
+			self.assertFalse(saved["sections"][key], key)
+
+	def test_an_applicant_with_a_mortgage_and_an_auto_loan_submits(self):
+		name = self.ready(**MORTGAGE, **AUTO_LOAN)
+		with self.set_user(CITIZEN):
+			self.assertEqual(api.submit_application(name=name)["status"], "Submitted")
+
+	def test_submission_asks_whether_the_applicant_has_a_mortgage(self):
+		name = self.ready()
+		frappe.db.set_value("Loan Application", name, "gdb_has_mortgage", "")
+		self.refused("have a mortgage", name)
+
+	def test_submission_asks_whether_the_applicant_has_an_auto_loan(self):
+		name = self.ready()
+		frappe.db.set_value("Loan Application", name, "gdb_has_auto_loan", "")
+		self.refused("have an auto loan", name)
+
+	def test_a_yes_to_a_mortgage_needs_every_detail(self):
+		for detail in ("mortgage_bank", "mortgage_amount", "mortgage_start_date", "mortgage_term_months"):
+			name = self.ready(**{**MORTGAGE, detail: None})
+			self.refused("mortgage", name)
+
+	def test_a_yes_to_an_auto_loan_needs_every_detail(self):
+		for detail in ("auto_loan_institution", "auto_loan_amount", "auto_loan_start_date", "auto_loan_term_months"):
+			name = self.ready(**{**AUTO_LOAN, detail: None})
+			self.refused("auto loan", name)
+
+	def test_the_desk_shows_the_details_only_under_a_yes(self):
+		meta = frappe.get_meta("Loan Application")
+		for question, details in (
+			("gdb_has_mortgage", ("gdb_mortgage_bank", "gdb_mortgage_amount", "gdb_mortgage_start_date", "gdb_mortgage_term_months")),
+			("gdb_has_auto_loan", ("gdb_auto_loan_institution", "gdb_auto_loan_amount", "gdb_auto_loan_start_date", "gdb_auto_loan_term_months")),
+		):
+			self.assertFalse(meta.get_field(question).depends_on, question)
+			for fieldname in details:
+				self.assertEqual(meta.get_field(fieldname).depends_on, f"eval:doc.{question}=='Yes'", fieldname)
+
+	def test_after_a_no_the_details_are_not_offered_as_gaps(self):
+		name = self.ready()
+		with self.set_user(CITIZEN):
+			api.submit_application(name=name)
+			offered = {gap["key"] for gap in api.application_gaps(name=name)["fields"]}
+		for key in ("mortgage_bank", "mortgage_amount", "auto_loan_institution", "auto_loan_term_months"):
+			self.assertNotIn(key, offered)
+
+
 class TestSmeApplicationRules(TestSmeTerms):
 	"""What a single SME application must carry before it goes to GDB."""
 

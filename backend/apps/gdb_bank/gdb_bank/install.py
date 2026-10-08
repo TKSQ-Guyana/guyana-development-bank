@@ -409,6 +409,19 @@ APPLICATION_SECTIONS = (
 	("gdb_employer_category", "Employer Category (Declared)", "Select", "\n" + "\n".join(EMPLOYER_CATEGORIES)),
 	("gdb_employer_name", "Employer Name (Declared)", "Data"),
 	("gdb_income_band", "Monthly Income (Declared)", "Select", "\n" + "\n".join(INCOME_BANDS)),
+	# 2026-10-08: the applicant's own mortgage and auto loan, asked in Personal
+	# information on the SME form. Each detail belongs to its "Yes"; a "No"
+	# clears them. The term is in months, like the portal's own loan term.
+	("gdb_has_mortgage", "Has a Mortgage (Declared)", "Select", "\nYes\nNo"),
+	("gdb_mortgage_bank", "Mortgage Bank Name (Declared)", "Data"),
+	("gdb_mortgage_amount", "Mortgage Loan Amount (Declared)", "Currency"),
+	("gdb_mortgage_start_date", "Mortgage Loan Start Date (Declared)", "Date"),
+	("gdb_mortgage_term_months", "Mortgage Term in Months (Declared)", "Int"),
+	("gdb_has_auto_loan", "Has an Auto Loan (Declared)", "Select", "\nYes\nNo"),
+	("gdb_auto_loan_institution", "Auto Loan Institution Name (Declared)", "Data"),
+	("gdb_auto_loan_amount", "Auto Loan Amount (Declared)", "Currency"),
+	("gdb_auto_loan_start_date", "Auto Loan Start Date (Declared)", "Date"),
+	("gdb_auto_loan_term_months", "Auto Loan Term in Months (Declared)", "Int"),
 	# "I don't have a bank account": the applicant is sent to the Help Desk and
 	# the facilitated banks (Bank.gdb_facilitated) rather than stopped.
 	("gdb_no_bank_account", "Has No Bank Account (Declared, Quick Loan)", "Check"),
@@ -417,6 +430,28 @@ APPLICATION_SECTIONS = (
 	("gdb_youth_entrepreneur", "Youth Entrepreneur (Declared)", "Check"),
 	("gdb_woman_entrepreneur", "Woman Entrepreneur (Declared)", "Check"),
 )
+
+
+# The applicant's own mortgage and auto loan (SME, Personal information): each
+# Yes/No question and the details that belong to its Yes.
+PERSONAL_LOANS = {
+	"gdb_has_mortgage": (
+		"gdb_mortgage_bank",
+		"gdb_mortgage_amount",
+		"gdb_mortgage_start_date",
+		"gdb_mortgage_term_months",
+	),
+	"gdb_has_auto_loan": (
+		"gdb_auto_loan_institution",
+		"gdb_auto_loan_amount",
+		"gdb_auto_loan_start_date",
+		"gdb_auto_loan_term_months",
+	),
+}
+# On the desk form, a detail shows only under its question's Yes.
+_SHOWN_UNDER_YES = {
+	detail: f"eval:doc.{question}=='Yes'" for question, details in PERSONAL_LOANS.items() for detail in details
+}
 
 
 def _section_custom_fields() -> list:
@@ -433,6 +468,8 @@ def _section_custom_fields() -> list:
 		}
 		if len(row) > 3:
 			field["options"] = row[3]
+		if fieldname in _SHOWN_UNDER_YES:
+			field["depends_on"] = _SHOWN_UNDER_YES[fieldname]
 		fields.append(field)
 		previous = fieldname
 	return fields

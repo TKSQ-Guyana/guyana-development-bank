@@ -19,6 +19,8 @@ SME_ANSWERS = {
 	"gdb_registration_date": "2024-01-15",
 	"gdb_has_eid": "Yes",
 	"gdb_employed": "No",
+	"gdb_has_mortgage": "No",
+	"gdb_has_auto_loan": "No",
 	"gdb_sector": "Manufacturing",
 	"gdb_sub_sector": "",
 }
