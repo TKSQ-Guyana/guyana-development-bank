@@ -155,6 +155,21 @@ export function LoanDetail() {
       .then(setChecklist)
       .catch(() => setChecklist(null));
   }, [user?.is_underwriter, name, accountKey]);
+  // The soft flag: answers the applicant left blank (application_edit
+  // .information_gaps). Advisory — it gates nothing; the underwriter asks for
+  // what matters through Request info. null until the server answers.
+  const [blankAnswers, setBlankAnswers] = useState<
+    { key: string; label: string }[] | null
+  >(null);
+  useEffect(() => {
+    if (!name || !staffReader) return;
+    call<{ fields: { key: string; label: string }[] }>(
+      "gdb_bank.api.case_information_gaps",
+      { application: name },
+    )
+      .then((g) => setBlankAnswers(g.fields))
+      .catch(() => setBlankAnswers(null));
+  }, [name, staffReader, accountKey, loan?.modified]);
 
   if (!loan) return <p className="text-slate-500">Loading…</p>;
 
@@ -348,6 +363,14 @@ export function LoanDetail() {
               <span className="rounded-full bg-white/95 px-1 py-0.5">
                 <StageBadge stage={loan.stage} />
               </span>
+              {blankAnswers && blankAnswers.length > 0 && (
+                <span
+                  className="rounded-full bg-amber-400 px-2.5 py-0.5 text-[11px] font-bold text-emerald-950"
+                  title="Answers left blank at submission — see Missing information"
+                >
+                  ⚑ Missing information
+                </span>
+              )}
             </div>
             <h1 className="mt-2 truncate text-2xl font-black tracking-tight">
               {loan.applicant_name}
@@ -618,6 +641,52 @@ export function LoanDetail() {
               </p>
             ) : null}
           </RailCard>
+
+          {loan.status !== "Draft" && (
+            <RailCard
+              title="Missing information"
+              aside={
+                blankAnswers === null ? (
+                  <span className="text-xs text-slate-400">Checking…</span>
+                ) : (
+                  <Badge tone={blankAnswers.length ? "warning" : "success"}>
+                    {blankAnswers.length
+                      ? `${blankAnswers.length} blank`
+                      : "All answered"}
+                  </Badge>
+                )
+              }
+            >
+              {blankAnswers && blankAnswers.length > 0 ? (
+                <>
+                  <p className="mb-2 text-xs text-slate-500">
+                    Soft flag — left blank by the applicant. Does not block a
+                    decision; ask for what matters.
+                  </p>
+                  <ul className="space-y-1.5">
+                    {blankAnswers.map((g) => (
+                      <li
+                        key={g.key}
+                        className="flex items-center gap-2 text-sm text-slate-700"
+                      >
+                        <span className="grid h-5 w-5 flex-none place-items-center rounded-full bg-amber-100 text-[10px] font-black text-amber-700">
+                          !
+                        </span>
+                        {g.label}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : blankAnswers ? (
+                <p className="flex items-center gap-2 text-sm text-emerald-800">
+                  <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-100 text-[11px]">
+                    ✓
+                  </span>
+                  Every question was answered
+                </p>
+              ) : null}
+            </RailCard>
+          )}
 
           {fieldTasks.length > 0 && (
             <RailCard

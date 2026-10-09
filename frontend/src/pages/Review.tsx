@@ -494,10 +494,26 @@ export function Review() {
                 );
               },
             },
+            {
+              // The soft flag: answers left blank at submission. Advisory —
+              // the case can still be decided; the underwriter asks for them.
+              key: "info",
+              header: "Information",
+              cell: (loan) => {
+                if (loan.answers_missing === undefined)
+                  return <span className="text-slate-400">—</span>;
+                const n = loan.answers_missing;
+                return (
+                  <Badge tone={n ? "warning" : "success"}>
+                    {n ? `⚑ ${n} blank` : "Complete"}
+                  </Badge>
+                );
+              },
+            },
           ]}
           rows={rows}
           rowKey={(loan) => loan.name}
-          minWidth="58rem"
+          minWidth="64rem"
           footnote={false}
           empty={active.length ? "No cases match these filters." : "No cases here."}
         />

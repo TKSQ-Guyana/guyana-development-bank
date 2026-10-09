@@ -271,6 +271,25 @@ def application_gaps(user: str, name: str) -> dict:
 	return {"name": name, "fields": _gaps(doc), "documents": _checklist(doc)}
 
 
+def information_gaps(name: str) -> dict:
+	"""The soft flag staff see: the answers a submitted application left blank.
+
+	The same gaps the applicant is offered (_gaps), read for the Bank. It never
+	gates a decision or a payment — it tells the underwriter what to ask for
+	(request_information). Documents are the Evidence card's (missing_evidence),
+	not repeated here. A draft is not before the Bank, so it has no gaps yet.
+	"""
+	doc = frappe.get_doc("Loan Application", name)
+	if cint(doc.docstatus) != 1:
+		return {"name": name, "fields": []}
+	return {"name": name, "fields": [{"key": g["key"], "label": g["label"]} for g in _gaps(doc)]}
+
+
+def gap_counts(names: list[str]) -> dict:
+	"""{application: number of answers left blank} — one review-queue page."""
+	return {n: len(information_gaps(n)["fields"]) for n in names}
+
+
 def _coerced(gap: dict, raw):
 	"""The answer in its field's type, or a clear refusal. None when left empty."""
 	fieldtype, label = gap["fieldtype"], gap["label"]

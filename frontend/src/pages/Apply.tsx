@@ -10,6 +10,7 @@ import {
   useIndustries,
 } from "../shared/declarations";
 import { SubmittedScreen } from "../features/applications/SubmittedScreen";
+import { EligibilityDisclaimer } from "../components/apply/EligibilityDisclaimer";
 import { FocusAlert } from "../shared/FocusAlert";
 import {
   PayoutAccount,
@@ -3333,6 +3334,8 @@ export function Apply({ assist }: { assist?: AssistMode } = {}) {
                       />
                     </div>
                   )}
+
+                  <EligibilityDisclaimer />
 
                   {!assist && (
                     <section

@@ -218,12 +218,18 @@ def all_loans(
 	eids = _eids([r.gdb_owner for r in rows])
 	ctx = _stage_context(names)
 	missing = missing_by_application(rows)
+	# The soft flag: answers left blank. Counted for this page only — each is a
+	# full read of the case, so never for the whole queue.
+	from gdb_bank.services.application_edit import gap_counts
+
+	answers_missing = gap_counts(names)
 	drawable = _drawable(ctx)
 	return {
 		"rows": [
 			dict(
 				_portal_dict(r, eids, ctx),
 				evidence_missing=missing.get(r.name, []),
+				answers_missing=answers_missing.get(r.name, 0),
 				drawable=drawable.get(r.name),
 			)
 			for r in rows

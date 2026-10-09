@@ -34,6 +34,7 @@ import {
 import { FieldOfficerRequest } from "./FieldOfficerRequest";
 import { SubmittedScreen } from "../applications/SubmittedScreen";
 import { CONSENT_TEXT } from "../../shared/consent";
+import { EligibilityDisclaimer } from "../../components/apply/EligibilityDisclaimer";
 import type {
   BankAccountRecord,
   CitizenProfile,
@@ -953,6 +954,7 @@ export function QuickApplyPage() {
               ),
             )}
           </div>
+          <EligibilityDisclaimer />
           <section
             aria-label="Declarations"
             className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4"

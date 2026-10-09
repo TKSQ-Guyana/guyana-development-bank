@@ -199,6 +199,16 @@ def application_gaps(name: str):
 
 
 @frappe.whitelist()
+def case_information_gaps(application: str):
+	"""The soft flag on a case: the answers its applicant left blank. Staff only;
+	advisory — it gates nothing."""
+	from gdb_bank.services import application_edit
+
+	_require_staff()
+	return application_edit.information_gaps(application)
+
+
+@frappe.whitelist()
 def complete_application(name: str, sections=None):
 	"""Fill ONLY answers left blank on a submitted application still in review.
 	An answer already given is refused, never overwritten."""

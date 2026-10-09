@@ -141,6 +141,9 @@ export interface LoanApplication {
    *  server-side (see api._evidence_missing_map) — present only from
    *  all_loans; the case page reads the live shelf via DocumentShelf instead. */
   evidence_missing?: string[];
+  /** Answers left blank at submission — the soft "missing information" flag
+   *  (application_edit.gap_counts). Present only from all_loans. */
+  answers_missing?: number;
   cluster: string | null;
   underwriter_remarks: string | null;
   reviewed_by: string | null;

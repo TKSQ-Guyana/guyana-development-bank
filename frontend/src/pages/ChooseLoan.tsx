@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { call } from "../api";
+import { EligibilityDisclaimer } from "../components/apply/EligibilityDisclaimer";
 import { Banner } from "../components/portal/ui";
 import {
   ArrowRightIcon,
@@ -221,6 +222,8 @@ export function ChooseLoan() {
           />
         ))}
       </div>
+
+      <EligibilityDisclaimer className="mt-4" />
 
       <ActionBar
         chosen={chosen?.name ?? null}

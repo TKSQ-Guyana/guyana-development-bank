@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { call } from "../api";
 import { REGIONS } from "../components/apply/cluster";
 import { isGuyanaPhone, PhoneInput } from "../components/PhoneInput";
+import { SME_FAQ } from "../shared/faq";
 import {
   coatOfArms,
   stockBarber,
@@ -118,6 +119,7 @@ const FAQS = [
     q: "Do I have to repay the loan?",
     a: "Yes. This is a loan, not a grant. Repaying on time builds your credit history and can help you qualify for larger financing later.",
   },
+  SME_FAQ,
   {
     q: "Which loan should I choose?",
     a: "If you need up to G$300,000 for a small business, choose the Quick Loan — it is shorter and faster. For larger amounts up to G$3,000,000, choose the SME Loan.",
